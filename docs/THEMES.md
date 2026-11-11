@@ -89,6 +89,10 @@ Midnight Glass.ateliertheme/        a folder; Finder shows it as one file once A
   https, refuses local and private addresses, validates the theme, and installs it without
   applying it. Zips are expanded with `ditto`, which refuses paths that escape the folder.
 
+To share with everyone, submit the theme to Atelier Mods
+([kaizensx/atelier-mods](https://github.com/kaizensx/atelier-mods)): it appears in the **Mods**
+chapter, signed and checked, and people get your updates there.
+
 Installed themes live in `~/Library/Application Support/Atelier/Themes/<id>.ateliertheme`.
 Installing a theme with an id that is already installed replaces it; the old copy goes to the
 Trash. Removing a theme moves it to the Trash.

@@ -88,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         WidgetBoard.shared.restoreClassicDesktopLooks()
         ThemeEngine.shared.start()
         PluginRegistry.shared.start()
+        ModStore.shared.start()
         KeyRemapper.shared.start()
         DailyWallpaper.shared.start()
         installStatusItem()
@@ -301,6 +302,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if url.host() == "notchfree" { NotchFree.shared.handleTest(items ?? []); return }
         if url.host() == "virtual" { VirtualDisplays.shared.handleTest(items ?? []); return }
         if url.host() == "update" { Updater.shared.handleTest(items ?? []); return }
+        if url.host() == "mods" { ModStore.shared.handleTest(items ?? []); ManagerWindow.shared.show(chapter: "mods"); return }
         if url.host() == "displaymemory" { DisplayMemory.shared.handleTest(items ?? []); return }
         if url.host() == "ddc" { ExternalMonitors.shared.handleTest(items ?? []); return }
         if url.host() == "fans" { FanControl.shared.handleTest(items ?? []); return }

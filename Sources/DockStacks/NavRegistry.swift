@@ -109,6 +109,10 @@ enum NavRegistry {
         NavItem(.themes, "Themes & Plugins", symbol: "paintpalette", in: .mac, keywords: ["theme", "plugin", "import", "export", "json"]) {
             ThemesChapter(model: $0)
         },
+        NavItem(Chapter("mods"), "Mods", symbol: "shippingbox", in: .mac,
+                keywords: ["catalog", "marketplace", "community", "gallery", "browse", "download", "install", "plugins", "themes", "updates", "windhawk", "native"]) {
+            ModsChapter(model: $0)
+        },
         // Desktop
         NavItem(.wallpaper, "Wallpaper", symbol: "photo", in: .desktop, keywords: ["background", "picture", "living", "generated", "library"]) { model in
             // The hero (generated, painted by the GPU) first; real photographs after it.

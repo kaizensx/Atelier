@@ -1,0 +1,380 @@
+import AppKit
+import DockCore
+import SwiftUI
+
+/// Mods: the community catalog of plugins and themes, and in its own tier native mods.
+/// Browse, Installed, Updates; a mod's page opens in place.
+struct ModsChapter: View {
+    @ObservedObject var model: ManagerModel
+    @ObservedObject private var store = ModStore.shared
+    @ObservedObject private var registry = PluginRegistry.shared
+    @ObservedObject private var themes = ThemeEngine.shared
+    @ObservedObject private var bridge = DockBridge.shared
+    @State private var tab: ModsTab = .browse
+    @State private var selected: String?
+    @State private var nativeAsk: ModEntry?
+
+    var body: some View {
+        if let id = selected, let entry = store.index?.mod(id) {
+            ModPage(entry: entry, back: { withAnimation(DS.Motion.reveal) { selected = nil } }, install: install)
+            sheets
+        } else {
+            ModsTabsView(tab: $tab, open: { id in withAnimation(DS.Motion.reveal) { selected = id } }, install: install)
+            sheets
+        }
+    }
+
+    private var sheets: some View {
+        Color.clear.frame(height: 0)
+            .sheet(item: $store.pendingPermission) { plugin in
+                PluginPermissionsSheet(plugin: plugin) { granted in
+                    if let granted { PluginRegistry.shared.enable(plugin, granting: granted) }
+                    store.reviewed(plugin.id)
+                    store.pendingPermission = nil
+                }
+            }
+            .sheet(item: $nativeAsk) { entry in
+                NativeModWarningSheet(entry: entry) { go in
+                    nativeAsk = nil
+                    if go { Task { await store.install(entry) } }
+                }
+            }
+            .onAppear {
+                store.refreshIfStale()
+                registry.reload()
+                themes.reload()
+            }
+    }
+
+    private func install(_ entry: ModEntry) {
+        if entry.kind == .native { nativeAsk = entry } else { Task { await store.install(entry) } }
+    }
+}
+
+enum ModsTab: Hashable { case browse, installed, updates }
+
+/// The three tabs, with the catalog's status line above them.
+struct ModsTabsView: View {
+    @Binding var tab: ModsTab
+    let open: (String) -> Void
+    let install: (ModEntry) -> Void
+    @ObservedObject private var store = ModStore.shared
+
+    var body: some View {
+        Text("Plugins and themes made by the community, checked and signed before they reach your Mac. Plugins still ask for each permission.")
+            .font(DS.body).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, DS.Space.xs)
+
+        ModsStatusLine()
+
+        let count = store.updates.count
+        Segments(selection: $tab, options: [(.browse, "Browse"), (.installed, "Installed"),
+                                            (.updates, count > 0 ? "Updates (\(count))" : "Updates")])
+
+        if let notice = store.notice {
+            Label(notice, systemImage: "checkmark.circle.fill").font(DS.caption).foregroundStyle(ModsHue.tint)
+                .padding(.horizontal, DS.Space.xs)
+        }
+
+        switch tab {
+        case .browse: ModsBrowse(open: open)
+        case .installed: ModsInstalled(open: open)
+        case .updates: ModsUpdates(open: open)
+        }
+    }
+}
+
+/// Where the catalog stands: verified and fresh, loading, offline on a cached copy, or failed.
+struct ModsStatusLine: View {
+    @ObservedObject private var store = ModStore.shared
+
+    var body: some View {
+        HStack(spacing: DS.Space.s) {
+            switch store.phase {
+            case .loading:
+                ProgressView().controlSize(.small)
+                Text("Checking the catalog…").font(DS.caption).foregroundStyle(DS.Ink.secondary)
+            case .offline(let why):
+                Image(systemName: "wifi.slash").foregroundStyle(.orange)
+                Text("Offline. Showing the catalog from \(age). \(why)").font(DS.caption).foregroundStyle(DS.Ink.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            case .failed(let why):
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                Text(why).font(DS.caption).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
+            case .loaded, .idle:
+                if store.index != nil {
+                    Image(systemName: "checkmark.seal.fill").foregroundStyle(DS.Spectrum.input)
+                    Text("Catalog verified · \(store.index?.mods.count ?? 0) mods · updated \(age)").font(DS.caption).foregroundStyle(DS.Ink.secondary)
+                } else {
+                    Text("The catalog has not been loaded yet.").font(DS.caption).foregroundStyle(DS.Ink.secondary)
+                }
+            }
+            Spacer(minLength: DS.Space.s)
+            Button("Check Now") { store.refresh() }.buttonStyle(ModPill(prominent: false))
+                .disabled(store.phase == .loading)
+        }
+        .padding(.horizontal, DS.Space.xs)
+    }
+
+    private var age: String {
+        guard let date = store.index?.generated else { return "earlier" }
+        return date.formatted(.relative(presentation: .named))
+    }
+}
+
+/// The gallery: Featured, New and everything, or the results of a search.
+struct ModsBrowse: View {
+    let open: (String) -> Void
+    @ObservedObject private var store = ModStore.shared
+    @ObservedObject private var bridge = DockBridge.shared
+    @State private var query = ""
+    @State private var kind: ModKind? = nil
+
+    var body: some View {
+        if let index = store.index {
+            controls
+            let native = bridge.status.isReady
+            let shown = ModQuery.filter(index.mods, kind: kind, text: query, includeNative: native)
+            if query.isEmpty, kind == nil {
+                let featured = index.featuredMods.filter { $0.kind != .native || native }
+                if !featured.isEmpty {
+                    SectionHeader("Featured", symbol: "star", hue: ModsHue.tint)
+                    grid(featured, featured: true)
+                }
+                // New only earns its place once the catalog is bigger than a screenful.
+                let fresh = shown.count > 8 ? ModQuery.newest(shown.filter { !index.featured.contains($0.id) }, count: 4) : []
+                if !fresh.isEmpty {
+                    SectionHeader("New", symbol: "sparkle", hue: ModsHue.tint)
+                    grid(fresh)
+                }
+                SectionHeader("All mods", symbol: "square.grid.2x2", detail: "\(shown.count) in the catalog.", hue: ModsHue.tint)
+                grid(shown)
+            } else if shown.isEmpty {
+                ThemesEmptyShelf(symbol: "magnifyingglass", text: "Nothing matches. Try another word, or another kind.")
+            } else {
+                SectionHeader(kind == .native ? "Native mods" : "Results", symbol: kind?.symbol ?? "magnifyingglass",
+                              detail: "\(shown.count) found.", hue: ModsHue.tint)
+                if kind == .native { NativeBanner() }
+                grid(shown)
+            }
+            submit
+        } else if case .loading = store.phase {
+            ModsPlaceholder(symbol: "arrow.down.circle", title: "Loading the catalog",
+                            text: "Atelier downloads the catalog from GitHub and checks its signature.")
+        } else {
+            ModsPlaceholder(symbol: "wifi.exclamationmark", title: "The catalog is not available",
+                            text: failure + " Atelier shows the catalog again as soon as it can reach it.") {
+                Button("Try Again") { store.refresh() }.buttonStyle(ModPill())
+            }
+            submit
+        }
+    }
+
+    private var failure: String {
+        if case .failed(let why) = store.phase { return why }
+        return "It has not been downloaded yet."
+    }
+
+    private var controls: some View {
+        VStack(alignment: .leading, spacing: DS.Space.s) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundStyle(DS.Ink.tertiary)
+                TextField("Search mods", text: $query).textFieldStyle(.plain).font(.system(size: 12.5))
+                if !query.isEmpty {
+                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(DS.Ink.tertiary) }
+                        .buttonStyle(Pressable()).accessibilityLabel("Clear search")
+                }
+            }
+            .padding(.horizontal, 10).frame(height: 32)
+            .background(DS.Ink.fill, in: .rect(cornerRadius: DS.Radius.control, style: .continuous))
+            Segments(selection: $kind, options: kinds)
+        }
+        .padding(.top, DS.Space.s)
+    }
+
+    private var kinds: [(ModKind?, String)] {
+        var list: [(ModKind?, String)] = [(nil, "All"), (.plugin, "Plugins"), (.theme, "Themes")]
+        if bridge.status.isReady { list.append((.native, "Native")) }
+        return list
+    }
+
+    private func grid(_ mods: [ModEntry], featured: Bool = false) -> some View {
+        LazyVGrid(columns: ModCard.columns, spacing: DS.Space.m) {
+            ForEach(mods) { entry in ModCard(entry: entry, featured: featured) { open(entry.id) } }
+        }
+    }
+
+    private var submit: some View {
+        RowGroup {
+            Button { NSWorkspace.shared.open(ModsConfig.submitPage) } label: {
+                SettingRow(title: "Share your own", detail: "Open a pull request on github.com/kaizensx/atelier-mods. Every mod is checked by the catalog’s workflow and a person.",
+                           symbol: "square.and.arrow.up", density: .compact) {
+                    Image(systemName: "arrow.up.right").foregroundStyle(DS.Ink.tertiary)
+                }
+            }
+            .buttonStyle(Pressable(scale: 0.99))
+        }
+        .padding(.top, DS.Space.m)
+    }
+}
+
+/// Everything installed, from the catalog or not.
+struct ModsInstalled: View {
+    let open: (String) -> Void
+    @ObservedObject private var store = ModStore.shared
+    @ObservedObject private var registry = PluginRegistry.shared
+    @ObservedObject private var themes = ThemeEngine.shared
+
+    var body: some View {
+        let mine = store.installed.sorted { name($0).localizedCaseInsensitiveCompare(name($1)) == .orderedAscending }
+        if mine.isEmpty {
+            ThemesEmptyShelf(symbol: "shippingbox", text: "Nothing installed yet. Find plugins and themes in Browse.")
+        } else {
+            SectionHeader("Installed", symbol: "shippingbox", detail: "\(mine.count) on this Mac.", hue: ModsHue.tint)
+            RowGroup {
+                ForEach(mine, id: \.id) { mod in row(mod) }
+            }
+        }
+    }
+
+    private func name(_ mod: InstalledModInfo) -> String {
+        switch mod.kind {
+        case .plugin: registry.installed.first { $0.id == mod.id }?.manifest.name ?? mod.id
+        case .theme: themes.installed.first { $0.id == mod.id }?.document.name ?? mod.id
+        case .native: store.index?.mod(mod.id)?.name ?? mod.id
+        }
+    }
+
+    private func row(_ mod: InstalledModInfo) -> some View {
+        let entry = store.index?.mod(mod.id)
+        let newer = entry.map { ModVersions.isNewer($0.version, than: mod.version) } ?? false
+        let source = entry != nil ? (store.fromCatalog[mod.id] != nil ? "From the catalog" : "In the catalog") : "Added by you"
+        let on = mod.kind == .plugin && registry.enabled.contains(mod.id)
+        return SettingRow(title: name(mod), detail: "\(mod.kind.title) · \(mod.version) · \(source)" + (on ? " · On" : ""),
+                          symbol: mod.kind.symbol, density: .compact) {
+            HStack(spacing: DS.Space.s) {
+                if newer, let entry {
+                    Button("Update to \(entry.version)") { Task { await store.install(entry) } }.buttonStyle(ModPill())
+                }
+                if entry != nil {
+                    Button("Details") { open(mod.id) }.buttonStyle(ModPill(prominent: false))
+                }
+                if store.work[mod.id] != nil { ProgressView().controlSize(.small) }
+                ModHoldPill { store.remove(mod.id) }
+            }
+        }
+    }
+}
+
+/// Updates: what is newer in the catalog, what each one would newly ask for, and Update All.
+struct ModsUpdates: View {
+    let open: (String) -> Void
+    @ObservedObject private var store = ModStore.shared
+    @ObservedObject private var registry = PluginRegistry.shared
+    @ObservedObject private var themes = ThemeEngine.shared
+
+    var body: some View {
+        let updates = store.updates
+        RowGroup {
+            SettingRow(title: "Check every day", detail: lastChecked, symbol: "arrow.triangle.2.circlepath", density: .compact) {
+                LuxSwitch(isOn: $store.autoCheck, label: "Check for mod updates every day")
+            }
+        }
+        .padding(.top, DS.Space.s)
+        if !store.needsReview.isEmpty {
+            ForEach(store.needsReview, id: \.self) { id in
+                if let plugin = registry.installed.first(where: { $0.id == id }) {
+                    HStack(spacing: DS.Space.s) {
+                        Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
+                        Text("\(plugin.manifest.name) was updated and asks for new permissions. It is off until you allow them.")
+                            .font(DS.caption).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: DS.Space.s)
+                        Button("Review") { store.pendingPermission = plugin }.buttonStyle(ModPill())
+                    }
+                    .padding(.horizontal, DS.Space.xs)
+                }
+            }
+        }
+        if updates.isEmpty {
+            ThemesEmptyShelf(symbol: "checkmark.circle", text: store.index == nil
+                             ? "Updates show here once the catalog has been checked."
+                             : "Everything is up to date.")
+        } else {
+            HStack {
+                SectionHeader("\(updates.count) update\(updates.count == 1 ? "" : "s")", symbol: "arrow.down.circle", hue: ModsHue.tint)
+                Button("Update All") { Task { await store.updateAll() } }.buttonStyle(ModPill())
+                    .padding(.top, DS.Space.xl)
+                    .disabled(!store.work.isEmpty)
+            }
+            RowGroup {
+                ForEach(updates) { update in row(update) }
+            }
+        }
+    }
+
+    private var lastChecked: String {
+        guard let last = store.lastCheck else { return "Not checked yet." }
+        return "Last checked " + last.formatted(.relative(presentation: .named)) + "."
+    }
+
+    private func row(_ update: ModUpdate) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            SettingRow(title: update.entry.name, detail: "\(update.from) → \(update.to)" + (update.entry.versions.first?.notes.map { " · " + $0 } ?? ""),
+                       symbol: update.entry.kind.symbol, density: .compact) {
+                HStack(spacing: DS.Space.s) {
+                    if store.work[update.id] != nil { ProgressView().controlSize(.small) }
+                    Button("Details") { open(update.id) }.buttonStyle(ModPill(prominent: false))
+                    if update.compatible {
+                        Button("Update") { Task { await store.install(update.entry) } }.buttonStyle(ModPill())
+                    } else {
+                        ModChip(text: "Needs Atelier \(update.entry.minAtelier ?? "")", hue: .orange, strong: true)
+                    }
+                }
+            }
+            if update.diff.needsConsent {
+                WrapStack(spacing: 5, lineSpacing: 5) {
+                    Text("Newly asks for").font(DS.caption).foregroundStyle(.orange)
+                    ForEach(update.diff.added, id: \.self) { p in
+                        ModChip(text: PluginPermission(rawValue: p)?.title ?? p, symbol: PluginPermission(rawValue: p)?.symbol, hue: .orange)
+                    }
+                    ForEach(update.diff.addedHosts, id: \.self) { host in ModChip(text: host, symbol: "network", hue: .orange) }
+                }
+                .padding(.leading, 28)
+            }
+            if let failure = store.failures[update.id] {
+                Text(failure).font(DS.caption).foregroundStyle(.orange).padding(.leading, 28).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+/// An empty, loading or error state with room for one action.
+struct ModsPlaceholder<Action: View>: View {
+    let symbol: String
+    let title: String
+    let text: String
+    var action: Action
+
+    init(symbol: String, title: String, text: String, @ViewBuilder action: () -> Action = { EmptyView() }) {
+        self.symbol = symbol; self.title = title; self.text = text; self.action = action()
+    }
+
+    var body: some View {
+        VStack(spacing: DS.Space.m) {
+            Image(systemName: symbol).font(.system(size: 26, weight: .medium)).foregroundStyle(ModsHue.tint)
+                .frame(width: 56, height: 56).background(ModsHue.tint.opacity(0.12), in: .circle)
+            Text(title).font(DS.title).foregroundStyle(DS.Ink.primary)
+            Text(text).font(DS.body).foregroundStyle(DS.Ink.secondary).multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true).frame(maxWidth: 420)
+            action
+        }
+        .padding(DS.Space.xxl)
+        .frame(maxWidth: .infinity)
+        .background {
+            RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                .strokeBorder(DS.Ink.edge, style: StrokeStyle(lineWidth: 0.75, dash: [5, 4]))
+        }
+        .padding(.top, DS.Space.m)
+    }
+}

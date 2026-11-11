@@ -301,3 +301,13 @@ Atelier quits.
   cheap.
 * Atelier's own tests run each example through the real prelude with a recording bridge (see
   `Tests/DockCoreTests/PluginBridgeTests.swift`). You can copy that harness to test yours.
+
+## Sharing in Atelier Mods
+
+The **Mods** chapter is a catalog of community plugins and themes, kept in
+[kaizensx/atelier-mods](https://github.com/kaizensx/atelier-mods). Open a pull request there with
+your plugin folder, a `mod.json` and a screenshot; its CONTRIBUTING.md has the details. The
+catalog checks that the permissions in your manifest are the ones your script uses, publishes a
+signed index, and Atelier verifies every download against it. A plugin from the catalog still
+asks for each permission when it is switched on, and an update that asks for more stays off
+until the owner allows it.
