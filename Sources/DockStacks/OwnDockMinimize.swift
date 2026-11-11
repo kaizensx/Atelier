@@ -54,6 +54,7 @@ final class MinimizeRedirect {
     }
 
     private func start() {
+        ClickThroughWindows.start()
         MinimizeTap.shared.start()
         tapOn = true
     }
@@ -503,9 +504,14 @@ final class MinimizeTap: @unchecked Sendable {
                   let bounds = window[kCGWindowBounds as String] as? [String: Any],
                   let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary),
                   rect.contains(point) else { continue }
-            // Atelier's own panels (dock, widgets, overlays) sit above layer 0 and count as its.
+            let number = (window[kCGWindowNumber as String] as? NSNumber)?.uint32Value ?? 0
+            let ownWindow = (window[kCGWindowOwnerPID as String] as? pid_t) == ProcessInfo.processInfo.processIdentifier
+            // Atelier's click-through overlays (XDR Boost, effects, tints) cover the whole screen
+            // but never take a click: they are not what is under the pointer.
+            if ownWindow, ClickThroughWindows.contains(number) { continue }
+            // Atelier's own panels (dock, widgets) sit above layer 0 and count as its.
             if layer != 0 {
-                if (window[kCGWindowOwnerPID as String] as? pid_t) == ProcessInfo.processInfo.processIdentifier { return ProcessInfo.processInfo.processIdentifier }
+                if ownWindow { return ProcessInfo.processInfo.processIdentifier }
                 continue
             }
             return window[kCGWindowOwnerPID as String] as? pid_t
@@ -562,5 +568,35 @@ final class BandCover {
 
     func hide(after delay: Double) {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [panel] in panel.orderOut(nil) }
+    }
+}
+
+
+/// Atelier's windows that ignore the mouse, by window number, readable from any thread: the
+/// event taps run off the main thread and must not treat a full-screen overlay as the window
+/// a click landed on.
+enum ClickThroughWindows {
+    nonisolated(unsafe) private static var ids: Set<UInt32> = []
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var timer: Timer?
+
+    static func contains(_ id: UInt32) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return ids.contains(id)
+    }
+
+    /// Refreshes the set now and twice a second from then on (overlays come and go).
+    @MainActor static func start() {
+        refresh()
+        guard timer == nil else { return }
+        let t = Timer(timeInterval: 0.5, repeats: true) { _ in MainActor.assumeIsolated { refresh() } }
+        t.tolerance = 0.2
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    @MainActor static func refresh() {
+        let now = Set(NSApp.windows.filter { $0.isVisible && $0.ignoresMouseEvents }.map { UInt32($0.windowNumber) })
+        lock.lock(); ids = now; lock.unlock()
     }
 }

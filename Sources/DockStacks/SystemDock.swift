@@ -7,6 +7,9 @@ import Foundation
 //     autohide                 true     it hides
 //     autohide-delay           1000     and waits 1000 s at the edge before it comes back
 //     autohide-time-modifier   0        and does not slide while it hides
+//     no-bouncing              true     an app asking for attention does not pop its icon
+//                                       up from the hidden Dock (it peeked over the edge)
+//     launchanim               false    nor does an app that is opening
 //
 // Nothing else is touched: no code injection, no SIP, and never `static-only`. Every value
 // is saved before the first write, present or absent, and put back exactly afterwards.
@@ -84,6 +87,10 @@ enum SystemDockPlan {
         ("autohide", .bool(true)),
         ("autohide-delay", .double(1000)),
         ("autohide-time-modifier", .double(0)),
+        // A hidden Dock still pops a bouncing icon up over the screen's edge, beside the
+        // Atelier Dock: that read as "every app bounces". The Atelier Dock bounces its own tiles.
+        ("no-bouncing", .bool(true)),
+        ("launchanim", .bool(false)),
     ]
 
     static var keys: [String] { targets.map(\.key) }
@@ -303,7 +310,14 @@ final class SystemDockReplacer {
     func engage() throws {
         _ = preferences.synchronize()
         let backup: SystemDockBackup
-        if let pending = backups.load() {
+        if var pending = backups.load() {
+            // A backup from a build that hid the Dock with fewer keys: the keys it lacks still
+            // hold the user's own values, so they are saved now, before the first write to them.
+            let missing = SystemDockPlan.keys.filter { key in !pending.entries.contains { $0.key == key } }
+            if !missing.isEmpty {
+                pending.entries += missing.map { SystemDockBackup.Entry(key: $0, value: preferences.value(for: $0)) }
+                backups.save(pending)
+            }
             backup = pending
         } else {
             backup = SystemDockPlan.backup(preferences.value(for:))
