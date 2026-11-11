@@ -1,0 +1,44 @@
+name: Website
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", "docs/**", "CHANGELOG.md", "COMPATIBILITY.md", "SECURITY.md", "VERSION", ".github/workflows/pages.yml"]
+  release:
+    types: [published, edited, deleted]
+  schedule:
+    - cron: "17 */6 * * *"   # refresh stars, issues and the Mods catalog every six hours
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # Repo stats, releases, issues, contributors and the Mods index into site/data/*.json,
+      # so visitors never hit the API's rate limit. Every source is optional.
+      - name: Build site data
+        run: node site/scripts/build-data.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

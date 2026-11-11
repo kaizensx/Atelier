@@ -20,6 +20,9 @@ The first public build of Atelier.
 - Fan Control: Silent, Balanced, Max or your own curve, through an opt-in helper that always
   hands the fans back to macOS if anything goes wrong.
 - Gestures and Peek for the Atelier Dock.
+- Minimise into the Atelier Dock with a real Genie that follows your macOS setting, or one of
+  eight new effects: Magic Lamp, Fold, Dissolve, Portal, Liquid, Glass Shatter, Scale and Suck.
+  Shift-click for slow motion.
 - Sound Mixer with a per-app equaliser, Title Bar Gestures, Notch-Free mode, HiDPI virtual
   displays and every hidden display mode.
 

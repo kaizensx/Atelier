@@ -1,0 +1,256 @@
+{
+  "format": 1,
+  "generated": "2026-11-11T00:00:00Z",
+  "catalog": "kaizensx/atelier-mods",
+  "seed": true,
+  "featured": [
+    "com.example.pomodoro",
+    "com.example.midnight-glass",
+    "com.example.random-palette"
+  ],
+  "mods": [
+    {
+      "id": "com.example.github-notifications",
+      "name": "GitHub Notifications",
+      "author": "Atelier Examples",
+      "github": "kaizensx",
+      "kind": "plugin",
+      "version": "1.0.0",
+      "summary": "Your unread GitHub notifications as a widget and a Dock badge. Needs a personal access token with the notifications scope.",
+      "description": "# GitHub Notifications\n\nUnread notifications from GitHub, on your desktop.\n\n1. Run **Set GitHub Token** from the Command palette.\n2. Paste a classic personal access token with the `notifications` scope. Make one at [github.com/settings/tokens](https://github.com/settings/tokens).\n3. Add a **Plugin** widget to the board and choose *GitHub*.\n\nThe token is kept in the plugin's own storage and sent only to `api.github.com`, the one host it may reach. Clicking the Dock tile opens your notifications in the browser.\n\n> Pull requests waiting for your review are drawn in orange.\n",
+      "permissions": [
+        "network",
+        "openURL"
+      ],
+      "hosts": [
+        "api.github.com"
+      ],
+      "minAtelier": "1.0.0",
+      "homepage": "https://github.com/kaizensx/Atelier/tree/main/examples/plugins/github-notifications.atelierplugin",
+      "license": "MIT",
+      "tags": [
+        "github",
+        "developer",
+        "notifications"
+      ],
+      "added": "2026-11-11T00:00:00Z",
+      "updated": "2026-11-11T00:00:00Z",
+      "screenshots": [
+        {
+          "url": "assets/mods/com.example.github-notifications/1.jpg",
+          "sha256": "fe1670105535b0e2899c5084105f1bde62685d419fc4de01772c745544a1fb77",
+          "size": 87029,
+          "width": 960,
+          "height": 600,
+          "caption": "Unread notifications on the board, with a badge on the Dock tile."
+        }
+      ],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "date": "2026-11-11T00:00:00Z",
+          "notes": "First release in the catalog."
+        }
+      ]
+    },
+    {
+      "id": "com.example.midnight-glass",
+      "name": "Midnight Glass",
+      "author": "Atelier Examples",
+      "github": "kaizensx",
+      "kind": "theme",
+      "version": "1.0.0",
+      "summary": "Ink-blue Liquid Glass over a slow nebula, with a custom four-stop palette.",
+      "description": "# Midnight Glass\n\nInk-blue glass over a slow nebula.\n\n- **Dock**: glass, dot indicators, soft reflection.\n- **Widgets**: glass with an indigo tint.\n- **Wallpaper**: the *Nebula* live wallpaper on a custom palette, slowed for the night.\n- **Menu bar**: notchless.\n- **Icons**: clear, dark.\n\nApplying it changes nothing you can't take back: **Revert** in Looks restores your setup.\n",
+      "permissions": [],
+      "hosts": [],
+      "minAtelier": "1.0.0",
+      "homepage": "https://github.com/kaizensx/Atelier/tree/main/examples/themes/midnight-glass.ateliertheme",
+      "license": "MIT",
+      "tags": [
+        "dark",
+        "blue",
+        "glass"
+      ],
+      "added": "2026-11-11T00:00:00Z",
+      "updated": "2026-11-11T00:00:00Z",
+      "screenshots": [
+        {
+          "url": "assets/mods/com.example.midnight-glass/1.jpg",
+          "sha256": "87db3e4a024c59f3b1e14643ebad660978918305d3e7d6e0ad0e4faeccb26429",
+          "size": 82456,
+          "width": 960,
+          "height": 600,
+          "caption": "Glass Dock and widgets over the Nebula live wallpaper."
+        }
+      ],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "date": "2026-11-11T00:00:00Z",
+          "notes": "First release in the catalog."
+        }
+      ]
+    },
+    {
+      "id": "com.example.paper-studio",
+      "name": "Paper Studio",
+      "author": "Atelier Examples",
+      "github": "kaizensx",
+      "kind": "theme",
+      "version": "1.0.0",
+      "summary": "Warm paper and serif type over a still mesh that follows the hour. No motion at all.",
+      "description": "# Paper Studio\n\nWarm paper and serif type, and nothing that moves.\n\n- **Wallpaper**: a still mesh in dusk colours, no animation at all.\n- **Dock**: frosted, with a bar indicator and no icon shadows.\n- **Widgets**: frosted amber, serif type, soft corners.\n- **Clock**: a serif face on the desktop.\n\nMade for long days of reading and writing, and kind to the battery.\n",
+      "permissions": [],
+      "hosts": [],
+      "minAtelier": "1.0.0",
+      "homepage": "https://github.com/kaizensx/Atelier/tree/main/examples/themes/paper-studio.ateliertheme",
+      "license": "MIT",
+      "tags": [
+        "light",
+        "warm",
+        "still"
+      ],
+      "added": "2026-11-11T00:00:00Z",
+      "updated": "2026-11-11T00:00:00Z",
+      "screenshots": [
+        {
+          "url": "assets/mods/com.example.paper-studio/1.jpg",
+          "sha256": "6b82f2a360b2a28e7a38a65d45869b405b0b588a75738c1d97c8fabd929a8495",
+          "size": 59358,
+          "width": 960,
+          "height": 600,
+          "caption": "Serif clock and paper widgets over a still mesh."
+        }
+      ],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "date": "2026-11-11T00:00:00Z",
+          "notes": "First release in the catalog."
+        }
+      ]
+    },
+    {
+      "id": "com.example.pomodoro",
+      "name": "Pomodoro",
+      "author": "Atelier Examples",
+      "github": "kaizensx",
+      "kind": "plugin",
+      "version": "1.0.0",
+      "summary": "A focus timer as a Dock tile, a widget, a command and a hot-corner action.",
+      "description": "# Pomodoro\n\nTwenty-five minutes of focus, five of rest. Click the Dock tile to start or pause.\n\n- **Dock tile** with the time left, a progress ring and a badge for finished sessions.\n- **Widget** for the board, with the same ring.\n- **Command**: *Start or Pause Pomodoro* in the Command palette.\n- **Hot corner**: put *Pomodoro* on any corner in Hot Corners.\n\nA notification tells you when a session ends. That is the only permission it asks for.\n\nIt is also the reference plugin: every kind of registration in one short script. Read `main.js` to see how each one works.\n",
+      "permissions": [
+        "notifications"
+      ],
+      "hosts": [],
+      "minAtelier": "1.0.0",
+      "homepage": "https://github.com/kaizensx/Atelier/tree/main/examples/plugins/pomodoro.atelierplugin",
+      "license": "MIT",
+      "tags": [
+        "focus",
+        "timer",
+        "productivity"
+      ],
+      "added": "2026-11-11T00:00:00Z",
+      "updated": "2026-11-11T00:00:00Z",
+      "screenshots": [
+        {
+          "url": "assets/mods/com.example.pomodoro/1.jpg",
+          "sha256": "a59175f033a03c06088e92f14bc22af1bf22eb463027c442ff8d56ffba667311",
+          "size": 85783,
+          "width": 960,
+          "height": 600,
+          "caption": "The Dock tile counts down; the widget shows the ring."
+        }
+      ],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "date": "2026-11-11T00:00:00Z",
+          "notes": "First release in the catalog."
+        }
+      ]
+    },
+    {
+      "id": "com.example.random-palette",
+      "name": "Random Wallpaper Palette",
+      "author": "Atelier Examples",
+      "github": "kaizensx",
+      "kind": "plugin",
+      "version": "1.0.0",
+      "summary": "A command and a hot-corner action that give the live wallpaper, Dock and widgets a fresh, harmonious palette.",
+      "description": "# Random Wallpaper Palette\n\nOne shortcut, a new mood. Each shuffle picks a hue, then three more a little further round the colour wheel, from deep shadow to bright crest, and applies them to:\n\n- the live wallpaper's palette,\n- the Dock and widget accents,\n- Atelier's own accent.\n\nRun **Random Wallpaper Palette** from the Command palette, or put **Random Palette** on a hot corner.\n\nNot this time? **Revert** in Looks puts back everything from before the first change.\n",
+      "permissions": [
+        "appearance"
+      ],
+      "hosts": [],
+      "minAtelier": "1.0.0",
+      "homepage": "https://github.com/kaizensx/Atelier/tree/main/examples/plugins/random-palette.atelierplugin",
+      "license": "MIT",
+      "tags": [
+        "colour",
+        "wallpaper",
+        "fun"
+      ],
+      "added": "2026-11-11T00:00:00Z",
+      "updated": "2026-11-11T00:00:00Z",
+      "screenshots": [
+        {
+          "url": "assets/mods/com.example.random-palette/1.jpg",
+          "sha256": "ec0eac91a2dbbd9c38faf925ac643966080ee8418343dc7f1a7b210f92193e05",
+          "size": 84347,
+          "width": 960,
+          "height": 600,
+          "caption": "Each shuffle picks four stops a little further round the colour wheel."
+        }
+      ],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "date": "2026-11-11T00:00:00Z",
+          "notes": "First release in the catalog."
+        }
+      ]
+    },
+    {
+      "id": "com.example.sunset-neon",
+      "name": "Sunset Neon",
+      "author": "Atelier Examples",
+      "github": "kaizensx",
+      "kind": "theme",
+      "version": "1.0.0",
+      "summary": "A neon grid under a striped sun. Hot pink edges, gradient widgets, a bold clock.",
+      "description": "# Sunset Neon\n\nA neon grid under a striped sun.\n\n- **Wallpaper**: the *Retro Horizon* live wallpaper.\n- **Dock**: neon, with a glow indicator and a wave curve.\n- **Widgets**: a pink-to-orange gradient, monospaced type.\n- **Clock**: big and bold. Icons tinted pink.\n- **Sounds**: a little funk when it is applied.\n\nBest on a dark setup, at night.\n",
+      "permissions": [],
+      "hosts": [],
+      "minAtelier": "1.0.0",
+      "homepage": "https://github.com/kaizensx/Atelier/tree/main/examples/themes/sunset-neon.ateliertheme",
+      "license": "MIT",
+      "tags": [
+        "dark",
+        "pink",
+        "retro"
+      ],
+      "added": "2026-11-11T00:00:00Z",
+      "updated": "2026-11-11T00:00:00Z",
+      "screenshots": [
+        {
+          "url": "assets/mods/com.example.sunset-neon/1.jpg",
+          "sha256": "a405f3d8cdfdb6e36147735bb2a4faed34875cb77dace8eeef77b9e4a0122a83",
+          "size": 91068,
+          "width": 960,
+          "height": 600,
+          "caption": "The neon grid with gradient widgets and a bold clock."
+        }
+      ],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "date": "2026-11-11T00:00:00Z",
+          "notes": "First release in the catalog."
+        }
+      ]
+    }
+  ]
+}

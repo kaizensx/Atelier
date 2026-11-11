@@ -1,0 +1,3 @@
+# Built at deploy time by scripts/build-data.mjs; only the bundled Mods seed is kept in git.
+data/*
+!data/mods-seed.json

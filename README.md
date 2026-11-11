@@ -1,75 +1,178 @@
 <p align="center">
   <picture>
-    <img src="branding/banner.png" alt="Atelier: the Mac, made yours" width="100%">
+    <source media="(prefers-color-scheme: dark)" srcset="branding/banner.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/media/banner-light.png">
+    <img src="branding/banner.png" alt="Atelier. The Mac, made yours." width="100%">
   </picture>
 </p>
 
-<h3 align="center">The Mac, made yours.</h3>
-
 <p align="center">
-  A free, open-source studio for shaping every part of macOS: the light of the screen, the Dock,
-  your windows, the sound, the menu bar. With a live replica of your Mac to try it all on first.
+  A free, open-source studio for shaping every part of macOS.<br>
+  The light of the screen, the Dock, your windows, the sound, the menu bar.<br>
+  With a live replica of your Mac to try it all on first.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/macOS-14%20%E2%80%93%2027-111111?logo=apple&logoColor=white" alt="macOS 14 to 27">
-  <img src="https://img.shields.io/badge/Apple%20silicon%20%2B%20Intel-universal-3b3b3b" alt="Apple silicon and Intel, universal">
-  <img src="https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white" alt="Swift 6">
-  <img src="https://img.shields.io/badge/licence-MIT-2f81f7" alt="MIT licence">
-  <a href="https://github.com/kaizensx/Atelier/releases"><img src="https://img.shields.io/github/v/release/kaizensx/Atelier?include_prereleases&label=release&color=5fd3ff" alt="Latest release"></a>
-  <a href="https://github.com/kaizensx/Atelier/releases"><img src="https://img.shields.io/github/downloads/kaizensx/Atelier/total?color=5fd3ff" alt="Downloads"></a>
+  <a href="https://github.com/kaizensx/Atelier/releases/latest"><img src="https://img.shields.io/github/v/release/kaizensx/Atelier?include_prereleases&label=release&style=flat-square&labelColor=0B1220&color=5FD3FF" alt="Latest release"></a>
+  <a href="https://github.com/kaizensx/Atelier/releases"><img src="https://img.shields.io/github/downloads/kaizensx/Atelier/total?style=flat-square&labelColor=0B1220&color=2A5BFF" alt="Downloads"></a>
+  <img src="https://img.shields.io/badge/macOS-14%20%E2%80%93%2027-18212F?style=flat-square&logo=apple&logoColor=DCE4EF&labelColor=0B1220" alt="macOS 14 to 27">
+  <img src="https://img.shields.io/badge/universal-Apple%20silicon%20%2B%20Intel-18212F?style=flat-square&labelColor=0B1220" alt="Apple silicon and Intel">
+  <img src="https://img.shields.io/badge/Swift-6-18212F?style=flat-square&logo=swift&logoColor=DCE4EF&labelColor=0B1220" alt="Swift 6">
+  <img src="https://img.shields.io/badge/licence-MIT-18212F?style=flat-square&labelColor=0B1220" alt="MIT licence">
 </p>
 
 <p align="center">
-  <a href="#install"><b>Install</b></a> ·
-  <a href="#what-it-does"><b>What it does</b></a> ·
-  <a href="docs/FEATURES.md"><b>Full feature reference</b></a> ·
-  <a href="#safety-and-reversibility"><b>Safety</b></a> ·
-  <a href="#build-from-source"><b>Build</b></a> ·
-  <a href="docs/README.md"><b>Themes & Plugins</b></a>
+  <a href="#install"><b>Install</b></a>
+  &nbsp;·&nbsp; <a href="#why-atelier"><b>Why Atelier</b></a>
+  &nbsp;·&nbsp; <a href="#everything-it-does"><b>Features</b></a>
+  &nbsp;·&nbsp; <a href="#safety"><b>Safety</b></a>
+  &nbsp;·&nbsp; <a href="#build-from-source"><b>Build</b></a>
+  &nbsp;·&nbsp; <a href="https://kaizensx.github.io/Atelier/"><b>Website</b></a>
 </p>
 
----
+<br>
 
-Most customisation apps flip switches that macOS already has, one menu deeper. Atelier's headline
-features do things a stock Mac cannot do at all. The screen goes brighter than Apple's maximum,
-darker than its minimum and warmer than Night Shift. Every app gets its own volume and its own
-speakers. The fans follow your curve. Windows remember where they lived on every monitor setup.
+<p align="center">
+  <img src="docs/media/studio-home.png" alt="Atelier Home: a live replica of your Mac on its stage, and a shelf of what a stock Mac cannot do" width="100%">
+</p>
 
-Every one of these is reversible. Each feature starts off, and switching it off puts the Mac back
-exactly as it was. Quitting does the same, and so does a crash. Nothing is faked: the readings
-come from the hardware, the numbers in these docs were measured on a real Mac, and the motion
-runs at the display's own rate, 120 Hz on ProMotion.
+## Why Atelier
+
+Most customisation apps flip switches macOS already has, one menu deeper. Atelier's headline
+features do things a stock Mac cannot do at all. And every one of them can be undone.
+
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <img src="docs/media/why-light.svg" width="56" height="56" alt=""><br>
+      <b>Past Apple's limits</b><br>
+      <sub>Brighter than Apple's maximum, darker than its minimum, warmer than Night Shift.</sub>
+    </td>
+    <td width="33%" valign="top">
+      <img src="docs/media/why-sound.svg" width="56" height="56" alt=""><br>
+      <b>Every app its own volume</b><br>
+      <sub>Up to 150 %, its own speakers, and a 10-band EQ for everything you hear.</sub>
+    </td>
+    <td width="33%" valign="top">
+      <img src="docs/media/why-memory.svg" width="56" height="56" alt=""><br>
+      <b>Windows that remember</b><br>
+      <sub>Plug a monitor back in and every window returns to where it lived on that setup.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top">
+      <img src="docs/media/why-dock.svg" width="56" height="56" alt=""><br>
+      <b>A dock of your own</b><br>
+      <sub>Ten designs, spring magnification, live tiles, gestures and window Peek.</sub>
+    </td>
+    <td width="33%" valign="top">
+      <img src="docs/media/why-reversible.svg" width="56" height="56" alt=""><br>
+      <b>Off means off</b><br>
+      <sub>Every feature starts off. Switching it off, quitting or a crash puts the Mac back.</sub>
+    </td>
+    <td width="33%" valign="top">
+      <img src="docs/media/why-sip.svg" width="56" height="56" alt=""><br>
+      <b>SIP stays on</b><br>
+      <sub>Public APIs and documented calls. The one exception is opt-in and says what it costs.</sub>
+    </td>
+  </tr>
+</table>
+
+Nothing is faked. The readings come from the hardware, the numbers here were measured on a real
+Mac, and the motion runs at the display's own rate, 120 Hz on ProMotion.
+
+### Stock macOS and Atelier
+
+| | Stock macOS | With Atelier |
+|---|---|---|
+| **Brightest SDR** | 600 nits on an XDR MacBook Pro | About 1,440 nits with XDR Boost |
+| **Darkest** | The lowest brightness step | Below Black goes further |
+| **Warmest** | Night Shift stops at 2,700 K | Candlelight goes down to 1,900 K |
+| **Volume** | One for everything | Per app, up to 150 %, with its own output and EQ |
+| **Switching desktops** | A slide of about a second | About 35 ms with Instant Spaces |
+| **Fans** | macOS decides | Your own curve, handed back if anything goes wrong |
+| **Unplugging a monitor** | Windows pile up and stay there | Every window goes back when the setup returns |
+| **External monitors** | No control over third-party displays | Brightness, contrast, volume and input over DDC/CI |
+| **Hot corners** | Four | Eight, each with its own modifiers and wait |
+| **Dock** | One look | Ten designs, gestures, Peek and profiles |
+| **Caps Lock** | Can become one other key | Hyper (⌃⌥⇧⌘) when held, Escape when tapped |
+| **⌘Q** | Quits at once | Hold until the ring fills |
 
 ## A look inside
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/media/studio-home.png" alt="Atelier Home: the live stage and the shelf of things a stock Mac cannot do"><br><sub><b>Home.</b> A live replica of your Mac on its stage, and a shelf of what a stock Mac cannot do.</sub></td>
     <td width="50%"><img src="docs/media/studio-dock.png" alt="The Dock chapter: Atelier Dock designs, gestures and Peek"><br><sub><b>Dock.</b> Ten designs, spring magnification, live tiles, gestures and window Peek.</sub></td>
-  </tr>
-  <tr>
     <td width="50%"><img src="docs/media/studio-windows.png" alt="Window Engine: snap zones, layouts, radial menu and edge stash"><br><sub><b>Window Engine.</b> Snap, layouts, the radial menu, Edge Stash and Display Memory.</sub></td>
-    <td width="50%"><img src="docs/media/studio-display.png" alt="Display and Appearance: XDR Boost, Below Black, Candlelight, Notch-Free"><br><sub><b>Display.</b> XDR Boost, Below Black, Candlelight, Notch-Free and HiDPI on any monitor.</sub></td>
   </tr>
   <tr>
+    <td width="50%"><img src="docs/media/studio-display.png" alt="Display and Appearance: XDR Boost, Below Black, Candlelight, Notch-Free"><br><sub><b>Display.</b> XDR Boost, Below Black, Candlelight, Notch-Free and HiDPI on any monitor.</sub></td>
     <td width="50%"><img src="docs/media/studio-sounds.png" alt="Sound Mixer with per-app volume and a 10-band equaliser"><br><sub><b>Sounds.</b> Per-app volume up to 150 %, per-app output, and an EQ for everything.</sub></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="docs/media/studio-menubar.png" alt="Menu bar: Thermals, Fan Control, Instant Spaces and the calendar"><br><sub><b>Menu Bar.</b> Temperatures, fans and watts, Instant Spaces, a calendar and skins.</sub></td>
+    <td width="50%"><img src="docs/media/studio-home.png" alt="Atelier Home: the live stage and the shelf of things a stock Mac cannot do"><br><sub><b>Home.</b> A live replica of your Mac, and a shelf of what a stock Mac cannot do.</sub></td>
   </tr>
 </table>
 
-## What it does
+## Install
+
+<table>
+  <tr>
+    <td>
+
+**1. Download** `Atelier-<version>.zip` from the [latest release](https://github.com/kaizensx/Atelier/releases/latest).
+
+**2. Move** Atelier.app to `/Applications` after unzipping it.
+
+**3. Open it once the long way.** Releases are code-signed but not notarized: notarization needs a
+paid Apple Developer ID, and Atelier is a free project. So macOS asks once. Right-click Atelier.app,
+choose **Open**, then **Open** again. Or try to open it, then click **Open Anyway** in
+**System Settings › Privacy & Security**. In Terminal, this does the same:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Atelier.app
+```
+
+**4. Follow the Permissions screen.** It shows what each permission unlocks, puts Atelier in the
+right macOS list with one button, and updates live as you grant them.
+
+  </td>
+  </tr>
+</table>
+
+You only do step 3 once. Updates arrive through Atelier itself, keep the same signature, and keep
+the permissions you granted. Runs on macOS 14 Sonoma, 15 Sequoia, 26 Tahoe and 27, on Apple
+silicon and Intel.
+
+## Updates
+
+Atelier updates itself from GitHub Releases. Open **Settings › Updates**.
+
+- **Two channels.** **Stable** gets finished releases only. **Beta** gets every build first.
+- **Beta first, always.** Every release ships as a beta, is tested on the maintainer's own Mac,
+  and only then is the same code promoted to stable.
+- **Signed and verified.** Each download is checked against an Ed25519 signature made with a key
+  that never leaves the maintainer's Mac, then its code signature and version are checked. A
+  download that fails any check is refused.
+- **Roll Back.** The version you had is kept. **Roll Back** puts it back in one click.
+- **Automatic checks.** With the switch on, Atelier looks every few hours. One click downloads,
+  a second installs and relaunches.
+- **Quiet.** Requests carry a generic `Atelier-Updater` User-Agent and nothing about you.
+
+## Everything it does
 
 Atelier is laid out like its sidebar. Every place has a short intro, its headline features first,
-and macOS's own settings after them, so you never need System Settings and Atelier side by side.
-Rest the pointer on almost any control and the stage at the top previews it before you commit.
+then macOS's own settings, so you never need System Settings and Atelier side by side. Rest the
+pointer on almost any control and the stage previews it before you commit.
 
-The tables below cover the highlights. [docs/FEATURES.md](docs/FEATURES.md) lists every card and
-setting, the permission each one needs, and its `atelier://` test hook.
+Open a chapter below. [docs/FEATURES.md](docs/FEATURES.md) lists every card and setting, the
+permission each one needs, and its `atelier://` test hook.
 
-### Your Mac
+<details>
+<summary><b>Your Mac</b> &nbsp;<sub>Home, Looks, Themes & Plugins</sub></summary>
 
-Where you start, and where whole looks live.
+<br>
 
 | Feature | What it does | Stock macOS |
 |---|---|---|
@@ -77,9 +180,12 @@ Where you start, and where whole looks live.
 | **Looks** | Curated themes in one click: Dock, menu bar, wallpaper, widgets and icon tint together. **Change with the Day** hands over from one Look to the next at the hour you set. Revert undoes the run. | No themes beyond Light, Dark and accent colour. |
 | **Themes & Plugins** | A theme is one JSON file that restyles everything Atelier reaches. Plugins add widgets, Dock tiles, commands and corner actions in sandboxed JavaScript. See [docs/README.md](docs/README.md). | No theme or plugin system. |
 
-### Desktop
+</details>
 
-What sits behind your windows.
+<details>
+<summary><b>Desktop</b> &nbsp;<sub>Wallpaper, Live Wallpaper, Widgets, Effects</sub></summary>
+
+<br>
 
 | Feature | What it does | Stock macOS |
 |---|---|---|
@@ -90,22 +196,28 @@ What sits behind your windows.
 | **Widgets** | Twenty-seven kinds on a desktop board, from clocks, weather and vitals to reminders, habits and a launcher. Positions, sizes and styles are saved per display. | Fixed WidgetKit sizes, no system vitals. |
 | **Effects** | Focus Light, Notch Shelf (drop files at the top of the screen), Menu Bar Hider, vignette, film grain, a scheduled night tint, edge glow, app pulse, pixel grid, ruler, colour picker and screen annotation. Every overlay is click-through. | None of these. |
 
-### Dock & Launch
+</details>
 
-Your own dock, or Apple's with powers added.
+<details>
+<summary><b>Dock & Launch</b> &nbsp;<sub>Atelier Dock, Peek, Stacks, Orbit, Hot Corners</sub></summary>
+
+<br>
 
 | Feature | What it does | Stock macOS |
 |---|---|---|
-| **Atelier Dock** | A dock of its own in place of the macOS one: ten designs, spring-physics magnification, live tiles and rings, profiles that switch by desktop or time of day. Minimised windows fly into it. | One look, one dock. |
+| **Atelier Dock** | A dock of its own in place of the macOS one: ten designs, spring-physics magnification, live tiles and rings, profiles that switch by desktop or time of day. Minimised windows fly into it, with a real Genie that follows your macOS setting or one of eight other effects. | One look, one dock. |
 | **Dock Gestures & Live Peek** | Swipe up on a tile for that app's windows, down to minimise, pinch twice to quit. Window pictures with close and minimise buttons. | No gestures on Dock icons, no previews. |
 | **Dock Peek** for the macOS Dock | Hover an app in Apple's Dock to see its windows. Swipe, pinch and scroll on its icons. No injection: SIP stays on. | No window previews. |
 | **Stacks** | Folder bubbles and Smart Stacks that fill themselves from a search, in either dock. | Plain folder stacks only. |
 | **Orbit** | Your apps in rings over any desktop, sorted by what each app does and searched by typing. | Launchpad, gone in macOS 26. |
 | **Atelier Hot Corners** | Eight spots instead of four (corners and edge middles), each with its own action, modifier keys and wait. | Four corners, no modifiers per corner. |
 
-### Menu Bar
+</details>
 
-Readings and shortcuts macOS keeps to itself.
+<details>
+<summary><b>Menu Bar</b> &nbsp;<sub>Thermals, Fan Control, Instant Spaces, Calendar, Skins</sub></summary>
+
+<br>
 
 | Feature | What it does | Stock macOS |
 |---|---|---|
@@ -116,9 +228,12 @@ Readings and shortcuts macOS keeps to itself.
 | **Menu Bar Calendar** | Today's date, the month, week numbers and the day's events. Calendar access is asked for only when you turn events on. | Only a clock. |
 | **Menu bar skins** | Gradients and materials painted behind the real menu bar, a night skin, and text kept readable. Plus a Day Line that fills as the day passes. | Not possible. |
 
-### Windows
+</details>
 
-Windows that glide into place, on keys and edges you own.
+<details>
+<summary><b>Windows</b> &nbsp;<sub>Snap, Radial Menu, Edge Stash, Display Memory, Beyond SIP</sub></summary>
+
+<br>
 
 | Feature | What it does | Stock macOS |
 |---|---|---|
@@ -130,19 +245,27 @@ Windows that glide into place, on keys and edges you own.
 | **Move & Resize Anywhere** | Hold a chord and drag anywhere in a window to move it; right-drag to resize. | Only by the title bar and edges. |
 | **Window Switcher** | Every window, not just every app, on a key you choose. | ⌘Tab switches apps only. |
 | **Borders, Dim and Focus** | A ring of light around the window you are in, a shade over everything behind it, Stage Glow, and focus follows mouse. | None of these. |
-| **Beyond SIP** (opt-in) | Window opacity, always on top, sticky windows on every Space, picture in picture for any window, no shadows, and Spaces you create and reorder. Needs SIP partly off and the Dock Bridge; see [Safety](#safety-and-reversibility). | Reserved for the Dock itself. |
+| **Beyond SIP** (opt-in) | Window opacity, always on top, sticky windows on every Space, picture in picture for any window, no shadows, and Spaces you create and reorder. Needs SIP partly off and the Dock Bridge; see [Safety](#safety). | Reserved for the Dock itself. |
 | **Windows & Spaces** | Mission Control, Spaces and Stage Manager settings, and the hidden switches behind them. | Spread across System Settings and `defaults`. |
 
-### Finder & Files
+</details>
+
+<details>
+<summary><b>Finder & Files</b> &nbsp;<sub>Finder, Folder & App Icons</sub></summary>
+
+<br>
 
 | Feature | What it does | Stock macOS |
 |---|---|---|
 | **Finder** | Finder's own preferences by section, then the hidden switches macOS keeps out of its settings. | Many need Terminal. |
 | **Folder & App Icons** | Folders in any colour with a symbol, emoji or picture, and app icons from macOSicons.com. Every custom icon can be put back. | Paste-an-icon only. |
 
-### System
+</details>
 
-The display, input and sound, past where Apple stops.
+<details>
+<summary><b>System</b> &nbsp;<sub>Display, Input, Sound, Every App</sub></summary>
+
+<br>
 
 | Feature | What it does | Stock macOS |
 |---|---|---|
@@ -163,7 +286,12 @@ The display, input and sound, past where Apple stops.
 | **Appearance** | Dark on your own hours, chosen apps kept light in Dark Mode, icon tint, and the hidden appearance switches. | Auto follows the sun only. |
 | **Animations, Spotlight, Lock Screen, Accessibility Visuals, Every App, Quick Look** | macOS's own settings and hidden keys, each in one place, checked against what your macOS release reads. | Spread out or Terminal-only. |
 
-### Tools
+</details>
+
+<details>
+<summary><b>Tools, History and Settings</b> &nbsp;<sub>Toolbox, Pin Window, Capture, Command, Scenes, Timeline</sub></summary>
+
+<br>
 
 | Feature | What it does |
 |---|---|
@@ -171,23 +299,20 @@ The display, input and sound, past where Apple stops.
 | **Pin Window** | A live copy of any window that floats above everything. |
 | **Capture** | Where screenshots go, their name and format, plus the hidden switches. |
 | **Command** | ⌥Space searches Atelier, your apps and your clipboard history. |
-
-### History
-
-| Feature | What it does |
-|---|---|
 | **Scenes** | Save the whole Dock as a scene, apply it in one move, or let it switch at an hour. |
 | **Timeline** | Every Dock change leaves a point to come back to. |
-
-### Atelier
-
-| Feature | What it does |
-|---|---|
 | **Settings** | Atelier's own look, shortcuts, Open at Login, **This Mac** (paste it into bug reports), **Updates**, and **Remove Everything**. |
 
-### Permissions
+</details>
 
-Atelier asks for a permission only when you turn on a feature that needs it, and says why on the card.
+<details>
+<summary><b>Permissions</b> &nbsp;<sub>Asked for only when a feature needs one</sub></summary>
+
+<br>
+
+Atelier asks for a permission only when you turn on a feature that needs it, and says why on the
+card. The first-launch Permissions screen shows live status, and a step-by-step fix when macOS
+keeps a stale entry.
 
 | Permission | Asked for by |
 |---|---|
@@ -197,46 +322,47 @@ Atelier asks for a permission only when you turn on a feature that needs it, and
 | **Calendars, Reminders** | Calendar events in the menu bar and the event and reminder widgets, only when you turn them on. |
 | **Administrator password** | Installing the Fan Control helper, and the Dock Bridge for Beyond SIP. Both are removable from their cards. |
 
-## Install
+</details>
 
-1. Download `Atelier-<version>.zip` from the latest [GitHub Release](https://github.com/kaizensx/Atelier/releases).
-2. Unzip it and move **Atelier.app** to `/Applications`.
-3. Open it.
+## Safety
 
-**The first launch needs one extra step.** Releases are code-signed but not notarized: notarization
-needs a paid Apple Developer ID, and Atelier is a free project. macOS therefore asks once. Either:
+- **Off by default.** A fresh Atelier changes nothing. Each feature waits for you to turn it on.
+- **Off means off.** Turning a feature off removes its event tap, overlay or observer and puts
+  back what it changed. Display tables return to ColorSync's own, the fans go back to macOS,
+  stashed windows come back, a virtual screen disappears. If Atelier crashes, a small guard agent
+  brings the macOS Dock back and relaunches it.
+- **SIP stays on.** Everything outside Beyond SIP works with System Integrity Protection fully on,
+  using public APIs and documented system calls. Dock Peek reads Apple's Dock from outside, with
+  no injection.
+- **Beyond SIP is opt-in, and honest about the cost.** The Dock Bridge (a scripting addition
+  ported from yabai) needs SIP partly off: `csrutil enable --without fs --without debug --without nvram`,
+  from recoveryOS. No app can change SIP, and Atelier does not try. Its Recovery Assistant walks
+  you through it, warns that this lowers macOS protection, and removes the bridge with one click.
+  `csrutil enable` turns SIP back on.
+- **The fan helper is a choice.** It is installed only from the Fan Control card, with your
+  administrator password, and removed the same way.
+- **No telemetry, no accounts.** Atelier collects nothing. It goes online only for what you ask
+  for: update checks, the weather city you pick, wallpaper and icon searches, themes you open by
+  link, and plugins you allow the network. Requests use generic User-Agents.
+- **One click to leave.** **Settings › Remove Everything** puts every macOS change back, deletes
+  Atelier's data and quits.
 
-- right-click Atelier.app in Finder, choose **Open**, then **Open** again; or
-- try to open it, then go to **System Settings › Privacy & Security** and click **Open Anyway**.
+Each feature checks what your Mac can do before it shows its controls, and says why when it
+cannot ("Needs macOS 15", "Needs a Force Touch trackpad", "This Mac has no fan"). The full matrix
+is in [COMPATIBILITY.md](COMPATIBILITY.md).
 
-If you prefer Terminal, this removes the download quarantine flag instead:
+## Mods
 
-```sh
-xattr -dr com.apple.quarantine /Applications/Atelier.app
-```
-
-You only do this once. Updates arrive through Atelier itself, keep the same signature, and keep the
-permissions you granted.
-
-## Updates
-
-Atelier updates itself from GitHub Releases. Open **Settings › Updates**.
-
-- **Automatic checks.** With the switch on, Atelier looks every few hours. When a new version is
-  there, one click downloads it and a second installs it and relaunches.
-- **Two channels.** **Stable** gets finished releases only. **Beta** gets every build first.
-- **Beta first, always.** Every release ships as a beta, is tested on the maintainer's own Mac,
-  and only then is the same code promoted to stable.
-- **Verified before installing.** Each download is checked against an Ed25519 signature made with
-  a key that never leaves the maintainer's Mac, then its code signature and version are checked.
-  A download that fails any check is refused.
-- **Roll Back.** The version you had is kept, and **Roll Back** puts it back in one click.
-- **Quiet.** Requests carry a generic `Atelier-Updater` User-Agent and nothing about you.
+**Coming in beta 2.** A Mods chapter in Atelier and a catalog on GitHub, for plugins and themes
+made by the community. Until then, themes and plugins already install by hand: drop a
+`.ateliertheme` or `.atelierplugin` on **Themes & Plugins**. The formats are in
+[docs/THEMES.md](docs/THEMES.md) and [docs/PLUGINS.md](docs/PLUGINS.md), with examples in
+[`examples/`](examples).
 
 ## Build from source
 
-Requirements: to build, Xcode 27 or later (Swift 6.4) and its Metal compiler. The app it builds runs
-on macOS 14 or later. The logic and tests (`DockCore`) also build with Xcode 26.
+You need Xcode 27 or later (Swift 6.4) and its Metal compiler. The app it builds runs on macOS 14
+or later. The logic and tests (`DockCore`) also build with Xcode 26.
 
 ```sh
 git clone https://github.com/kaizensx/Atelier.git
@@ -246,45 +372,12 @@ zsh build.sh                # build/Atelier.app, universal (arm64 + x86_64)
 zsh build.sh --install      # build, then replace /Applications/Atelier.app
 ```
 
-The layout is simple. `Sources/DockCore` holds pure logic with unit tests in
-`Tests/DockCoreTests`. `Sources/DockStacks` is the app. `Native/` holds the Dock Bridge payload,
-`Shaders/` the Metal wallpapers. A local build signs with an Apple Development identity if you
-have one, else ad hoc; ad-hoc builds lose their permissions on every rebuild.
+`Sources/DockCore` holds pure logic with unit tests in `Tests/DockCoreTests`. `Sources/DockStacks`
+is the app. `Native/` holds the Dock Bridge payload, `Shaders/` the Metal wallpapers. A local build
+signs with an Apple Development identity if you have one, else ad hoc. Ad-hoc builds lose their
+permissions on every rebuild.
 
-## Safety and reversibility
-
-- **Off by default.** A fresh Atelier changes nothing. Each feature waits for you to turn it on.
-- **Off means off.** Turning a feature off removes its event tap, overlay or observer and puts back
-  what it changed. Display tables return to ColorSync's own; the fans go back to macOS; stashed
-  windows come back; a virtual screen disappears. If Atelier crashes, a small guard agent brings
-  the macOS Dock back and relaunches it.
-- **SIP stays on.** Everything outside Beyond SIP works with System Integrity Protection fully on,
-  using public APIs and documented system calls. Dock Peek reads Apple's Dock from outside, with
-  no injection.
-- **Beyond SIP is opt-in, and honest about the cost.** The Dock Bridge (a scripting addition ported
-  from yabai) needs SIP partly off: `csrutil enable --without fs --without debug --without nvram`,
-  from recoveryOS. No app can change SIP, and Atelier does not try. Its Recovery Assistant walks
-  you through it, warns you that this lowers macOS protection, and removes the bridge with one
-  click. `csrutil enable` turns SIP back on.
-- **The fan helper is a choice.** It is installed only from the Fan Control card, with your
-  administrator password, and removed the same way.
-- **No telemetry, no accounts.** Atelier collects nothing. It goes online only for what you ask
-  for: update checks, the weather city you pick, wallpaper and icon searches, themes you open by
-  link, and plugins you allow the network. Requests use generic User-Agents.
-- **One click to leave.** **Settings › Remove Everything** takes Atelier's stacks out of the Dock,
-  deletes its data and quits.
-
-## Compatibility
-
-macOS 14 Sonoma, 15 Sequoia, 26 Tahoe and 27, on Apple silicon and Intel. Each feature checks what
-your Mac can do before it shows its controls, and says why when it cannot ("Needs macOS 15",
-"Needs a Force Touch trackpad", "This Mac has no fan"). The full matrix is in
-[COMPATIBILITY.md](COMPATIBILITY.md). Reports from Macs other than the maintainer's are very welcome:
-paste the **This Mac** block from Settings into your issue.
-
-## Releasing
-
-For maintainers: [docs/RELEASING.md](docs/RELEASING.md) explains `scripts/release.sh`, the
+Maintainers: [docs/RELEASING.md](docs/RELEASING.md) explains `scripts/release.sh`, the
 test → beta → stable flow, the signing keys and how to rotate them.
 
 ## Contributing
@@ -293,15 +386,17 @@ Themes, plugins, fixes and reports are all welcome. Start with
 [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md), then [docs/THEMES.md](docs/THEMES.md) or
 [docs/PLUGINS.md](docs/PLUGINS.md). New logic belongs in `DockCore`, with tests.
 
-## Licence
+Found a bug? [Report it](https://github.com/kaizensx/Atelier/issues/new?template=bug_report.yml)
+and paste the **This Mac** block from Settings. Reports from Macs other than the maintainer's are
+very welcome. Have an idea? [Suggest it](https://github.com/kaizensx/Atelier/issues/new?template=feature_request.yml).
+
+## Licence and credits
 
 MIT. The Dock Bridge scripting addition is ported from [yabai](https://github.com/koekeishiya/yabai),
 also MIT.
 
-## Acknowledgements
-
-Atelier stands on what open projects worked out and shared. Techniques and ideas were learned from,
-or inspired by:
+Atelier stands on what open projects worked out and shared. Techniques and ideas were learned
+from, or inspired by:
 
 - [MonitorControl](https://github.com/MonitorControl/MonitorControl), [m1ddc](https://github.com/waydabber/m1ddc)
   and [Lunar](https://github.com/alin23/Lunar): DDC/CI on Apple silicon, and sub-zero dimming.
@@ -319,7 +414,7 @@ None of these projects is affiliated with Atelier.
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="branding/logo/atelier-lockup-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="branding/logo/atelier-lockup-light.png">
-    <img src="branding/logo/atelier-lockup-light.png" alt="Atelier" width="220">
+    <img src="branding/logo/atelier-lockup-light.png" alt="Atelier" width="200">
   </picture>
 </p>
 

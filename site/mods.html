@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#05080F" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F4F6FA" media="(prefers-color-scheme: light)">
+<meta property="og:site_name" content="Atelier">
+<meta property="og:image" content="https://kaizensx.github.io/Atelier/assets/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+<link rel="icon" href="assets/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="stylesheet" href="assets/css/site.css">
+<script>document.documentElement.classList.add("js")</script>
+<script type="module" src="assets/js/app.js"></script>
+<title>Mods · Atelier</title>
+<meta name="description" content="Plugins and themes for Atelier, made by the community and shared on GitHub.">
+<meta property="og:title" content="Atelier Mods">
+<meta property="og:description" content="Plugins and themes for Atelier, made by the community and shared on GitHub.">
+</head>
+<body data-page="mods">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav" aria-label="Site">
+  <a class="brand" href="index.html" aria-label="Atelier home"><img src="assets/mark.svg" alt="" width="22" height="22"><span class="wm" aria-hidden="true"></span></a>
+  <ul class="nav-links">
+    <li><a href="index.html">Home</a></li>
+    <li><a href="mods.html" aria-current="page">Mods</a></li>
+    <li><a href="releases.html">Releases</a></li>
+    <li><a href="community.html">Community</a></li>
+    <li><a href="docs.html">Docs</a></li>
+  </ul>
+  <button class="menu-btn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="sheet"><span></span><span></span></button>
+  <a class="btn sm" href="https://github.com/kaizensx/Atelier/releases/latest">Download<span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M6 11l6 6 6-6M5 20h14"/></svg></span></a>
+</header>
+<nav class="sheet" id="sheet" aria-label="Menu">
+  <a href="index.html">Home</a>
+  <a href="mods.html" aria-current="page">Mods</a>
+  <a href="releases.html">Releases</a>
+  <a href="community.html">Community</a>
+  <a href="docs.html">Docs</a>
+  <a href="https://github.com/kaizensx/Atelier" rel="noopener">GitHub</a>
+</nav>
+<main id="main">
+<section class="page-head">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow">Mods</span>
+      <h1 class="display" style="font-size:clamp(2.6rem,6vw,4.8rem)">Made by the community.</h1>
+      <p class="lead">Plugins add widgets, Dock tiles, commands and corner actions in sandboxed JavaScript. Themes restyle everything Atelier reaches, from one file. Every mod is reviewed in the open on GitHub.</p>
+    </div>
+  </div>
+</section>
+<section class="section tight" style="padding-top:0">
+  <div class="wrap">
+    <div class="notice" data-seed hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg><span><b>Preview catalog.</b> The community catalog opens with beta 2. These are the examples that ship with Atelier, shown the way shared mods will be.</span></div>
+    <div class="toolbar">
+      <label class="search"><span class="sr">Search mods</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg><input id="q" type="search" placeholder="Search mods, authors, tags" autocomplete="off" spellcheck="false"></label>
+      <div class="seg" role="group" aria-label="Kind">
+        <button type="button" data-kind="all" aria-pressed="true">All<span class="n">0</span></button>
+        <button type="button" data-kind="plugin" aria-pressed="false">Plugins<span class="n">0</span></button>
+        <button type="button" data-kind="theme" aria-pressed="false">Themes<span class="n">0</span></button>
+        <button type="button" data-kind="native" aria-pressed="false">Native<span class="n">0</span></button>
+      </div>
+      <span class="faint small tnum" data-count aria-live="polite"></span>
+    </div>
+    <div class="grid" data-grid><div class="skel" style="aspect-ratio:4/3"></div><div class="skel" style="aspect-ratio:4/3"></div><div class="skel" style="aspect-ratio:4/3"></div></div>
+  </div>
+</section>
+
+<section class="section" id="submit">
+  <div class="wrap">
+    <div class="head" data-reveal>
+      <span class="eyebrow">Share yours</span>
+      <h2 class="h2">Submit a mod.</h2>
+      <p class="lead">One folder, one pull request. A check validates it, a maintainer reads the code and tries it, and within minutes of the merge it is in everyone's Mods chapter.</p>
+    </div>
+    <div class="steps">
+      <div class="step shell" data-reveal data-stagger><div class="core card"><span class="num">1</span><h3>Make it and try it</h3><p>Drop your <code>.atelierplugin</code> or <code>.ateliertheme</code> on Themes & Plugins. Try a light setup and a dark one.</p></div></div>
+      <div class="step shell" data-reveal data-stagger><div class="core card"><span class="num">2</span><h3>Pick an id</h3><p>Reverse-DNS and yours, like <code>io.github.you.focus-ring</code>. It is permanent: updates follow it.</p></div></div>
+      <div class="step shell" data-reveal data-stagger><div class="core card"><span class="num">3</span><h3>Add the folder</h3><p><code>mod.json</code>, <code>description.md</code>, 1 to 6 screenshots and the package, in <code>mods/&lt;id&gt;/</code>.</p></div></div>
+      <div class="step shell" data-reveal data-stagger><div class="core card"><span class="num">4</span><h3>Open a pull request</h3><p>The Validate check lists anything to fix. Permissions must match what the script uses.</p></div></div>
+    </div>
+    <div class="btns" style="margin-top:28px" data-reveal>
+      <a class="btn" data-newmod href="https://github.com/kaizensx/atelier-mods/new/main">Start a mod.json<span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a>
+      <a class="btn ghost" href="https://github.com/kaizensx/atelier-mods/blob/main/CONTRIBUTING.md">Read the guide<span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a>
+      <a class="btn ghost" href="docs.html?doc=plugins">Plugin API<span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></a>
+    </div>
+  </div>
+</section>
+</main>
+<footer class="footer">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div style="display:grid;gap:16px;align-content:start">
+        <div class="lockup" role="img" aria-label="Atelier"></div>
+        <p class="faint small" style="max-width:22em">The Mac, made yours. A free, open-source studio for macOS.</p>
+      </div>
+      <div><h4>Atelier</h4><ul>
+        <li><a href="https://github.com/kaizensx/Atelier/releases/latest">Download</a></li>
+        <li><a href="releases.html">Releases</a></li>
+        <li><a href="docs.html?doc=features">Features</a></li>
+        <li><a href="docs.html?doc=compatibility">Compatibility</a></li>
+      </ul></div>
+      <div><h4>Community</h4><ul>
+        <li><a href="mods.html">Mods</a></li>
+        <li><a href="community.html">Issues and ideas</a></li>
+        <li><a href="docs.html?doc=contributing">Contributing</a></li>
+        <li><a href="https://github.com/kaizensx/Atelier/issues/new?template=bug_report.yml">Report a bug</a></li>
+      </ul></div>
+      <div><h4>Project</h4><ul>
+        <li><a href="https://github.com/kaizensx/Atelier">GitHub</a></li>
+        <li><a href="https://github.com/kaizensx/Atelier/blob/main/LICENSE">MIT licence</a></li>
+        <li><a href="docs.html?doc=security">Security</a></li>
+        <li><a href="https://github.com/kaizensx/atelier-mods">Mods catalog</a></li>
+      </ul></div>
+    </div>
+    <div class="foot-bottom"><span>© <span data-year>2026</span> Atelier contributors. MIT licence.</span><span>Not affiliated with Apple. macOS is a trademark of Apple Inc.</span></div>
+  </div>
+</footer>
+<script type="module">
+  const tpl = { id: "io.github.YOUR-HANDLE.your-mod", name: "Your Mod", author: "Your Name", github: "YOUR-HANDLE", version: "1.0.0", kind: "plugin", summary: "One or two sentences about what it does.", screenshots: [{ file: "screenshots/1.png", caption: "What the picture shows." }], permissions: [], minAtelier: "1.0.0", homepage: "https://github.com/YOUR-HANDLE/your-mod", license: "MIT", tags: [], changes: "First release." };
+  const a = document.querySelector("[data-newmod]");
+  a.href = `https://github.com/kaizensx/atelier-mods/new/main?filename=${encodeURIComponent("mods/io.github.YOUR-HANDLE.your-mod/mod.json")}&value=${encodeURIComponent(JSON.stringify(tpl, null, 2) + "\n")}`;
+</script>
+</body>
+</html>

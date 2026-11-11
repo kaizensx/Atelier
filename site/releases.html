@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#05080F" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F4F6FA" media="(prefers-color-scheme: light)">
+<meta property="og:site_name" content="Atelier">
+<meta property="og:image" content="https://kaizensx.github.io/Atelier/assets/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="assets/mark.svg" type="image/svg+xml">
+<link rel="icon" href="assets/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="stylesheet" href="assets/css/site.css">
+<script>document.documentElement.classList.add("js")</script>
+<script type="module" src="assets/js/app.js"></script>
+<title>Releases · Atelier</title>
+<meta name="description" content="Every Atelier release, beta and stable, with notes, downloads and checksums.">
+<meta property="og:title" content="Atelier Releases">
+<meta property="og:description" content="Every Atelier release, beta and stable, with notes, downloads and checksums.">
+</head>
+<body data-page="releases">
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav" aria-label="Site">
+  <a class="brand" href="index.html" aria-label="Atelier home"><img src="assets/mark.svg" alt="" width="22" height="22"><span class="wm" aria-hidden="true"></span></a>
+  <ul class="nav-links">
+    <li><a href="index.html">Home</a></li>
+    <li><a href="mods.html">Mods</a></li>
+    <li><a href="releases.html" aria-current="page">Releases</a></li>
+    <li><a href="community.html">Community</a></li>
+    <li><a href="docs.html">Docs</a></li>
+  </ul>
+  <button class="menu-btn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="sheet"><span></span><span></span></button>
+  <a class="btn sm" href="https://github.com/kaizensx/Atelier/releases/latest">Download<span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12M6 11l6 6 6-6M5 20h14"/></svg></span></a>
+</header>
+<nav class="sheet" id="sheet" aria-label="Menu">
+  <a href="index.html">Home</a>
+  <a href="mods.html">Mods</a>
+  <a href="releases.html" aria-current="page">Releases</a>
+  <a href="community.html">Community</a>
+  <a href="docs.html">Docs</a>
+  <a href="https://github.com/kaizensx/Atelier" rel="noopener">GitHub</a>
+</nav>
+<main id="main">
+<section class="page-head">
+  <div class="wrap">
+    <div class="head">
+      <span class="eyebrow">Releases</span>
+      <h1 class="display" style="font-size:clamp(2.6rem,6vw,4.8rem)">Beta first, always.</h1>
+      <p class="lead">Every version ships as a beta, runs on real Macs, and only then is the same code promoted to stable. Atelier updates itself from here, and checks every download's signature before it installs.</p>
+    </div>
+  </div>
+</section>
+<section class="section tight" style="padding-top:0">
+  <div class="wrap">
+    <div class="shell" data-reveal><div class="core channel">
+      <div><span class="dot"></span><h3>Test</h3><p>Built, signed and verified on the maintainer's Mac. Tests pass, the signature checks out, the app installs and runs.</p></div>
+      <div><span class="dot on"></span><h3>Beta</h3><p>Published as a pre-release. Macs on the Beta channel in Settings › Updates are offered it first.</p></div>
+      <div><span class="dot on" style="background:var(--ok);border-color:var(--ok)"></span><h3>Stable</h3><p>The same code, promoted once the beta has run well. If anything changed since, another beta comes first.</p></div>
+    </div></div>
+  </div>
+</section>
+<section class="section tight" style="padding-top:0">
+  <div class="wrap">
+    <div class="toolbar">
+      <div class="seg" role="group" aria-label="Channel" data-channel>
+        <button type="button" data-kind="all" aria-pressed="true">All</button>
+        <button type="button" data-kind="stable" aria-pressed="false">Stable</button>
+        <button type="button" data-kind="beta" aria-pressed="false">Beta</button>
+      </div>
+      <a class="link small" href="https://github.com/kaizensx/Atelier/releases.atom" style="margin-left:auto">Atom feed</a>
+    </div>
+    <div data-releases><div class="skel" style="height:320px"></div></div>
+  </div>
+</section>
+<section class="section tight">
+  <div class="wrap">
+    <div class="cols">
+      <div class="shell" data-reveal><div class="core card" style="display:grid;gap:10px">
+        <h2 class="h3" style="font-size:1.35rem">Checking a download by hand</h2>
+        <p class="muted small">Each release carries the zip, its Ed25519 signature and a SHA-256 checksum. Compare the checksum with:</p>
+        <div class="code"><pre><code>shasum -a 256 ~/Downloads/Atelier-*.zip</code></pre><button class="copy" type="button" aria-label="Copy command">Copy</button></div>
+      </div></div>
+      <div class="shell" data-reveal data-stagger><div class="core card" style="display:grid;gap:10px">
+        <h2 class="h3" style="font-size:1.35rem">Choose your channel</h2>
+        <p class="muted small">Open Settings › Updates in Atelier. Stable gets finished releases only. Beta gets every build first. Roll Back puts the previous version back in one click.</p>
+        <a class="more" href="docs.html?doc=releasing">How releases are made <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+      </div></div>
+    </div>
+  </div>
+</section>
+</main>
+<footer class="footer">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div style="display:grid;gap:16px;align-content:start">
+        <div class="lockup" role="img" aria-label="Atelier"></div>
+        <p class="faint small" style="max-width:22em">The Mac, made yours. A free, open-source studio for macOS.</p>
+      </div>
+      <div><h4>Atelier</h4><ul>
+        <li><a href="https://github.com/kaizensx/Atelier/releases/latest">Download</a></li>
+        <li><a href="releases.html">Releases</a></li>
+        <li><a href="docs.html?doc=features">Features</a></li>
+        <li><a href="docs.html?doc=compatibility">Compatibility</a></li>
+      </ul></div>
+      <div><h4>Community</h4><ul>
+        <li><a href="mods.html">Mods</a></li>
+        <li><a href="community.html">Issues and ideas</a></li>
+        <li><a href="docs.html?doc=contributing">Contributing</a></li>
+        <li><a href="https://github.com/kaizensx/Atelier/issues/new?template=bug_report.yml">Report a bug</a></li>
+      </ul></div>
+      <div><h4>Project</h4><ul>
+        <li><a href="https://github.com/kaizensx/Atelier">GitHub</a></li>
+        <li><a href="https://github.com/kaizensx/Atelier/blob/main/LICENSE">MIT licence</a></li>
+        <li><a href="docs.html?doc=security">Security</a></li>
+        <li><a href="https://github.com/kaizensx/atelier-mods">Mods catalog</a></li>
+      </ul></div>
+    </div>
+    <div class="foot-bottom"><span>© <span data-year>2026</span> Atelier contributors. MIT licence.</span><span>Not affiliated with Apple. macOS is a trademark of Apple Inc.</span></div>
+  </div>
+</footer>
+</body>
+</html>
