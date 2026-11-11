@@ -1,0 +1,11 @@
+name: Idea
+description: Something your Mac should be able to do.
+labels: [idea]
+body:
+  - type: textarea
+    id: idea
+    attributes: { label: The idea, description: "What should your Mac do that it can't today?" }
+    validations: { required: true }
+  - type: textarea
+    id: why
+    attributes: { label: Why it matters to you }

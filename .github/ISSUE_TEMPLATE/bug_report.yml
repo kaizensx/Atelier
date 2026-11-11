@@ -1,0 +1,22 @@
+name: Bug report
+description: Something in Atelier does not work as it should.
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes: { label: Atelier version, description: "Settings → Updates shows it.", placeholder: "1.0.0-beta.1" }
+    validations: { required: true }
+  - type: input
+    id: macos
+    attributes: { label: macOS version and Mac, placeholder: "macOS 27.3, MacBook Pro M5" }
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes: { label: What happened, description: "What you did, what you expected, what you saw." }
+    validations: { required: true }
+  - type: textarea
+    id: diag
+    attributes:
+      label: Diagnostics (optional)
+      description: "Run `open 'atelier://diag'` and paste $TMPDIR/atelier-diag.txt. Check it for anything you'd rather not share first."
+      render: text

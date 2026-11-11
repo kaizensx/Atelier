@@ -1,0 +1,21 @@
+# SwiftPM / build output
+.build/
+build/
+*.xcodeproj/
+.swiftpm/
+DerivedData/
+
+# Local-only material (prototypes, demo videos, private notes)
+_local/
+
+# Release staging and secrets
+dist/
+*.p8
+*.p12
+release-signing-key*
+.env
+
+# Huge render (published as a release asset instead)
+branding/icon/atelier-icon-8k.png
+
+.DS_Store

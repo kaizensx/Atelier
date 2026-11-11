@@ -1,0 +1,20 @@
+{
+  "$schema": "../../../docs/atelier-theme.schema.json",
+  "format": 1,
+  "id": "com.example.paper-studio",
+  "name": "Paper Studio",
+  "version": "1.0.0",
+  "author": "Atelier Examples",
+  "description": "Warm paper and serif type over a still mesh that follows the hour. No motion at all.",
+  "tags": ["light", "warm", "still", "example"],
+  "appearance": "light",
+  "colors": { "accent": "#C9733A", "secondary": "#8C6A4F", "glassTint": "#F3E7D3" },
+  "dock": { "style": "frost", "accent": "orange", "indicator": "bar", "roundness": 0.5, "padding": 0.12, "iconShadow": false },
+  "widgets": { "material": "frosted", "tint": "amber", "accent": "orange", "radius": 16, "font": "serif", "shadow": 0.15, "padding": 4 },
+  "menuBar": { "skin": "none" },
+  "wallpaper": { "mode": "mesh", "mesh": "dusk" },
+  "studio": { "backdrop": "paper", "accent": "#C9733A", "glow": 0.4, "tilt": false },
+  "icons": { "style": "default" },
+  "clock": { "show": true, "face": "serif" },
+  "effects": { "dockGlow": false }
+}

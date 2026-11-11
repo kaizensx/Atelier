@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "id": "com.example.random-palette",
+  "name": "Random Wallpaper Palette",
+  "version": "1.0.0",
+  "author": "Atelier Examples",
+  "description": "A command and a hot-corner action that give the live wallpaper, Dock and widgets a fresh, harmonious palette.",
+  "icon": "dice",
+  "entry": "main.js",
+  "permissions": ["appearance"]
+}

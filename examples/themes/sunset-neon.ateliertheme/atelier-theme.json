@@ -1,0 +1,38 @@
+{
+  "$schema": "../../../docs/atelier-theme.schema.json",
+  "format": 1,
+  "id": "com.example.sunset-neon",
+  "name": "Sunset Neon",
+  "version": "1.0.0",
+  "author": "Atelier Examples",
+  "description": "A neon grid under a striped sun. Hot pink edges, gradient widgets, a bold clock.",
+  "tags": ["dark", "pink", "retro", "example"],
+  "appearance": "dark",
+  "colors": { "accent": "#FF4FA3", "secondary": "#FF9F43", "glassTint": "#3A0F2E" },
+  "dock": {
+    "style": "neon",
+    "accent": "pink",
+    "indicator": "glow",
+    "roundness": 0.55,
+    "curve": "wave",
+    "launch": "pulse",
+    "reflection": true
+  },
+  "widgets": {
+    "material": "dark",
+    "tint": "pink",
+    "accent": "pink",
+    "radius": 18,
+    "font": "mono",
+    "border": 1,
+    "shadow": 0.5,
+    "gradient": { "from": "pink", "to": "orange", "angle": 135 }
+  },
+  "menuBar": { "skin": "sunset" },
+  "wallpaper": { "mode": "live", "shader": "retroHorizon", "palette": "natural", "speed": 1.1, "intensity": 0.65 },
+  "studio": { "backdrop": "ember", "accent": "rose", "glow": 0.65 },
+  "icons": { "style": "tinted", "mode": "dark", "tint": "#FF4FA3" },
+  "clock": { "show": true, "face": "bold" },
+  "effects": { "dockGlow": true, "dayLine": true },
+  "sounds": { "apply": "Funk", "focusEnd": "Hero" }
+}

@@ -1,0 +1,50 @@
+{
+  "$schema": "../../../docs/atelier-theme.schema.json",
+  "format": 1,
+  "id": "com.example.midnight-glass",
+  "name": "Midnight Glass",
+  "version": "1.0.0",
+  "author": "Atelier Examples",
+  "description": "Ink-blue Liquid Glass over a slow nebula, with a custom four-stop palette.",
+  "tags": ["dark", "blue", "example"],
+  "appearance": "dark",
+  "colors": {
+    "accent": "#8FB8FF",
+    "secondary": "#B49CFF",
+    "glassTint": "#1B2A55"
+  },
+  "dock": {
+    "style": "glass",
+    "accent": "#8FB8FF",
+    "indicator": "dot",
+    "roundness": 0.75,
+    "padding": 0.14,
+    "curve": "classic",
+    "iconShadow": true,
+    "reflection": true,
+    "followTheme": false
+  },
+  "widgets": {
+    "material": "glass",
+    "tint": "indigo",
+    "accent": "#8FB8FF",
+    "radius": 26,
+    "font": "system",
+    "shadow": 0.35
+  },
+  "menuBar": { "skin": "notchless" },
+  "wallpaper": {
+    "mode": "live",
+    "shader": "nebula",
+    "palette": ["#03040C", "#101A45", "#3B5FD9", "#D6E2FF"],
+    "speed": 0.7,
+    "intensity": 0.55,
+    "dim": 0.08,
+    "cycle": "night"
+  },
+  "studio": { "backdrop": "midnight", "accent": "#8FB8FF", "glow": 0.45 },
+  "icons": { "style": "clear", "mode": "dark" },
+  "clock": { "show": true, "face": "thin" },
+  "effects": { "dockGlow": false },
+  "sounds": { "apply": "Glass" }
+}

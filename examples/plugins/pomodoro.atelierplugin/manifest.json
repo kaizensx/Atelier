@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "id": "com.example.pomodoro",
+  "name": "Pomodoro",
+  "version": "1.0.0",
+  "author": "Atelier Examples",
+  "description": "A focus timer as a Dock tile, a widget, a command and a hot-corner action.",
+  "icon": "timer",
+  "entry": "main.js",
+  "permissions": ["notifications"]
+}
