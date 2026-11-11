@@ -831,15 +831,13 @@ final class DockAccessWatch: ObservableObject {
 
     /// Shows the system's prompt, then System Settings at Accessibility.
     func grantAccessibility() {
-        _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        }
+        // PermissionCenter: the prompt once, the pane, and the stale-entry help if it never lands.
+        PermissionCenter.shared.request(.accessibility)
         schedule()
     }
 
     func grantRecording() {
-        _ = CGRequestScreenCaptureAccess()
+        PermissionCenter.shared.request(.screenRecording)
         check()
         schedule()
     }

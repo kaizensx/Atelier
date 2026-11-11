@@ -31,6 +31,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // First: the one reader of Accessibility and Screen Recording that the features follow.
+        PermissionCenter.shared.start()
         WindowBorders.shared.resume()
         WebWallpaper.shared.resume()
         SpacesIndicator.shared.resume()
@@ -434,6 +436,14 @@ if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--export-icon"
     exit(0)
 }
 
+
+#if DEBUG
+// Offline renders of the Permissions sheet: fixed states only, nothing is asked of macOS.
+if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--render-permissions" {
+    PermissionRenders.run(into: URL(fileURLWithPath: CommandLine.arguments[2]))
+    exit(0)
+}
+#endif
 
 // Command line, for scripts and Shortcuts. Prints the stack path.
 if CommandLine.arguments.count >= 3 {

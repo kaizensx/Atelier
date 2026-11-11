@@ -90,6 +90,9 @@ struct HomeShelf: View {
         ZStack(alignment: .topLeading) {
             HomeReadings()
                 .offset(x: stage.maxX - 12 - HomeReadings.width, y: stage.minY + stage.width * MacStage.menuBarFraction + 10)
+            // While Accessibility or Screen Recording is missing: one press to the Permissions sheet.
+            PermissionsReminder()
+                .offset(x: stage.minX + 12, y: stage.minY + stage.width * MacStage.menuBarFraction + 10)
             HStack(alignment: .top, spacing: 16) {
                 ConstellationCounter(model: model)
                     .frame(width: Self.counterWidth, height: Self.tile.height, alignment: .topLeading)

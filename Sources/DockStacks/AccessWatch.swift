@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import DockCore
 import SwiftUI
 
 // MARK: - Accessibility, watched in one place
@@ -10,6 +11,8 @@ import SwiftUI
 // cards greyed out with no word why. Now one watcher reads the flag every two seconds while it
 // is missing (and every ten while it is there, to notice it going away), also on macOS's own
 // "the list changed" notification, and when it turns on it starts everything that was waiting.
+// The reading is PermissionCenter's (Permissions.swift); this keeps the published flag and the
+// fan-out, so every card that observes it is unchanged.
 // The switches stay usable without it: turning a feature on records the wish, and it starts
 // the moment the grant lands.
 
@@ -27,75 +30,42 @@ final class AccessWatch: ObservableObject {
     /// since macOS does not show the prompt again for an app it already lists.
     @Published private(set) var asked = false
 
-    /// Seconds between reads while missing, and while granted.
-    static let waitingInterval = 2.0
-    static let grantedInterval = 10.0
-
-    private var timer: Timer?
-    private var interval = 0.0
-    private var observers: [NSObjectProtocol] = []
+    /// Seconds between reads while missing, and while granted. The reading itself is
+    /// PermissionCenter's, which this follows.
+    static let waitingInterval = PermissionFlow.activeInterval
+    static let grantedInterval = PermissionFlow.idleInterval
 
     private init() {}
 
     /// Idempotent. Never prompts.
-    func start() {
-        guard observers.isEmpty else { return }
-        observers.append(DistributedNotificationCenter.default().addObserver(
-            forName: NSNotification.Name("com.apple.accessibility.api"), object: nil, queue: .main) { _ in
-            // The list changes a moment before the process's trust does.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { MainActor.assumeIsolated { AccessWatch.shared.check() } }
-        })
-        observers.append(NotificationCenter.default.addObserver(
-            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            // Coming back from System Settings.
-            MainActor.assumeIsolated { AccessWatch.shared.check() }
-        })
-        retime()
-    }
+    func start() { PermissionCenter.shared.start() }
 
     /// Reads the flag now; on a change, tells every feature.
-    func check() {
-        let now = AXIsProcessTrusted()
+    func check() { PermissionCenter.shared.check() }
+
+    /// From PermissionCenter on every read.
+    func sync(_ now: Bool) {
         guard now != trusted else { return }
         trusted = now
-        retime()
         fanOut(granted: now)
     }
 
-    /// The Grant button: the system prompt the first time, System Settings after that.
+    /// The Grant button: the system prompt (which puts Atelier in the list) and the
+    /// Accessibility pane; the pane alone after that.
     func grant() {
-        start()
-        if asked || trusted {
-            openSettings()
-        } else {
-            asked = true
-            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(options)
-        }
-        check()
+        if asked || trusted { openSettings() } else { PermissionCenter.shared.request(.accessibility) }
     }
 
     /// For the Window Engine's own button, which prompts itself.
-    func noteAsked() { asked = true }
-
-    func openSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        }
+    func noteAsked() {
+        asked = true
+        PermissionCenter.shared.noteRequested(.accessibility)
     }
 
-    private func retime() {
-        let wanted = trusted ? Self.grantedInterval : Self.waitingInterval
-        guard wanted != interval else { return }
-        interval = wanted
-        timer?.invalidate()
-        let next = Timer(timeInterval: wanted, repeats: true) { _ in
-            MainActor.assumeIsolated { AccessWatch.shared.check() }
-        }
-        next.tolerance = wanted * 0.1
-        RunLoop.main.add(next, forMode: .common)
-        timer = next
-    }
+    /// From PermissionCenter, when it shows the prompt or the pane.
+    func markAsked() { if !asked { asked = true } }
+
+    func openSettings() { PermissionCenter.shared.openPane(.accessibility) }
 
     /// Each feature starts what it holds back without access. Taps made before a revoke are
     /// made again, since macOS may leave them in place but deaf.

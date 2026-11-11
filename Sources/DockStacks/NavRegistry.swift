@@ -284,7 +284,8 @@ enum NavRegistry {
         },
         // Atelier
         NavItem(.system, "Settings", symbol: "gearshape", in: .atelier,
-                keywords: ["preferences", "studio look", "login", "clipboard history", "shortcuts", "uninstall", "remove everything",
+                keywords: ["preferences", "permissions", "accessibility", "screen recording", "privacy", "full disk access",
+                           "welcome", "studio look", "login", "clipboard history", "shortcuts", "uninstall", "remove everything",
                            "update", "updates", "version", "beta", "github", "release"]) {
             UpdatesCard()
             SystemChapter(model: $0)

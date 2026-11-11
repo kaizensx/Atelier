@@ -121,44 +121,31 @@ private final class ShellJob: @unchecked Sendable {
 final class ScreenCaptureAccess: ObservableObject {
     static let shared = ScreenCaptureAccess()
     @Published private(set) var granted = CGPreflightScreenCaptureAccess()
-    private var asked = false
-    private var timer: Timer?
 
     @discardableResult
     func refresh() -> Bool {
         let now = CGPreflightScreenCaptureAccess()
-        if now != granted { granted = now }
-        if now { timer?.invalidate(); timer = nil }
+        sync(now)
         return now
     }
 
-    /// Starts the 2 s re-check while access is missing. Stops by itself once it is granted.
+    /// The 2 s re-check while access is missing is PermissionCenter's.
     func watch() {
-        guard !refresh(), timer == nil else { return }
-        let timer = Timer(timeInterval: 2, repeats: true) { _ in
-            MainActor.assumeIsolated { _ = ScreenCaptureAccess.shared.refresh() }
-        }
-        timer.tolerance = 0.5
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
+        refresh()
+        PermissionCenter.shared.start()
     }
 
-    /// The system prompt the first time; after that macOS only lists Atelier in Settings, so
-    /// the Screen Recording pane opens instead.
+    /// From PermissionCenter on every read.
+    func sync(_ now: Bool) { if now != granted { granted = now } }
+
+    /// The system prompt the first time, which files Atelier under Screen & System Audio
+    /// Recording; then the Screen Recording pane.
     func request() {
         watch()
-        if !asked {
-            asked = true
-            if CGRequestScreenCaptureAccess() { refresh(); return }
-        }
-        openSettings()
+        PermissionCenter.shared.request(.screenRecording)
     }
 
-    func openSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-            NSWorkspace.shared.open(url)
-        }
-    }
+    func openSettings() { PermissionCenter.shared.openPane(.screenRecording) }
 }
 
 /// "Needs Screen Recording · Grant…", shown under a tool for as long as access is missing.

@@ -619,9 +619,8 @@ final class WindowEngine: ObservableObject {
     }
 
     func openAccessibilitySettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-        }
+        // PermissionCenter: the pane, and the stale-entry help if trust never lands.
+        PermissionCenter.shared.openPane(.accessibility)
     }
 
     func refreshTrust() {

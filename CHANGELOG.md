@@ -23,6 +23,9 @@ The first public build of Atelier.
 - Sound Mixer with a per-app equaliser, Title Bar Gestures, Notch-Free mode, HiDPI virtual
   displays and every hidden display mode.
 
+- A Permissions screen on first launch: what each permission unlocks, one button that puts Atelier
+  in the right macOS list, live status, and a step-by-step fix when macOS keeps a stale entry.
+
 **Fixed before launch** (from a full review and live tests in a macOS VM)
 - Atelier Dock: only the right app bounces; minimised windows fly into the Atelier Dock; hover
   previews never stick; window previews are on by default and fall back to icons and titles

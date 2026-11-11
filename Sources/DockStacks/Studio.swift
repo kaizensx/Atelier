@@ -271,6 +271,8 @@ struct StudioView: View {
         .ignoresSafeArea()
         .preferredColorScheme(.dark)
         .frame(minWidth: 1040, minHeight: 680)
+        // The first-launch Welcome and the Permissions sheet (Permissions.swift).
+        .modifier(PermissionsSheetHost())
         .onAppear {
             model.reload()
             // Room, stage and sidebar arrive once per launch; Reduce Motion makes it a 0.15 s fade.
@@ -1340,6 +1342,9 @@ struct SystemChapter: View {
 
     var body: some View {
         let hue = DS.Ink.accent
+        SectionHeader("Permissions", symbol: "lock.shield", detail: "What Atelier may reach on your Mac, and the switch for each.", hue: hue)
+        PermissionsCard()
+
         SectionHeader("Studio", symbol: "paintbrush.pointed", detail: "How Atelier's own window looks. Nothing here touches your Mac.", hue: hue)
         StudioLookCard()
         StudioIconCard()

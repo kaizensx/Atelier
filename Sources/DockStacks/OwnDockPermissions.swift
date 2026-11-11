@@ -9,6 +9,7 @@ import SwiftUI
 // granted (or taken away, by a re-sign) while Atelier runs. This polls the two flags every two
 // seconds while either is missing, every ten once both are there, and turns the dock's readers
 // and the minimise tap on the moment a grant lands, with no relaunch. Neither read ever asks.
+// The reading is PermissionCenter's (Permissions.swift); this keeps the published flags.
 
 @MainActor
 final class DockPermissions: ObservableObject {
@@ -17,62 +18,43 @@ final class DockPermissions: ObservableObject {
     @Published private(set) var trusted = AXIsProcessTrusted()
     @Published private(set) var screen = ScreenRecordingFlag.allowed
 
-    private var timer: Timer?
+    /// The dock is running: changes reach its readers and the minimise tap.
+    private var started = false
 
     func start() {
-        // The first check comes with the first tick, after the dock's own start-up (which
-        // turns the minimise tap on two seconds in).
-        guard timer == nil else { return }
-        schedule()
-    }
-
-    private func schedule() {
-        timer?.invalidate()
-        let interval = trusted && screen ? 10.0 : 2.0
-        let timer = Timer(timeInterval: interval, repeats: true) { _ in
-            MainActor.assumeIsolated { DockPermissions.shared.check() }
+        guard !started else { return }
+        started = true
+        PermissionCenter.shared.start()
+        // The first check comes two seconds in, after the dock's own start-up (which turns the
+        // minimise tap on two seconds in). Then every PermissionCenter read.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            MainActor.assumeIsolated { PermissionCenter.shared.check() }
         }
-        timer.tolerance = 0.5
-        RunLoop.main.add(timer, forMode: .common)
-        self.timer = timer
     }
 
     /// Reads both flags now; anything that changed is passed on at once.
-    func check() {
-        defer { if trusted { MinimizeRedirect.shared.ensureTap() } }
-        let nowTrusted = AXIsProcessTrusted()
-        let nowScreen = ScreenRecordingFlag.allowed
-        let changed = nowTrusted != trusted || nowScreen != screen
+    func check() { PermissionCenter.shared.check() }
+
+    /// From PermissionCenter on every read.
+    func sync(trusted nowTrusted: Bool, screen nowScreen: Bool) {
+        defer { if started && trusted { MinimizeRedirect.shared.ensureTap() } }
         let trustChanged = nowTrusted != trusted
-        if nowTrusted != trusted { trusted = nowTrusted }
+        let changed = trustChanged || nowScreen != screen
+        if trustChanged { trusted = nowTrusted }
         if nowScreen != screen { screen = nowScreen }
-        guard changed else { return }
+        guard changed, started else { return }
         if trustChanged {
             // The tap and the readers start (or stop) with the grant.
             MinimizeRedirect.shared.update()
         }
         OwnDock.shared.refresh()
-        schedule()
     }
 
     /// Shows the system prompt the first time, and the Accessibility list in System Settings.
-    func askAccessibility() {
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        if !AXIsProcessTrustedWithOptions(options) { open("Privacy_Accessibility") }
-        check()
-    }
+    func askAccessibility() { PermissionCenter.shared.request(.accessibility) }
 
     /// Shows the system prompt the first time, and the Screen Recording list in System Settings.
-    func askScreenRecording() {
-        if !CGRequestScreenCaptureAccess() { open("Privacy_ScreenCapture") }
-        check()
-    }
-
-    private func open(_ anchor: String) {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?" + anchor) {
-            NSWorkspace.shared.open(url)
-        }
-    }
+    func askScreenRecording() { PermissionCenter.shared.request(.screenRecording) }
 }
 
 /// "Needs Screen Recording" or "Needs Accessibility", with the button that asks. Goes away by
