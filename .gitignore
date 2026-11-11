@@ -19,3 +19,7 @@ release-signing-key*
 branding/icon/atelier-icon-8k.png
 
 .DS_Store
+
+# Private working notes for local tools
+CLAUDE.local.md
+.claude/
