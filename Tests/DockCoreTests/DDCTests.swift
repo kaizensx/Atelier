@@ -7,16 +7,20 @@ import Testing
 @Test func ddcGetRequestMatchesM1ddcBytes() {
     // m1ddc: 0x82 0x01 code, checksum 0x6E ^ 0x51 ^ the three bytes.
     let packet = DDCPacket.getRequest(0x10)
-    #expect(packet == [0x82, 0x01, 0x10, 0x6E ^ 0x51 ^ 0x82 ^ 0x01 ^ 0x10])
+    let expected: [UInt8] = [0x82, 0x01, 0x10, UInt8(0x6E ^ 0x51 ^ 0x82 ^ 0x01 ^ 0x10)]
+    #expect(packet == expected)
     #expect(packet.last == 0xAC)
     // MonitorControl's read seed: destination only.
     let legacy = DDCPacket.getRequest(0x10, seed: .destinationOnly)
-    #expect(legacy.last == UInt8(0x6E ^ 0x82 ^ 0x01 ^ 0x10))
+    let legacySum: UInt8 = 0x6E ^ 0x82 ^ 0x01 ^ 0x10
+    #expect(legacy.last == legacySum)
 }
 
 @Test func ddcSetRequestMatchesMonitorControlAndIntelFraming() {
     let packet = DDCPacket.setRequest(0x10, value: 0x0150)
-    #expect(packet == [0x84, 0x03, 0x10, 0x01, 0x50, 0x6E ^ 0x51 ^ 0x84 ^ 0x03 ^ 0x10 ^ 0x01 ^ 0x50])
+    let checksum: UInt8 = 0x6E ^ 0x51 ^ 0x84 ^ 0x03 ^ 0x10 ^ 0x01 ^ 0x50
+    let expected: [UInt8] = [0x84, 0x03, 0x10, 0x01, 0x50, checksum]
+    #expect(packet == expected)
     // IntelDDC prepends 0x51 and seeds with 0x6E alone: the same checksum byte.
     let framed = DDCPacket.framed(packet!)
     #expect(framed.first == 0x51)
