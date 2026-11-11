@@ -331,6 +331,33 @@ final class MinimizedWatcher {
     private var seen: [String: Int] = [:]
     private(set) var running = false
     private let queue = DispatchQueue(label: "atelier.dock.minimized", qos: .utility)
+    /// Windows Atelier is minimising right now, on the bar before their app reports them, so
+    /// the bar makes room for the tile while the effect is still flying into it.
+    private var expected: [String: (window: MinimizedWindow, until: Date)] = [:]
+
+    /// A window Atelier is about to minimise gets its tile at once, under the id the app's
+    /// own report will give it, so nothing moves when that report comes.
+    func expect(_ ref: AXRef, pid: pid_t, title: String) {
+        guard running, let path = paths[pid] else { return }
+        let id = MinimizeHandoff.tileID(pid: pid, key: CFHash(ref.element))
+        if seen[id] == nil { counter += 1; seen[id] = counter }
+        let window = MinimizedWindow(id: id, pid: pid, title: title.isEmpty ? "Untitled" : title, appPath: path, ref: ref,
+                                     since: seen[id] ?? 0)
+        expected[id] = (window, Date().addingTimeInterval(3))
+        var list = perApp[pid] ?? []
+        guard !list.contains(where: { $0.id == id }) else { return }
+        list.append(window)
+        perApp[pid] = list
+        rebuild()
+        // Dropped again if the app never reports it minimised.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.1) { [weak self] in self?.dirty(pid) }
+    }
+
+    /// The minimise did not happen: the tile goes.
+    func unexpect(_ ref: AXRef, pid: pid_t) {
+        expected[MinimizeHandoff.tileID(pid: pid, key: CFHash(ref.element))] = nil
+        dirty(pid)
+    }
 
     func start(_ apps: [NSRunningApplication]) {
         guard !running, AXIsProcessTrusted() else { return }
@@ -348,6 +375,7 @@ final class MinimizedWatcher {
         perApp = [:]
         paths = [:]
         primed = []
+        expected = [:]
         if !windows.isEmpty {
             windows = []
             changed?()
@@ -423,11 +451,15 @@ final class MinimizedWatcher {
 
     private func apply(_ pid: pid_t, _ found: [DockAX.Window]) {
         guard let path = paths[pid] else { return }
-        let list = found.map { window -> MinimizedWindow in
-            let id = "min:\(pid):\(window.key)"
+        var list = found.map { window -> MinimizedWindow in
+            let id = MinimizeHandoff.tileID(pid: pid, key: window.key)
             if seen[id] == nil { counter += 1; seen[id] = counter }
             return MinimizedWindow(id: id, pid: pid, title: window.title, appPath: path, ref: window.ref, since: seen[id] ?? 0)
         }
+        // A window Atelier is minimising keeps its tile until the app reports it, or a while.
+        let moment = Date()
+        expected = expected.filter { $0.value.until > moment && !list.map(\.id).contains($0.key) }
+        for entry in expected.values where entry.window.pid == pid { list.append(entry.window) }
         // Read once: from now on a newly minimised window is one minimised since.
         let wasPrimed = !primed.insert(pid).inserted
         guard list != (perApp[pid] ?? []) else { return }

@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import ApplicationServices
 import DockCore
 import QuartzCore
@@ -14,13 +15,20 @@ import ScreenCaptureKit
 //   2. a picture of the window plays the minimise effect into the Atelier Dock's tile (Genie,
 //      Scale or Suck as macOS is set, or one of Atelier's own), drawn by Atelier at display rate
 //      (OwnDockMinimizeEffects.swift, meshes from DockCore's MinimizeEffects);
-//   3. the real window, hidden under the effect's first frame, is parked against the edge the
-//      hidden macOS Dock is on and minimised there through Accessibility. macOS still animates
-//      it to that Dock, and AppKit never lets a window leave the screen entirely (its title bar
-//      stays on), so a still picture of that edge, the Veil, lies over it just under the Atelier
-//      Dock while the system's animation runs: it is never seen;
-//   4. coming back, the same in reverse: the window returns to where it was parked, under the
-//      Veil, the effect plays out of the tile and the window takes its frame under its last frame.
+//   3. the real window, hidden under the effect's first frame, is parked at its own size against
+//      the edge the hidden macOS Dock is on and minimised there through Accessibility. macOS
+//      still animates it to that Dock, and no window can leave the screen entirely (its app
+//      keeps the title bar on), so the hidden Dock is set to Scale while replaced (SystemDock):
+//      the system's animation then only slides along the edge, a title bar high, for a fifth of
+//      a second, and the Veil, a picture of that strip taken just before, covers it from just
+//      under the Atelier Dock. Measured in recordings, the numbers are in DockCore's
+//      MinimizeHandoff;
+//   4. coming back, the effect leaves the tile at once; the window stays minimised until the
+//      system's short return to the parked spot can finish under the Veil just before the
+//      effect's last frame, then takes its frame under that frame. Never seen at the edge.
+//
+// The effect aims at the tile as the bar draws it each frame: the window's own tile (the bar
+// makes room for it as the minimise starts) or the app's tile.
 //
 // A window brought back another way (its app's Window menu, Mission Control) comes back to the
 // parked spot, and the effect brings it out from there. One minimised through its app's Window
@@ -36,6 +44,17 @@ final class MinimizeRedirect {
     private var busy: Set<UInt> = []
     /// The last thing that happened, for atelier://diag.
     var note = "idle"
+
+    /// For atelier://diag: the last thing that happened, and where each held window's tile is
+    /// (its centre, top-left based like a click), so a test can click it.
+    var diagnostics: String {
+        let tiles = saved.values.compactMap { entry -> String? in
+            guard let rect = tile(for: entry.window, path: entry.path) else { return nil }
+            let screen = NSScreen.screens.first?.frame.height ?? 0
+            return "\(Int(rect.midX)),\(Int(screen - rect.midY))"
+        }
+        return note + " tiles=" + (tiles.isEmpty ? "-" : tiles.joined(separator: ";"))
+    }
 
     /// The tap is on.
     var active: Bool { tapOn || !saved.isEmpty }
@@ -141,10 +160,25 @@ final class MinimizeRedirect {
         MinimizeEdge(rawValue: OwnDock.shared.stage.scene.edge.rawValue) ?? .bottom
     }
 
+    /// The tile a window goes into or comes out of, as the bar draws it right now: the
+    /// window's own tile when the bar shows minimised windows, else its app's tile. The
+    /// effect asks again every frame, so it lands where the tile is, even while the bar
+    /// is still making room for it.
+    private func tile(for window: AXUIElement, path: String?) -> CGRect? {
+        if OwnDock.shared.showsMinimizedWindows, let rect = OwnDock.shared.tileRect(id: Self.tileID(window)) { return rect }
+        return OwnDock.shared.minimizeTarget(appPath: path)
+    }
+
+    static func tileID(_ window: AXUIElement) -> String {
+        var pid: pid_t = 0
+        AXUIElementGetPid(window, &pid)
+        return MinimizeHandoff.tileID(pid: pid, key: CFHash(window))
+    }
+
     private func minimize(_ window: AXUIElement, slow: Bool = false) {
         let key = CFHash(window)
         let path = Self.appPath(window)
-        guard !busy.contains(key), let frame = Self.frame(window), let target = OwnDock.shared.minimizeTarget(appPath: path) else {
+        guard !busy.contains(key), let frame = Self.frame(window), let target = tile(for: window, path: path) else {
             note = "minimize fallback: frame=\(Self.frame(window) != nil) target=\(OwnDock.shared.minimizeTarget(appPath: path) != nil)"
             Self.setMinimized(window, true)
             return
@@ -154,73 +188,93 @@ final class MinimizeRedirect {
         let t0 = CACurrentMediaTime()
         let effect = MinimizeEffectSetting.current
         let ref = AXRef(element: window)
+        var pid: pid_t = 0
+        AXUIElementGetPid(window, &pid)
+        // The bar makes room for the window's tile now, as the macOS Dock does, so the effect
+        // flies into the tile where it will be, not where the last tile was.
+        if OwnDock.shared.showsMinimizedWindows {
+            MinimizedWatcher.shared.expect(ref, pid: pid, title: DockAX.attribute(window, kAXTitleAttribute) as? String ?? "")
+        }
         Task { @MainActor in
             // Both pictures at once: the window, and the edge without it (for the Veil).
             async let picture = Self.picture(ref.element, frame: frame)
-            async let covering = Veil.make(target: target, excluding: ref.element)
+            async let covering = Veil.make(near: target, excluding: ref.element)
             let image = await picture
             let t1 = CACurrentMediaTime()
             note = "minimize: captured \(image != nil)"
-            guard let image, let overlay = MinimizeOverlay(image: image, window: Self.cocoa(frame), tile: target,
-                                                           effect: effect, edge: dockEdge) else {
+            guard let image, let overlay = MinimizeOverlay(image: image, window: Self.cocoa(frame), tile: target, effect: effect,
+                                                           edge: dockEdge, track: { self.tile(for: ref.element, path: path) }) else {
                 // No picture (Screen Recording is off): the window flies into the Atelier Dock
                 // itself, then is minimised there. Never the full genie to the hidden Dock.
                 saved[key] = (frame, image, window, path)
-                await Self.shrink(window, from: frame, onto: target)
+                let veil = await covering
+                await Self.shrink(window, from: frame, onto: target, veil: veil)
                 note = "minimized: shrunk without a picture (screen recording \(ScreenRecordingFlag.allowed))"
                 busy.remove(key)
                 return
             }
             saved[key] = (frame, image, window, path)
-            // macOS still animates the real window to the hidden macOS Dock, and no window can be
-            // moved fully off screen (AppKit keeps its title bar on the screen). So the window is
-            // parked against that edge, where only a sliver of it shows, and a still picture of
-            // the edge, taken without the window and without Atelier's own panels, is laid over
-            // it just under the Atelier Dock: the system's animation runs beneath it, unseen,
-            // while the Atelier Dock above stays live.
+            // macOS still animates the real window to the hidden macOS Dock. It is parked at its
+            // own size against that edge, where its app keeps only the title bar on screen, and
+            // the hidden Dock is set to Scale, so the system's animation slides along the edge
+            // for a fifth of a second. The Veil, a picture of that strip just taken, lies over it
+            // just under the Atelier Dock, which stays live above.
             let veil = await covering
             // The effect's first frame covers the window exactly before the window moves.
             overlay.show(progress: 0)
             veil?.show()
-            try? await Task.sleep(for: .milliseconds(24))
+            try? await Task.sleep(for: .milliseconds(MinimizeHandoff.veilSettle))
             let t2 = CACurrentMediaTime()
-            Self.setFrame(window, Self.parkRect(target: target))
+            Self.setFrame(window, Self.parkRect(window: frame.size, target: target))
             let result = AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
-            note = "minimize: set minimized \(result.rawValue)"
+            guard result == .success else {
+                // The app refused: the window goes back where it was, as if nothing happened.
+                Self.setFrame(window, frame)
+                overlay.close()
+                veil?.hide(after: 0)
+                saved[key] = nil
+                MinimizedWatcher.shared.unexpect(ref, pid: pid)
+                busy.remove(key)
+                note = "minimize refused (\(result.rawValue)): left as it was"
+                return
+            }
+            // The Veil covers the system's animation only, never the whole effect (slow motion).
+            veil?.hide(after: MinimizeHandoff.systemAnimation)
             await overlay.play(restoring: false, slow: slow)
             overlay.close()
-            // The system's animation lasts about half a second from the minimise.
-            veil?.hide(after: max(0.62 - (CACurrentMediaTime() - t2), 0.05))
-            note = String(format: "minimized (%@): window picture %.0f ms, veil %.0f ms, effect %.0f ms", effect.rawValue,
-                          (t1 - t0) * 1000, (t2 - t1) * 1000, (CACurrentMediaTime() - t2) * 1000)
+            note = String(format: "minimized (%@%@): window picture %.0f ms, veil %.0f ms, effect %.0f ms", effect.rawValue,
+                          slow ? ", slow" : "", (t1 - t0) * 1000, (t2 - t1) * 1000, (CACurrentMediaTime() - t2) * 1000)
             busy.remove(key)
         }
     }
 
-    /// Where a window waits while minimised: as small as the app allows, against the edge the
-    /// hidden macOS Dock is on, level with the Atelier Dock's slot. Accessibility coordinates.
-    static func parkRect(target: CGRect) -> CGRect {
+    /// Where a window waits while minimised: at its own size, against the edge the hidden
+    /// macOS Dock is on, level with the Atelier Dock's slot. Accessibility coordinates.
+    static func parkRect(window size: CGSize, target: CGRect) -> CGRect {
         let slotScreen = NSScreen.screens.first { $0.frame.intersects(target) } ?? NSScreen.screens.first
-        return DockCompat.parkRect(target: ax(target), screen: ax(slotScreen?.frame ?? target), edge: systemEdge)
+        return MinimizeHandoff.parkRect(window: size, target: ax(target), screen: ax(slotScreen?.frame ?? target), edge: systemEdge)
     }
 
     /// Moves and shrinks the window onto the slot a few frames at a time, parks it against
     /// the hidden Dock's edge and minimises it there. Accessibility only.
-    private static func shrink(_ window: AXUIElement, from frame: CGRect, onto target: CGRect) async {
+    private static func shrink(_ window: AXUIElement, from frame: CGRect, onto target: CGRect, veil: Veil?) async {
         let slot = ax(target)
         for step in OwnDockMinimizeShrink.frames(from: frame, to: OwnDockMinimizeShrink.aim(slot: slot)) {
             setFrame(window, step)
             try? await Task.sleep(for: .milliseconds(16))
         }
-        setFrame(window, parkRect(target: target))
+        veil?.show()
+        try? await Task.sleep(for: .milliseconds(MinimizeHandoff.veilSettle))
+        setFrame(window, parkRect(window: frame.size, target: target))
         setMinimized(window, true)
+        veil?.hide(after: MinimizeHandoff.systemAnimation)
     }
 
     /// From the Atelier Dock's window tile. Returns false when Atelier did not shrink this
-    /// window, and the dock restores it the ordinary way.
-    func restore(_ window: AXUIElement) -> Bool {
+    /// window, and the dock restores it the ordinary way. Shift held is slow motion.
+    func restore(_ window: AXUIElement, slow: Bool = false) -> Bool {
         let key = CFHash(window)
-        guard let entry = saved[key], let target = OwnDock.shared.minimizeTarget(appPath: entry.path) else {
+        guard let entry = saved[key], let start = tile(for: window, path: entry.path) else {
             note = "restore: not held (\(saved.count) held)"
             return false
         }
@@ -228,48 +282,83 @@ final class MinimizeRedirect {
         guard !busy.contains(key) else { return true }
         busy.insert(key)
         let effect = MinimizeEffectSetting.current
+        let path = entry.path
         Task { @MainActor in
-            // The window comes back first to where it was parked, under the veil, so the
-            // system's animation from the hidden Dock is never seen; then the effect brings
-            // the picture out of the tile and the window takes its frame under it.
-            let overlay = entry.image.flatMap { MinimizeOverlay(image: $0, window: Self.cocoa(entry.frame), tile: target,
-                                                                effect: effect, edge: dockEdge) }
-            overlay?.show(progress: 1)
-            let veil = await Veil.make(target: target, excluding: nil)
-            veil?.show()
-            try? await Task.sleep(for: .milliseconds(24))
-            let t0 = CACurrentMediaTime()
-            Self.setMinimized(window, false)
-            if let overlay {
-                await overlay.play(restoring: true, slow: false)
-            } else {
-                // No picture to fly: wait for the system's return to finish under the veil.
-                try? await Task.sleep(for: .milliseconds(veil == nil ? 0 : 520))
+            // The effect starts at once from the tile. The real window stays minimised and parked
+            // until the system's short return to the parked spot can just finish under the
+            // Veil before the effect's last frame; then it takes its frame under that frame.
+            let overlay = entry.image.flatMap {
+                MinimizeOverlay(image: $0, window: Self.cocoa(entry.frame), tile: start, effect: effect, edge: dockEdge,
+                                track: { self.tile(for: window, path: path) })
             }
-            Self.setFrame(window, entry.frame)
+            let t0 = CACurrentMediaTime()
+            var veil: Veil?
+            var called = t0
+            if let overlay {
+                overlay.show(progress: 1)
+                let call = MinimizeHandoff.restoreCall(duration: MinimizeTiming.duration(effect, restoring: true, slow: slow))
+                async let played: Void = overlay.play(restoring: true, slow: slow)
+                // The Veil's picture is taken just before it is needed, never seconds before.
+                let lead = call - 0.1 - (CACurrentMediaTime() - t0)
+                if lead > 0 { try? await Task.sleep(for: .seconds(lead)) }
+                veil = await Veil.make(near: start, excluding: nil)
+                veil?.show()
+                try? await Task.sleep(for: .milliseconds(MinimizeHandoff.veilSettle))
+                let wait = call - (CACurrentMediaTime() - t0)
+                if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+                called = CACurrentMediaTime()
+                Self.setMinimized(window, false)
+                await played
+                // The effect holds its last frame until the system's return is surely over.
+                let settle = MinimizeHandoff.systemArrival - (CACurrentMediaTime() - called)
+                if settle > 0 { try? await Task.sleep(for: .seconds(settle)) }
+                Self.setFrame(window, entry.frame)
+            } else {
+                // No picture to fly: the real window comes back under the Veil and flies out of
+                // the slot itself, a few frames, Accessibility only.
+                veil = await Veil.make(near: start, excluding: nil)
+                veil?.show()
+                try? await Task.sleep(for: .milliseconds(MinimizeHandoff.veilSettle))
+                called = CACurrentMediaTime()
+                Self.setMinimized(window, false)
+                try? await Task.sleep(for: .seconds(MinimizeHandoff.systemArrival))
+                let aim = OwnDockMinimizeShrink.aim(slot: Self.ax(start))
+                for step in OwnDockMinimizeShrink.frames(from: aim, to: entry.frame) {
+                    Self.setFrame(window, step)
+                    try? await Task.sleep(for: .milliseconds(16))
+                }
+            }
             AXUIElementPerformAction(window, kAXRaiseAction as CFString)
             var pid: pid_t = 0
             AXUIElementGetPid(window, &pid)
             NSRunningApplication(processIdentifier: pid)?.activate()
             // The window draws at its frame under the last frame of the effect, then both go.
             overlay?.close(after: 0.07)
-            veil?.hide(after: max(0.62 - (CACurrentMediaTime() - t0), 0.07))
+            veil?.hide(after: MinimizeHandoff.veilHold(since: CACurrentMediaTime() - called))
             saved[key] = nil
             busy.remove(key)
-            note = "restored (\(effect.rawValue)) picture=\(entry.image != nil) veil=\(veil != nil)"
+            note = String(format: "restored (%@%@) picture=%@ veil=%@ in %.0f ms", effect.rawValue, slow ? ", slow" : "",
+                          entry.image != nil ? "yes" : "no", veil != nil ? "yes" : "no", (CACurrentMediaTime() - t0) * 1000)
         }
         return true
     }
 
+    /// Whether Atelier holds this window minimised, so its tile brings it back with the effect.
+    func holds(_ window: AXUIElement) -> Bool { saved[CFHash(window)] != nil }
+
     /// The app's tile was clicked. When every window it has on screen is one Atelier shrank,
     /// the newest comes back with the flight. Returns false when there is none.
-    func restoreNewest(appPath: String) -> Bool {
-        guard let entry = saved.values.filter({ $0.path == appPath }).last else { return false }
+    func restoreNewest(appPath: String, slow: Bool = false) -> Bool {
+        let held = saved.filter { $0.value.path == appPath }
+        guard let first = held.first else { return false }
         var pid: pid_t = 0
-        AXUIElementGetPid(entry.window, &pid)
+        AXUIElementGetPid(first.value.window, &pid)
         let shown = DockAX.windows(pid).contains { !$0.minimized }
         guard !shown else { return false }
-        return restore(entry.window)
+        // The newest is the one minimised last: the highest tile order the watcher gave it.
+        let order = Dictionary(MinimizedWatcher.shared.windows.map { ($0.id, $0.since) }, uniquingKeysWith: max)
+        let newest = held.max { (order[Self.tileID($0.value.window)] ?? 0) < (order[Self.tileID($1.value.window)] ?? 0) }
+        return restore((newest ?? first).value.window, slow: slow)
     }
 
     /// The watcher saw these windows come back some other way (the app's Window menu, Mission
@@ -279,24 +368,27 @@ final class MinimizeRedirect {
         for ref in windows {
             let key = CFHash(ref.element)
             guard !busy.contains(key), let entry = saved.removeValue(forKey: key) else { continue }
-            guard let image = entry.image, let target = OwnDock.shared.minimizeTarget(appPath: entry.path),
-                  let overlay = MinimizeOverlay(image: image, window: Self.cocoa(entry.frame), tile: target,
-                                                effect: MinimizeEffectSetting.current, edge: dockEdge) else {
+            let path = entry.path
+            guard let image = entry.image, let start = tile(for: ref.element, path: path),
+                  let overlay = MinimizeOverlay(image: image, window: Self.cocoa(entry.frame), tile: start,
+                                                effect: MinimizeEffectSetting.current, edge: dockEdge,
+                                                track: { self.tile(for: ref.element, path: path) }) else {
                 Self.setFrame(ref.element, entry.frame)
                 continue
             }
             busy.insert(key)
-            // The effect starts at once; the veil joins it as soon as its picture is taken.
+            // The effect starts at once; the Veil joins it over the parked title bar as soon as
+            // its picture is taken.
             overlay.show(progress: 1)
             Task { @MainActor in
-                async let covering = Veil.make(target: target, excluding: ref.element)
+                async let covering = Veil.make(near: start, excluding: ref.element)
                 async let played: Void = overlay.play(restoring: true, slow: false)
                 let veil = await covering
                 veil?.show()
                 await played
                 Self.setFrame(ref.element, entry.frame)
                 overlay.close(after: 0.07)
-                veil?.hide(after: 0.1)
+                veil?.hide(after: 0.05)
                 busy.remove(key)
                 note = "restored elsewhere with the effect"
             }
@@ -319,7 +411,7 @@ final class MinimizeRedirect {
                 // A minimised window still has its pixels: the picture is of it as it was.
                 let image = await Self.picture(minimized: ref.element, frame: frame)
                 saved[key] = (frame, image, ref.element, path)
-                Self.setFrame(ref.element, Self.parkRect(target: target))
+                Self.setFrame(ref.element, Self.parkRect(window: frame.size, target: target))
                 busy.remove(key)
                 note = "adopted a window minimised elsewhere, picture=\(image != nil)"
             }
@@ -371,22 +463,16 @@ final class MinimizeRedirect {
 
     static func ax(_ rect: CGRect) -> CGRect { cocoa(rect) }
 
-    /// The bottom of the screen the genie crosses: full width, from the bottom edge to a little
-    /// above the dock's slot. Cocoa coordinates.
-    static func coverBand(target: CGRect) -> CGRect {
-        let screen = NSScreen.screens.first { $0.frame.intersects(target) } ?? NSScreen.screens.first
-        // The parked window shows a title bar's height at the edge and the genie bulges a little
-        // above it: a band reaching just past the Atelier Dock's slot covers all of it.
-        return DockCompat.coverBand(target: target, screen: screen?.frame ?? .zero, edge: systemEdge, minimum: 170)
-    }
-
     /// The edge the hidden macOS Dock is on, which is where the system's genie always goes.
     static var systemEdge: DockCompat.Edge {
         DockCompat.edge(orientation: CFPreferencesCopyAppValue("orientation" as CFString, SystemDockPlan.domain as CFString) as? String)
     }
 
-    /// A picture of part of the screen with one window, and Atelier's own panels, left out.
-    static func picture(of rect: CGRect, excluding window: AXUIElement?) async -> CGImage? {
+    /// How to take pictures of part of the screen as it looks under a window at `level`: the
+    /// windows shown now, but one (the window going away) and Atelier's own panels at that
+    /// level or above (the dock, the effect, the Veil itself). Atelier's panels below it
+    /// (wallpapers, dimming, borders) stay in, or they would blink. Nil without Screen Recording.
+    static func capture(of rect: CGRect, excluding window: AXUIElement?, level: Int) async -> (SCContentFilter, SCStreamConfiguration)? {
         guard CGPreflightScreenCaptureAccess(),
               let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
               let screen = NSScreen.screens.first(where: { $0.frame.intersects(rect) }),
@@ -394,9 +480,13 @@ final class MinimizeRedirect {
               let display = content.displays.first(where: { $0.displayID == number }) else { return nil }
         let id = window.flatMap { DockAX.windowID(AXRef(element: $0)) }
         let me = ProcessInfo.processInfo.processIdentifier
-        // Atelier's panels (the dock above all) stay live over the picture, so they are not in it.
-        let left = content.windows.filter { $0.windowID == id || $0.owningApplication?.processID == me }
-        let filter = SCContentFilter(display: display, excludingWindows: left)
+        let going = window.flatMap { Self.frame($0) } ?? .null
+        let kept = content.windows.filter {
+            !MinimizeHandoff.leftOutOfVeil(own: $0.owningApplication?.processID == me, layer: $0.windowLayer, veilLevel: level,
+                                           isMinimising: id != nil && $0.windowID == id, frame: $0.frame, minimising: going)
+        }
+        // The windows there now, by name: the Veil, made after, is never in its own picture.
+        let filter = SCContentFilter(display: display, including: kept)
         let config = SCStreamConfiguration()
         let scale = screen.backingScaleFactor
         // sourceRect is in the display's own points, top-left based.
@@ -404,7 +494,7 @@ final class MinimizeRedirect {
         config.width = Int(rect.width * scale)
         config.height = Int(rect.height * scale)
         config.showsCursor = false
-        return try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+        return (filter, config)
     }
 
     /// A picture of a window that is already minimised: the window server keeps its pixels.
@@ -585,46 +675,130 @@ final class MinimizeTap: @unchecked Sendable {
 }
 
 
-/// A still picture of the screen's edge the hidden macOS Dock is on, laid over the system's own
-/// minimise animation while it runs. It sits just under the Atelier Dock's level: the system
-/// animates the real window at its own level, so it runs beneath the veil, unseen, while the
-/// Atelier Dock and Atelier's effect stay live above it. The picture leaves out Atelier's own
-/// panels for the same reason, and the window being minimised.
+/// A picture of the strip along the edge the hidden macOS Dock is on, laid over the system's
+/// own minimise animation while it runs. It sits just under the Atelier Dock's level: the
+/// system animates the real window at its own level, so it runs beneath the Veil, unseen,
+/// while the Atelier Dock and Atelier's effect stay live above it. Only that strip is covered,
+/// for the fifth of a second the animation takes, and the picture is not a still: a capture
+/// stream of every window but the one going away plays in it, a frame behind the screen, so
+/// what lies under it (a window dimming as focus moves, a video) keeps moving and nothing
+/// jumps when it goes. A still taken just before covers the moment the stream starts.
 @MainActor
 final class Veil {
+    static var level: Int { Int(CGWindowLevelForKey(.dockWindow)) - 1 }
     private let panel: NSPanel
+    fileprivate let feed: VeilFeed
 
-    private init(image: CGImage, rect: CGRect) {
+    private init(image: CGImage, rect: CGRect, screen: NSScreen?, filter: SCContentFilter, config: SCStreamConfiguration) {
         panel = NSPanel(contentRect: rect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.isOpaque = true
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.ignoresMouseEvents = true
         panel.animationBehavior = .none
         panel.isReleasedWhenClosed = false
-        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.dockWindow)) - 1)
+        panel.alphaValue = 0
+        panel.level = NSWindow.Level(rawValue: Self.level)
         panel.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle, .fullScreenAuxiliary]
+        // The picture is drawn as the screen draws its pixels, one for one.
+        if let space = screen?.colorSpace { panel.colorSpace = space }
         let view = NSView(frame: NSRect(origin: .zero, size: rect.size))
         view.wantsLayer = true
         view.layer?.contents = image
         view.layer?.contentsGravity = .resize
+        view.layer?.contentsScale = screen?.backingScaleFactor ?? 2
+        feed = VeilFeed(filter: filter, config: config)
+        feed.layer.frame = view.bounds
+        feed.layer.videoGravity = .resize
+        view.layer?.addSublayer(feed.layer)
         panel.contentView = view
+        panel.setFrame(rect, display: false)
     }
 
-    /// The band the system's animation can reach, from the edge to past the parked window's
-    /// sliver and the bulge of the genie. Nil without Screen Recording.
-    static func make(target: CGRect, excluding window: AXUIElement?) async -> Veil? {
-        let band = MinimizeRedirect.coverBand(target: target)
-        guard let image = await MinimizeRedirect.picture(of: band, excluding: window) else { return nil }
-        return Veil(image: image, rect: band)
+    /// The strip along the hidden Dock's edge of the screen `target` is on, its first picture
+    /// taken. Nil without Screen Recording.
+    static func make(near target: CGRect, excluding window: AXUIElement?) async -> Veil? {
+        // Off only for recordings that compare with and without it.
+        guard UserDefaults.standard.object(forKey: "ownDock.minimizeVeil") as? Bool ?? true else { return nil }
+        let screen = NSScreen.screens.first { $0.frame.intersects(target) } ?? NSScreen.screens.first
+        guard let screen else { return nil }
+        let strip = MinimizeHandoff.veilStrip(screen: screen.frame, edge: MinimizeRedirect.systemEdge)
+        guard let (filter, config) = await MinimizeRedirect.capture(of: strip, excluding: window, level: level),
+              let image = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config) else { return nil }
+        let veil = Veil(image: image, rect: strip, screen: screen, filter: filter, config: config)
+        // The stream starts now, while the Veil is still clear, so it is live when it shows.
+        veil.feed.start()
+        return veil
     }
 
-    func show() { panel.orderFrontRegardless() }
+    /// At once: its first picture was taken a moment ago, so it matches what it lies on, and
+    /// the window may move under it a frame later. Its stream, started when it was made, is
+    /// live by then.
+    func show() {
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+        feed.start()
+    }
 
     func hide(after delay: Double) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [panel] in
-            panel.orderOut(nil)
-            panel.close()
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [self] in
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = MinimizeHandoff.veilFade
+                panel.animator().alphaValue = 0
+            }, completionHandler: {
+                MainActor.assumeIsolated {
+                    self.feed.stop()
+                    self.panel.orderOut(nil)
+                    self.panel.close()
+                }
+            })
         }
+    }
+}
+
+/// The Veil's capture stream: frames go straight from the capture queue to a display layer.
+final class VeilFeed: NSObject, SCStreamOutput, @unchecked Sendable {
+    let layer = AVSampleBufferDisplayLayer()
+    nonisolated(unsafe) private let renderer: AVSampleBufferVideoRenderer
+    private let filter: SCContentFilter
+    private let config: SCStreamConfiguration
+    private var stream: SCStream?
+    private let queue = DispatchQueue(label: "atelier.minimize.veil", qos: .userInteractive)
+
+    @MainActor init(filter: SCContentFilter, config: SCStreamConfiguration) {
+        self.filter = filter
+        config.minimumFrameInterval = CMTime(value: 1, timescale: 120)
+        config.queueDepth = 4
+        config.pixelFormat = kCVPixelFormatType_32BGRA
+        self.config = config
+        renderer = layer.sampleBufferRenderer
+        super.init()
+        layer.preventsDisplaySleepDuringVideoPlayback = false
+    }
+
+    @MainActor func start() {
+        guard stream == nil else { return }
+        let stream = SCStream(filter: filter, configuration: config, delegate: nil)
+        guard (try? stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)) != nil else { return }
+        self.stream = stream
+        Task { try? await stream.startCapture() }
+    }
+
+    @MainActor func stop() {
+        stream?.stopCapture { _ in }
+        stream = nil
+        renderer.flush(removingDisplayedImage: false, completionHandler: nil)
+    }
+
+    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        guard type == .screen, sampleBuffer.isValid, CMSampleBufferGetImageBuffer(sampleBuffer) != nil,
+              let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true) as? [NSMutableDictionary],
+              let first = attachments.first else { return }
+        // Idle frames carry no new picture.
+        if let raw = first[SCStreamFrameInfo.status] as? Int, raw != SCFrameStatus.complete.rawValue { return }
+        first[kCMSampleAttachmentKey_DisplayImmediately] = true
+        if renderer.status == .failed { renderer.flush() }
+        renderer.enqueue(sampleBuffer)
     }
 }
 

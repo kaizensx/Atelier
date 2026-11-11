@@ -10,6 +10,9 @@ import Foundation
 //     no-bouncing              true     an app asking for attention does not pop its icon
 //                                       up from the hidden Dock (it peeked over the edge)
 //     launchanim               false    nor does an app that is opening
+//     mineffect                scale    a window minimised into this Dock (Atelier plays its
+//                                       own effect) only slides along the edge, unseen, where
+//                                       the Genie rose high over the screen (MinimizeHandoff)
 //
 // Nothing else is touched: no code injection, no SIP, and never `static-only`. Every value
 // is saved before the first write, present or absent, and put back exactly afterwards.
@@ -91,6 +94,9 @@ enum SystemDockPlan {
         // Atelier Dock: that read as "every app bounces". The Atelier Dock bounces its own tiles.
         ("no-bouncing", .bool(true)),
         ("launchanim", .bool(false)),
+        // Atelier draws the minimise effect into its own Dock; the real window still goes to
+        // the hidden one, and with Scale that stays a title bar's height along the edge.
+        ("mineffect", .string("scale")),
     ]
 
     static var keys: [String] { targets.map(\.key) }

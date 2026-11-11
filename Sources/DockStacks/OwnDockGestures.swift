@@ -206,7 +206,7 @@ final class OwnDockGestures: ObservableObject {
         case .expose:
             Self.appExpose(app)
         case .restore:
-            if !MinimizeRedirect.shared.restoreNewest(appPath: slot.path) {
+            if !MinimizeRedirect.shared.restoreNewest(appPath: slot.path, slow: NSEvent.modifierFlags.contains(.shift)) {
                 app.activate()
                 Task.detached(priority: .userInitiated) {
                     if let window = DockAX.windows(pid).first(where: \.minimized) { DockAX.raise(window.ref) }

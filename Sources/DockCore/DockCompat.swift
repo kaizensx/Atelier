@@ -46,42 +46,7 @@ public enum DockCompat {
 
     public static func edge(orientation: String?) -> Edge { orientation.flatMap(Edge.init(rawValue:)) ?? .bottom }
 
-    /// Where a window is parked, in Accessibility coordinates (top-left origin, y down), just
-    /// before it is minimised: as small as an app allows and against the edge of `screen` the
-    /// hidden macOS Dock lives on, level with `target`. The system's own genie then runs a
-    /// few pixels to that edge instead of across the screen.
-    /// `screen` is the screen of `target`, both in Accessibility coordinates.
-    public static func parkRect(target: CGRect, screen: CGRect, edge: Edge, size: CGSize = CGSize(width: 80, height: 60)) -> CGRect {
-        func clamp(_ value: Double, _ low: Double, _ high: Double) -> Double { min(max(value, low), max(low, high)) }
-        switch edge {
-        case .bottom:
-            let x = clamp(target.midX - size.width / 2, screen.minX, screen.maxX - size.width)
-            return CGRect(x: x, y: screen.maxY - 2, width: size.width, height: size.height)
-        case .left:
-            let y = clamp(target.midY - size.height / 2, screen.minY, screen.maxY - size.height)
-            return CGRect(x: screen.minX - size.width + 2, y: y, width: size.width, height: size.height)
-        case .right:
-            let y = clamp(target.midY - size.height / 2, screen.minY, screen.maxY - size.height)
-            return CGRect(x: screen.maxX - 2, y: y, width: size.width, height: size.height)
-        }
-    }
-
-    /// The band of `screen` the system's genie crosses on its way to the hidden macOS Dock, in
-    /// Cocoa coordinates (bottom-left origin, y up), as `target` is. A still picture covers it
-    /// while the genie runs. At least `minimum` deep, and always reaching past the target.
-    public static func coverBand(target: CGRect, screen: CGRect, edge: Edge, minimum: Double = 380) -> CGRect {
-        switch edge {
-        case .bottom:
-            let depth = min(max(target.maxY - screen.minY + 40, minimum), screen.height)
-            return CGRect(x: screen.minX, y: screen.minY, width: screen.width, height: depth)
-        case .left:
-            let depth = min(max(target.maxX - screen.minX + 40, minimum), screen.width)
-            return CGRect(x: screen.minX, y: screen.minY, width: depth, height: screen.height)
-        case .right:
-            let depth = min(max(screen.maxX - target.minX + 40, minimum), screen.width)
-            return CGRect(x: screen.maxX - depth, y: screen.minY, width: depth, height: screen.height)
-        }
-    }
+    // Where a window is parked and what covers the system's animation: MinimizeHandoff.
 
     /// Whether a key-down is the Minimize command, ⌘M. The letter is matched by the character
     /// the layout types, so AZERTY and other Latin layouts that put M on another key work.

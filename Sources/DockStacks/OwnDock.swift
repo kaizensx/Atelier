@@ -3133,12 +3133,15 @@ final class OwnDock: ObservableObject {
     private func restore(_ slot: DockSlot) {
         guard let window = minimized.windows.first(where: { $0.id == slot.id }) else { return }
         let ref = window.ref, pid = window.pid
-        open(app: DockSlot(id: window.appPath, kind: .app, path: window.appPath, running: true))
-        // A window Atelier minimised into this dock flies back out of it.
-        if MinimizeRedirect.shared.restore(ref.element) {
+        // A window Atelier minimised into this dock flies back out of its tile, this window
+        // only (opening the app first would bring back its newest one too), and its app comes
+        // forward when it lands. Shift held is slow motion, as in macOS.
+        if MinimizeRedirect.shared.holds(ref.element),
+           MinimizeRedirect.shared.restore(ref.element, slow: NSEvent.modifierFlags.contains(.shift)) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { MinimizedWatcher.shared.dirty(pid) }
             return
         }
+        open(app: DockSlot(id: window.appPath, kind: .app, path: window.appPath, running: true))
         Task.detached(priority: .userInitiated) {
             DockAX.raise(ref)
             await MainActor.run { MinimizedWatcher.shared.dirty(pid) }
@@ -3283,6 +3286,17 @@ final class OwnDock: ObservableObject {
         return rect
     }
 
+    /// The rect a tile is drawn at right now, by its id, or nil when the bar has no such tile.
+    /// Cocoa screen coordinates.
+    func tileRect(id: String) -> NSRect? {
+        guard panel?.isVisible == true, let tile = stage.scene.tiles.first(where: { $0.id == id }) else { return nil }
+        let rect = screenRect(of: tile)
+        return rect.width > 0 ? rect : nil
+    }
+
+    /// The bar shows a tile for each minimised window.
+    var showsMinimizedWindows: Bool { appearance.minimized }
+
     private func screenRect(of tile: DockTile) -> NSRect {
         guard let frame = panel?.frame else { return .zero }
         return NSRect(x: frame.minX + tile.center.x - tile.icon / 2, y: frame.maxY - tile.center.y - tile.icon / 2,
@@ -3291,7 +3305,7 @@ final class OwnDock: ObservableObject {
 
     private func open(app slot: DockSlot) {
         // All its windows minimised into this tile: the newest flies back out of it.
-        if slot.running, MinimizeRedirect.shared.restoreNewest(appPath: slot.path) {
+        if slot.running, MinimizeRedirect.shared.restoreNewest(appPath: slot.path, slow: NSEvent.modifierFlags.contains(.shift)) {
             runningApp(slot.path)?.activate()
             return
         }

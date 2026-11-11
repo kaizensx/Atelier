@@ -124,6 +124,9 @@ final class MinimizeEffectView: NSView {
     private var finished: CheckedContinuation<Void, Never>?
     var effect = MinimizeEffect.genie
     var geometry = MinimizeGeometry(window: .zero, tile: .zero, edge: .bottom)
+    /// Where the tile is this frame, in this view's coordinates, when it can move while the
+    /// effect plays (the dock making room, magnifying). Nil keeps the tile it was given.
+    var track: (() -> CGRect?)?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -167,6 +170,7 @@ final class MinimizeEffectView: NSView {
     func draw(progress: Double) {
         guard let renderer = MinimizeRenderer.shared, let texture else { return }
         resize()
+        if let track { geometry.tile = MinimizeHandoff.aim(live: track(), last: geometry.tile) }
         renderer.draw(MinimizeEffects.mesh(effect, progress: progress, geometry: geometry), texture: texture,
                       into: metal, size: bounds.size)
     }
@@ -214,8 +218,10 @@ final class MinimizeOverlay {
     private let view: MinimizeEffectView
     let effect: MinimizeEffect
 
-    /// `window` and `tile` in Cocoa screen coordinates. Nil without Metal.
-    init?(image: CGImage, window: CGRect, tile: CGRect, effect: MinimizeEffect, edge: MinimizeEdge) {
+    /// `window` and `tile` in Cocoa screen coordinates; `track` gives the tile's rect again each
+    /// frame, in the same coordinates. Nil without Metal.
+    init?(image: CGImage, window: CGRect, tile: CGRect, effect: MinimizeEffect, edge: MinimizeEdge,
+          track: (() -> CGRect?)? = nil) {
         let screens = NSScreen.screens.filter { $0.frame.intersects(window) || $0.frame.intersects(tile) }
         let area = (screens.isEmpty ? NSScreen.screens.prefix(1).map(\.frame) : screens.map(\.frame))
             .reduce(CGRect.null) { $0.union($1) }
@@ -236,6 +242,7 @@ final class MinimizeOverlay {
         view.effect = effect
         func local(_ rect: CGRect) -> CGRect { rect.offsetBy(dx: -area.minX, dy: -area.minY) }
         view.geometry = MinimizeGeometry(window: local(window), tile: local(tile), edge: edge)
+        if let track { view.track = { track().map(local) } }
         view.set(image: image)
         guard view.ready else { return nil }
     }
@@ -271,9 +278,14 @@ enum MinimizeEffectSetting {
         set { UserDefaults.standard.set(newValue.rawValue, forKey: key) }
     }
 
-    /// macOS's own setting: genie (the default), scale or suck.
+    /// macOS's own setting: genie (the default), scale or suck. While the Atelier Dock replaces
+    /// the macOS one, the Dock holds the Scale Atelier wrote, and the owner's is in the backup.
     static var systemEffect: String? {
-        CFPreferencesCopyAppValue("mineffect" as CFString, "com.apple.dock" as CFString) as? String
+        let current = CFPreferencesCopyAppValue("mineffect" as CFString, "com.apple.dock" as CFString) as? String
+        let backup = DefaultsBackupStore().load()
+        var saved: String?
+        if case .string(let value) = backup?.original("mineffect") { saved = value }
+        return MinimizeHandoff.followedEffect(current: current, replaced: backup != nil, saved: saved)
     }
 
     /// The effect drawn now: the pick, macOS's when following it, Scale with Reduce Motion.

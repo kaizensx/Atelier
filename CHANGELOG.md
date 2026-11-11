@@ -4,6 +4,23 @@ Every version ships as a beta first (GitHub pre-release, Beta channel), and is p
 stable release once it has been tested. The sections below are the release notes the updater
 shows.
 
+## [1.0.0-beta.2]
+
+**New**
+- Mods: browse, install, update and remove community plugins and themes right inside Atelier.
+  The catalog lives at github.com/kaizensx/atelier-mods; every index is signed and every
+  package is checked before it is unpacked. Plugins still ask before they get any permission.
+- Settings links now open on the exact setting, from the Dock's Vitals menu and elsewhere.
+
+**Improved**
+- Minimising into the Atelier Dock lands exactly on the window's own tile, which appears as the
+  window starts to shrink, and restores from it. The hidden macOS Dock's own animation is hidden
+  under a live strip, so nothing flickers behind.
+- Taking Accessibility away is noticed within seconds; Caps Lock is handed back at once.
+- Quitting Atelier from Terminal (`kill`) is now a clean quit that puts everything back.
+- A stale or broken Dock Bridge can always be removed or updated.
+- The attention bounce says plainly that macOS 27 does not offer it; badges still show.
+
 ## [1.0.0-beta.1]
 
 The first public build of Atelier.

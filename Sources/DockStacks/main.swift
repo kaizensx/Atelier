@@ -241,7 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 "roundCorners=\(ScreenCorners.shared.count) wheelTap=\(WheelDirection.shared.tapActive) wheelFlipped=\(WheelDirection.shared.flipped) wheelGlided=\(WheelDirection.shared.glided) " +
                 "quitTap=\(QuitGuard.shared.tapActive) quitStopped=\(QuitGuard.shared.stopped) quitQuits=\(QuitGuard.shared.quits) " +
                 "bordersTarget=\(WindowBorders.shared.target.map { "\(Int($0.minX)),\(Int($0.minY)),\(Int($0.width))x\(Int($0.height))" } ?? "-")",
-                "minimize=\(MinimizeRedirect.shared.note)",
+                "minimize=\(MinimizeRedirect.shared.diagnostics)",
                 "stage=preview:\(ManagerModel.current?.preview != nil) look:\(ManagerModel.current?.previewLook != nil) chapter:\(ManagerModel.current?.chapter.rawValue ?? "-") active:\(StagePreview.shared.active?.id ?? "-") dockPointer:\(StageDockPointer.shared.point.map { "\(Int($0.x)),\(Int($0.y))" } ?? "-")",
                 "scrollProbe=\(ScrollProbe.shared.note)",
             ]
