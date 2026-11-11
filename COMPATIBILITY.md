@@ -45,3 +45,5 @@ Window opacity, pin on top, sticky windows, picture in picture, no shadows and S
 System Integrity Protection partly off. SIP can only be changed from recoveryOS; Atelier's Recovery
 Assistant walks through it (QR checklist, copy command, Intel restart into Recovery) and finishes
 setup with one administrator prompt afterwards. Turning SIP partly off lowers macOS security.
+On macOS 27, Spaces Studio only switches desktops: adding, removing and reordering have no verified
+Dock address yet, so those controls are hidden there. Removing the bridge works with SIP back on.

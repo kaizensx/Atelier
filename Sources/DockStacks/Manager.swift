@@ -110,7 +110,6 @@ final class ManagerModel: ObservableObject {
     @Published var snapshots: [Snapshot] = []
     @Published var profiles: [Profile] = ProfileStore.load()
     @Published var convertible: [Convertible] = []
-    private var lastScheduledHour: Int?
 
     struct Convertible: Identifiable {
         let path: String, title: String, apps: [String], text: String, style: String, color: Int
@@ -326,25 +325,26 @@ final class ManagerModel: ObservableObject {
         ProfileStore.save(profiles)
     }
 
-    /// Called every minute; a profile fires once when its hour arrives.
-    func tick() {
-        let hour = Calendar.current.component(.hour, from: Date())
-        guard hour != lastScheduledHour else { return }
-        defer { lastScheduledHour = hour }
-        guard lastScheduledHour != nil, let profile = profiles.first(where: { $0.hour == hour }) else { return }
-        apply(profile)
-    }
+    // Remove Everything lives in AtelierRevert.removeAtelier: it reverts every macOS change
+    // first and quits for real. The old version here only took the stacks out, deleted the
+    // wallpaper in use with the data folder, and its NSApp.terminate was cancelled by
+    // applicationShouldTerminate, so Atelier kept running with its data gone.
+}
 
-    /// Removes every stack tile and all app data. The Dock otherwise stays as it is.
-    func uninstall() {
-        perform("Cleaning up…", {
-            let paths = StackStore.list().map(\.path)
-            try DockStore.update("Remove Atelier") { plist in
-                for path in paths { Tiles.detach(path: path, from: &plist) }
-            }
-            try? LoginItem.set(false)
-            try FileManager.default.removeItem(at: Support.root)
-        }) { NSApp.terminate(nil) }
+/// Scenes with an hour. Driven every minute by the app delegate, like Looks, so a scene fires
+/// whether or not the Studio window is open; it used to tick only while the Studio existed.
+@MainActor
+enum SceneSchedule {
+    private static var lastHour: Int?
+
+    /// A scene fires once as its hour arrives, never for the hour Atelier starts in.
+    static func tick(now: Date = Date()) {
+        let hour = Calendar.current.component(.hour, from: now)
+        guard hour != lastHour else { return }
+        defer { lastHour = hour }
+        guard lastHour != nil, let profile = ProfileStore.load().first(where: { $0.hour == hour }) else { return }
+        let url = profile.url, name = profile.name
+        Task.detached(priority: .utility) { try? DockStore.apply(snapshotAt: url, label: "Scene \(name)") }
     }
 }
 

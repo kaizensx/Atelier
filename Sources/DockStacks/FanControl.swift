@@ -222,12 +222,18 @@ final class FanControl: ObservableObject {
         let state: HelperState
         if !fm.fileExists(atPath: FanHelperInstall.plistPath) || !fm.fileExists(atPath: FanHelperInstall.helperPath) {
             state = .absent
-        } else if let decoded, abs(Date().timeIntervalSince1970 - decoded.time) < 3 {
+        } else if let decoded, abs(Date().timeIntervalSince1970 - decoded.time) < FanHelperInstall.statusFreshness {
             state = .running
         } else {
             state = .installed
         }
         if state != helper { helper = state }
+    }
+
+    /// The installed helper is older than the one in this build: an app update never replaces
+    /// what is in /Library on its own, so the card offers "Update helper…".
+    var helperOutdated: Bool {
+        helper != .absent && bundledHelper != nil && FanHelperInstall.isOutdated(status) == true
     }
 
     /// The helper built beside the app's own executable (Contents/MacOS in the bundle).
@@ -236,8 +242,14 @@ final class FanControl: ObservableObject {
         return path.flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil }
     }
 
-    /// One administrator password: copies the helper, writes its LaunchDaemon, starts it.
+    /// One administrator password: copies the helper, writes its LaunchDaemon, starts it. Also
+    /// how an outdated helper is updated: the script boots the old one out first.
     func installHelper() {
+        guard !working else { return }
+        Task { await installHelperNow() }
+    }
+
+    func installHelperNow() async {
         guard let source = bundledHelper else { lastError = "The fan helper is missing from this build."; return }
         let plist = NSTemporaryDirectory() + "net.dasantos.atelier.fans.plist"
         do {
@@ -246,19 +258,35 @@ final class FanControl: ObservableObject {
             lastError = "Could not prepare the helper: \(error.localizedDescription)"
             return
         }
-        runPrivileged(FanHelperInstall.installScript(helperSource: source, plistSource: plist, owner: getuid()), describing: "install the fan helper")
+        await runPrivileged(FanHelperInstall.installScript(helperSource: source, plistSource: plist, owner: getuid()),
+                            describing: helper == .absent ? "install the fan helper" : "update the fan helper")
         try? FileManager.default.removeItem(atPath: plist)
         afterHelperChange()
     }
 
     /// Fans back to the system first, then the daemon stops (handing back again) and goes.
     func removeHelper() {
+        guard !working else { return }
+        Task { await removeHelperNow() }
+    }
+
+    /// For the card and for Remove Everything. Returns whether the helper is gone.
+    @discardableResult
+    func removeHelperNow() async -> Bool {
         let wasOn = preset
         setPreset(.system)
         sendSystem("remove")
-        runPrivileged(FanHelperInstall.removeScript, describing: "remove the fan helper")
+        await runPrivileged(FanHelperInstall.removeScript, describing: "remove the fan helper")
         refreshHelper()
-        if helper != .absent { setPreset(wasOn) }
+        if helper != .absent { setPreset(wasOn); return false }
+        return true
+    }
+
+    /// Before the helper is removed by someone else's prompt (Remove Everything): every fan
+    /// back to the system, and the switch off.
+    func handBackForRemoval() {
+        setPreset(.system)
+        sendSystem("remove")
     }
 
     private func afterHelperChange() {
@@ -268,19 +296,13 @@ final class FanControl: ObservableObject {
     }
 
     /// The same path as DockBridge.runPrivileged: the system's administrator prompt, run by the
-    /// owner's click. Never called on its own.
-    private func runPrivileged(_ script: String, describing what: String) {
+    /// owner's click and never on its own, off the main thread (the remove script sleeps a
+    /// second while the daemon hands the fans back). `working` drives the card's progress.
+    private func runPrivileged(_ script: String, describing what: String) async {
         working = true
         defer { working = false }
-        let escaped = DockBridge.appleScriptEscape(script)
-        guard let apple = NSAppleScript(source: "do shell script \"\(escaped)\" with administrator privileges") else {
-            lastError = "Could not build the request to \(what)."
-            return
-        }
-        var error: NSDictionary?
-        apple.executeAndReturnError(&error)
-        if let error, let message = error[NSAppleScript.errorMessage] as? String {
-            lastError = "Could not \(what): \(message)"
+        if let failure = await AdminPrompt.run(script, reason: what) {
+            lastError = "Could not \(what): \(failure)"
         } else {
             lastError = nil
         }
@@ -328,7 +350,7 @@ final class FanControl: ObservableObject {
             try? probe().write(toFile: tmp + "atelier-fans-probe.txt", atomically: true, encoding: .utf8)
         }
         switch value("helper") {
-        case "install": installHelper()
+        case "install", "update": installHelper()
         case "remove": removeHelper()
         default: refreshHelper()
         }
@@ -345,7 +367,8 @@ final class FanControl: ObservableObject {
         func json<T: Encodable>(_ v: T?) -> String { v.flatMap { try? encoder.encode($0) }.map { String(decoding: $0, as: UTF8.self) } ?? "-" }
         var lines = [
             "preset=\(preset.rawValue) enabled=\(enabled) curve=\(curve?.text ?? "-") custom=\(customCurve.text) hardLimit=\(f(hardLimit, 0))",
-            "helper=\(helper) bundled=\(bundledHelper ?? "-") installedAt=\(FanHelperInstall.helperPath)",
+            "helper=\(helper) bundled=\(bundledHelper ?? "-") installedAt=\(FanHelperInstall.helperPath) "
+                + "helperVersion=\(status?.helperVersion.map(String.init) ?? "-") wants=\(FanHelperInstall.helperVersion) outdated=\(helperOutdated)",
             "temperature=\(f(temperature)) hottestNow=\(f(hottest)) demand=\(demand.text) overheated=\(governor.overheated) commands=\(commands)",
             "lastCommand=\(json(lastCommand))",
             "status=\(json(status))",

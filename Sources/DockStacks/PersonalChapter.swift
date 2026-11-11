@@ -137,6 +137,26 @@ final class PersonalModel: ObservableObject {
     func isRunning(_ name: String) -> Bool {
         NSWorkspace.shared.runningApplications.contains { $0.localizedName == name }
     }
+
+    /// How many catalogue settings Atelier has changed, for the revert summary.
+    var changedCount: Int { Set(engine.ledger.trackedIDs).intersection(PersonalCatalog.all.map(\.id)).count }
+
+    /// Every catalogue setting back to what it was before Atelier, for "Revert all macOS changes"
+    /// and Remove Everything. Restarts the system processes that need it, once each; the
+    /// person's own apps are never quit. Returns what could not be put back.
+    @discardableResult
+    func revertAll() -> [String] {
+        let result = engine.revertAll(in: PersonalCatalog.all)
+        let processes = Set(result.reverted.compactMap { setting -> String? in
+            if case let .restart(process) = setting.effect, Self.selfRelaunching.contains(process) { return process }
+            return nil
+        })
+        for process in processes.sorted() { Task.detached { Prefs.restart(process) } }
+        // The desktop's icon layout keeps its own original, outside the ledger.
+        DesktopIconsCard.revertStored()
+        revision += 1
+        return result.failed.map { "\($0.0.title): \($0.1)" }
+    }
 }
 
 // MARK: - Chapter
@@ -604,6 +624,27 @@ struct DesktopIconsCard: View {
         store.removeObject(forKey: Self.memory)
         changed = false
         options = DesktopIconOptions(desktopViewSettings: Self.stored())
+    }
+
+    /// Whether Atelier changed the desktop's icon layout, for the revert summary.
+    static var hasStoredOriginal: Bool { UserDefaults.standard.object(forKey: memory) != nil }
+
+    /// The revert, without the card: for "Revert all macOS changes" and Remove Everything.
+    static func revertStored() {
+        let store = UserDefaults.standard
+        guard let saved = store.object(forKey: memory) else { return }
+        let value: CFPropertyList?
+        if let data = saved as? Data, let original = try? PropertyListSerialization.propertyList(from: data, format: nil) {
+            value = original as CFPropertyList
+        } else if saved as? String == absent {
+            value = nil
+        } else {
+            store.removeObject(forKey: memory)
+            return
+        }
+        guard (try? PersonalPrefs().set(value, key: "DesktopViewSettings", domain: "com.apple.finder")) != nil else { return }
+        store.removeObject(forKey: memory)
+        Task.detached { Prefs.restart("Finder") }
     }
 
     @discardableResult

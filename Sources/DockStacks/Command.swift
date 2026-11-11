@@ -7,18 +7,39 @@ struct CommandResult: Identifiable {
     let id = UUID()
     let title: String
     let subtitle: String
-    let icon: NSImage
+    /// Made when a row is drawn, not when the list is built: Command lists every app, and
+    /// only seven rows are ever on screen.
+    private let makeIcon: @MainActor () -> NSImage
     let run: @MainActor () -> Void
+
+    init(title: String, subtitle: String, icon: @autoclosure @escaping @MainActor () -> NSImage,
+         run: @escaping @MainActor () -> Void) {
+        self.title = title
+        self.subtitle = subtitle
+        self.makeIcon = icon
+        self.run = run
+    }
+
+    @MainActor var icon: NSImage { makeIcon() }
 }
 
 @MainActor
 final class CommandModel: ObservableObject {
     @Published var open = false
-    @Published var query = "" { didSet { selection = 0 } }
+    @Published var query = "" { didSet { selection = 0; recompute() } }
     @Published var selection = 0
+    /// Worked out once per keystroke, from lists read once per opening. Before, every keystroke
+    /// and every arrow key read the stacks folder and the scenes file again and drew every icon.
+    @Published private(set) var results: [CommandResult] = []
 
-    var results: [CommandResult] {
-        let stacks = StackStore.list().map { url in
+    private var stacks: [CommandResult] = []
+    private var actions: [CommandResult] = []
+    private var apps: [CommandResult] = []
+    private var everything: [CommandResult] = []
+
+    /// Reads what Command searches, once each time it opens.
+    func reload() {
+        stacks = StackStore.list().map { url in
             let title = url.deletingPathExtension().lastPathComponent
             return CommandResult(title: title, subtitle: "Stack", icon: NSWorkspace.shared.icon(forFile: url.path)) {
                 CommandController.shared.close()
@@ -26,14 +47,14 @@ final class CommandModel: ObservableObject {
             }
         }
         let icons = AtelierIcons.shared
-        let apps = AppCatalog.shared.apps.map { item in
+        apps = AppCatalog.shared.apps.map { item in
             // The icon chosen for it in Atelier (Orbit, Launcher), when there is one.
             CommandResult(title: item.name, subtitle: "App", icon: icons.custom(item.value) ?? ItemIcon.image(for: item)) {
                 Launcher.open(item)
                 CommandController.shared.close()
             }
         }
-        let actions = [
+        actions = [
             CommandResult(title: "Open Atelier", subtitle: "Action", icon: NSApp.applicationIconImage) {
                 CommandController.shared.close()
                 ManagerWindow.shared.show()
@@ -62,15 +83,20 @@ final class CommandModel: ObservableObject {
                 CommandController.shared.close()
             }
         }
+        everything = stacks + scenes + actions + PluginRegistry.shared.commandResults() + system + apps + clips
+        recompute()
+    }
+
+    private func recompute() {
         if let answer = Calculator.evaluate(query) {
-            return [CommandResult(title: answer, subtitle: "Copy result", icon: NSWorkspace.shared.icon(forFile: "/System/Applications/Calculator.app")) {
+            results = [CommandResult(title: answer, subtitle: "Copy result", icon: NSWorkspace.shared.icon(forFile: "/System/Applications/Calculator.app")) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(answer, forType: .string)
                 CommandController.shared.close()
             }]
+            return
         }
-        let all = stacks + scenes + actions + PluginRegistry.shared.commandResults() + system + apps + clips
-        guard !query.isEmpty else { return Array((stacks + actions + apps).prefix(7)) }
+        guard !query.isEmpty else { results = Array((stacks + actions + apps).prefix(7)); return }
         // Studio places and settings come from the same search as the Studio's own ⌘F, so a
         // setting found by a keyword ("screenshot") shows here too, ranked below title matches.
         let settings = NavIndex.search(query, limit: 7).map { entry in
@@ -80,8 +106,8 @@ final class CommandModel: ObservableObject {
             }
             return (result, Fuzzy.score(query, in: entry.title) ?? 1)
         }
-        let found = all.compactMap { result in Fuzzy.score(query, in: result.title).map { (result, $0) } }
-        return (found + settings).sorted { $0.1 > $1.1 }.prefix(7).map(\.0)
+        let found = everything.compactMap { result in Fuzzy.score(query, in: result.title).map { (result, $0) } }
+        results = (found + settings).sorted { $0.1 > $1.1 }.prefix(7).map(\.0)
     }
 }
 
@@ -164,6 +190,7 @@ final class CommandController {
             return panel
         }()
         model.query = ""
+        model.reload()
         panel.setFrame(frame, display: true)
         panel.orderFrontRegardless()
         panel.makeKey()
@@ -207,14 +234,30 @@ final class CommandController {
 enum HotKey {
     private static var reference: EventHotKeyRef?
     private static var handler: EventHandlerRef?
+    /// Why ⌥ Space is not Command's, when registering it failed (another app holds it, often
+    /// Spotlight or an input-source switcher). Settings shows it instead of the keycaps.
+    private(set) static var failure: String?
+
+    static var registered: Bool { reference != nil }
 
     static func install() {
-        var type = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
-            MainActor.assumeIsolated { CommandController.shared.toggle() }
-            return noErr
-        }, 1, &type, nil, &handler)
+        if handler == nil {
+            var type = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+            InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
+                MainActor.assumeIsolated { CommandController.shared.toggle() }
+                return noErr
+            }, 1, &type, nil, &handler)
+        }
+        guard reference == nil else { return }
         let id = EventHotKeyID(signature: OSType(0x4453544B), id: 1)
-        RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), id, GetApplicationEventTarget(), 0, &reference)
+        let status = RegisterEventHotKey(UInt32(kVK_Space), UInt32(optionKey), id, GetApplicationEventTarget(), 0, &reference)
+        if status == noErr, reference != nil {
+            failure = nil
+        } else {
+            reference = nil
+            failure = status == -9878   // eventHotKeyExistsErr
+                ? "Another app already uses ⌥ Space. Open Command from the menu bar, or free the shortcut and try again."
+                : "macOS did not accept ⌥ Space (error \(status)). Open Command from the menu bar."
+        }
     }
 }

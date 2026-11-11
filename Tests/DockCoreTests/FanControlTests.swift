@@ -210,6 +210,23 @@ import Testing
         #expect(try JSONDecoder().decode(FanHelperStatus.self, from: JSONEncoder().encode(s)) == s)
     }
 
+    @Test func helperVersionMarksOldHelpersOutdated() throws {
+        // A status written by a helper from before helperVersion existed decodes, and is old.
+        let old = #"{"version":1,"pid":7,"time":1,"state":"system","reason":"start","fans":[],"hasUnlock":false,"unlockUsed":false,"reclaims":0}"#
+        let decoded = try JSONDecoder().decode(FanHelperStatus.self, from: Data(old.utf8))
+        #expect(decoded.helperVersion == nil)
+        #expect(FanHelperInstall.isOutdated(decoded) == true)
+        var current = decoded
+        current.helperVersion = FanHelperInstall.helperVersion
+        #expect(FanHelperInstall.isOutdated(current) == false)
+        #expect(try JSONDecoder().decode(FanHelperStatus.self, from: JSONEncoder().encode(current)) == current)
+        #expect(FanHelperInstall.isOutdated(nil) == nil)
+        // Idle is cheap, driving is quick, and a running idle helper still reads as running.
+        #expect(FanHelperInstall.tickInterval(driving: true) == 0.5)
+        #expect(FanHelperInstall.tickInterval(driving: false) >= 2)
+        #expect(FanHelperInstall.statusFreshness > 2 * FanHelperInstall.tickInterval(driving: false))
+    }
+
     // MARK: Install
 
     @Test func installScriptsQuoteEveryPath() {

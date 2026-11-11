@@ -405,6 +405,24 @@ public struct PersonalEngine: Sendable {
 
     /// The ledger entry for a menu bar module's AppKit visibility flag, which a write also changes.
     static func visibleID(_ setting: PersonalSetting) -> String { setting.id + "|visible" }
+
+    /// Every setting the ledger remembers, put back. For "Revert all macOS changes" and Remove
+    /// Everything. Settings in `catalog` are matched to the ledger by id; one that fails stays in
+    /// the ledger (so a later try can still put it back) and is reported.
+    public func revertAll(in catalog: [PersonalSetting]) -> (reverted: [PersonalSetting], failed: [(PersonalSetting, String)]) {
+        var reverted: [PersonalSetting] = []
+        var failed: [(PersonalSetting, String)] = []
+        let tracked = Set(ledger.trackedIDs)
+        for setting in catalog where tracked.contains(setting.id) {
+            do {
+                try revert(setting)
+                reverted.append(setting)
+            } catch {
+                failed.append((setting, error.localizedDescription))
+            }
+        }
+        return (reverted, failed)
+    }
 }
 
 // MARK: - Catalogue

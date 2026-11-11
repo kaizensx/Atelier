@@ -15,6 +15,22 @@ import SwiftUI
 //            feed=<url of a releases.json> | feed=default | rollback=1 | report=1
 // The report goes to $TMPDIR/atelier-update.txt.
 
+/// The version people see everywhere: AtelierVersion ("1.0.0-beta.1"), which build.sh writes and
+/// the updater compares. CFBundleShortVersionString is only the numeric part macOS requires.
+enum AtelierInfo {
+    static var version: String { version(of: Bundle.main.infoDictionary) ?? "dev" }
+    static var build: String? { Bundle.main.infoDictionary?["CFBundleVersion"] as? String }
+
+    static func version(of info: [String: Any]?) -> String? {
+        (info?["AtelierVersion"] as? String) ?? (info?["CFBundleShortVersionString"] as? String)
+    }
+
+    /// The version of an Atelier.app on disk, read from its Info.plist.
+    static func version(ofApp url: URL) -> String? {
+        version(of: NSDictionary(contentsOf: url.appendingPathComponent("Contents/Info.plist")) as? [String: Any])
+    }
+}
+
 enum UpdateConfig {
     static let repository = "kaizensx/Atelier"
     static var releasesURL: URL { URL(string: "https://api.github.com/repos/\(repository)/releases?per_page=30")! }
@@ -49,9 +65,7 @@ final class Updater: ObservableObject {
     }
 
     private init() {
-        let info = Bundle.main.infoDictionary ?? [:]
-        let text = (info["AtelierVersion"] as? String) ?? (info["CFBundleShortVersionString"] as? String) ?? "0.0.0"
-        current = AppVersion(text) ?? AppVersion("0.0.0")!
+        current = AppVersion(AtelierInfo.version) ?? AppVersion("0.0.0")!
         channel = UpdateChannel(rawValue: store.string(forKey: Keys.channel) ?? "") ?? (current.isPrerelease ? .beta : .stable)
         automatic = store.object(forKey: Keys.auto) as? Bool ?? true
         lastCheck = store.object(forKey: Keys.last) as? Date
@@ -82,6 +96,13 @@ final class Updater: ObservableObject {
     }
 
     var previousInstalled: Bool { FileManager.default.fileExists(atPath: Self.previousURL.path) }
+
+    /// The kept copy's own version. After a roll back the kept copy is the newer one, so the card
+    /// says which way switching goes instead of always calling it "the last update".
+    var previousVersion: AppVersion? {
+        guard previousInstalled else { return nil }
+        return AtelierInfo.version(ofApp: Self.previousURL).flatMap(AppVersion.init)
+    }
 
     // MARK: Check
 
@@ -271,7 +292,8 @@ final class Updater: ObservableObject {
 
     private func describe(_ e: Error) -> String {
         switch e {
-        case UpdateError.http(404): "No releases were found."
+        // The repository is private, renamed or has no releases yet: nothing the person can fix.
+        case UpdateError.http(404): "Atelier's releases can't be reached right now."
         case UpdateError.http(403): "GitHub is limiting requests. Atelier tries again later."
         case UpdateError.http(let c): "GitHub answered \(c)."
         case UpdateError.size: "The download was incomplete."
@@ -337,12 +359,27 @@ struct UpdatesCard: View {
                     Segments(selection: $updater.channel, options: [(.stable, "Stable"), (.beta, "Beta")]).frame(width: 170)
                 }
                 SettingRow(title: status, detail: statusDetail, symbol: statusSymbol) { actions }
-                if updater.previousInstalled {
-                    SettingRow(title: "Previous version", detail: "Kept from the last update, in case you want it back.", symbol: "clock.arrow.circlepath") {
-                        Button("Roll Back") { updater.rollBack() }.buttonStyle(UpdatePill(prominent: false, hue: hue))
-                    }
-                }
+                if updater.previousInstalled { previousRow }
             }
+        }
+    }
+
+    /// The other copy Atelier keeps, named by its own version: older after an update, newer after
+    /// a roll back, so the button says where it goes rather than always "back".
+    @ViewBuilder private var previousRow: some View {
+        let other = updater.previousVersion
+        let title: String = {
+            guard let other else { return "Previous version" }
+            if other > updater.current { return "Atelier \(other) (newer)" }
+            if other < updater.current { return "Atelier \(other) (older)" }
+            return "Atelier \(other)"
+        }()
+        let detail = other.map { $0 > updater.current ? "Kept from before you rolled back. Switch to it whenever you like."
+                                                      : "Kept from the last update, in case you want it back." }
+            ?? "Kept from the last update, in case you want it back."
+        SettingRow(title: title, detail: detail, symbol: "clock.arrow.circlepath") {
+            Button(other.map { "Switch to \($0)" } ?? "Roll Back") { updater.rollBack() }
+                .buttonStyle(UpdatePill(prominent: false, hue: hue))
         }
     }
 

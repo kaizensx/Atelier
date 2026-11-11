@@ -363,7 +363,9 @@ struct BridgeStatusHero: View {
                                      enabled: state(2) == .current && working == nil) {
                             run(2) { try await DockBridge.shared.install() }
                         }
-                    } else {
+                    }
+                    // Whenever it is on disk, SIP on or off: removing it needs no SIP change.
+                    if bridge.installed {
                         BridgeButton(title: "Remove", symbol: "trash", busy: working == 5, enabled: working == nil, prominent: false) {
                             run(5) { try await DockBridge.shared.uninstall() }
                         }
@@ -577,7 +579,7 @@ private struct SecurityNote: View {
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 4) {
                 Text("This lowers macOS protection.").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(DS.Ink.primary)
-                Text("Malware that reaches this Mac could modify system processes, the Dock among them. You can turn SIP back on anytime: run csrutil enable from Recovery, and sudo nvram -d boot-args in Terminal. The bridge then simply stops.")
+                Text("Malware that reaches this Mac could modify system processes, the Dock among them. You can turn SIP back on anytime: clear the boot argument with sudo nvram -d boot-args first, then run csrutil enable from Recovery. The bridge then simply stops.")
                     .font(DS.caption).foregroundStyle(DS.Ink.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -884,9 +886,12 @@ private struct SpacesStudioHero: View {
     @State private var order: [DesktopSpace] = []
     @State private var dragging: Int?
     @State private var busy = false
+    /// Add, remove and reorder call Dock functions the payload has no verified address for on
+    /// macOS 27 (Native/arm64_payload.m returns 0), so they would look live and do nothing.
+    private let editable = ProcessInfo.processInfo.operatingSystemVersion.majorVersion < 27
 
     var body: some View {
-        BridgeHero("Spaces Studio", pitch: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 27
+        BridgeHero("Spaces Studio", pitch: !editable
                    ? "Jump to any desktop through the Dock. Adding, removing and reordering wait for a verified macOS 27 pass."
                    : "Add, remove and reorder desktops from here, without Mission Control.",
                    isOn: nil, locked: !bridge.status.isReady,
@@ -898,12 +903,13 @@ private struct SpacesStudioHero: View {
                 ScrollView(.horizontal) {
                     HStack(spacing: DS.Space.s) {
                         ForEach(order) { space in tile(space) }
-                        addTile
+                        if editable { addTile }
                     }
                     .padding(.vertical, 4)
                 }
                 .scrollIndicators(.never)
-                Text("Click to go there. Drag to reorder. The current desktop cannot be removed.")
+                Text(editable ? "Click to go there. Drag to reorder. The current desktop cannot be removed."
+                              : "Click to go there. Adding, removing and reordering are off on macOS 27 until they are verified.")
                     .font(DS.caption).foregroundStyle(DS.Ink.tertiary)
             }
             .opacity(busy ? 0.6 : 1)
@@ -913,7 +919,7 @@ private struct SpacesStudioHero: View {
     }
 
     private func tile(_ space: DesktopSpace) -> some View {
-        BridgeSpaceTile(space: space, name: spaces.name(space), canRemove: !space.current && order.count > 1) {
+        BridgeSpaceTile(space: space, name: spaces.name(space), canRemove: editable && !space.current && order.count > 1) {
             act { await BeyondSIP.shared.focusSpace(space.sid) }
         } remove: {
             act { await BeyondSIP.shared.destroySpace(space.sid) }
@@ -923,7 +929,7 @@ private struct SpacesStudioHero: View {
             BridgeSpaceThumb(number: space.number, current: space.current, lifted: true).frame(width: 96, height: 60)
         }
         .dropDestination(for: String.self) { items, _ in
-            guard let raw = items.first, let moved = Int(raw), moved != space.sid,
+            guard editable, let raw = items.first, let moved = Int(raw), moved != space.sid,
                   let from = order.firstIndex(where: { $0.sid == moved }),
                   let to = order.firstIndex(where: { $0.sid == space.sid }) else { return false }
             var next = order

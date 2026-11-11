@@ -26,6 +26,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         FanControl.shared.restoreOnQuit()
         EdgeStash.shared.restoreOnQuit()
         CrashGuard.noteCleanExit()
+        // Remove Everything: the restores above may have written a key or the clean-exit marker.
+        AtelierRevert.finishRemoval()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -94,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             MainActor.assumeIsolated { AppCatalog.shared.refresh() }
         }
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
-            MainActor.assumeIsolated { ThemeEngine.shared.tick() }
+            MainActor.assumeIsolated { ThemeEngine.shared.tick(); SceneSchedule.tick() }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             // Back from a crash: quietly, with no window in the owner's face.

@@ -342,57 +342,71 @@ private struct BridgeRecoveryFinish: View {
 // MARK: - Undo
 
 private struct BridgeRecoveryUndo: View {
+    @ObservedObject private var bridge = DockBridge.shared
     @State private var busy = false
     @State private var message: String?
     private let caution = DS.Spectrum.sensors
 
     var body: some View {
         BridgeRecoverySection(number: 3, title: "Undo", done: false,
-                              caption: "Put everything back whenever you want.") {
+                              caption: "Put everything back whenever you want, in this order.") {
             VStack(alignment: .leading, spacing: DS.Space.m) {
+                // 1. The bridge goes first: deleting it needs an administrator, not SIP, so it
+                // works with SIP on or off.
+                if bridge.installed || message != nil {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Remove the bridge from this Mac").font(DS.Typo.rowTitle).foregroundStyle(DS.Ink.primary)
+                        Text("Takes the scripting addition out of /Library/ScriptingAdditions. Every window power stops at once.")
+                            .font(DS.caption).foregroundStyle(DS.Ink.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: DS.Space.s) {
+                            if bridge.installed { removeButton }
+                            if let message {
+                                Text(message).font(DS.caption).foregroundStyle(DS.Ink.secondary).transition(.opacity)
+                            }
+                        }
+                        .animation(DS.Motion.hover, value: message)
+                    }
+                }
+                // 2 and 3. The boot argument is cleared while NVRAM is still unprotected: once
+                // csrutil enable has run, macOS refuses to change boot-args.
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Turn SIP back on").font(DS.Typo.rowTitle).foregroundStyle(DS.Ink.primary)
-                    Text("SIP can only be re-enabled from Recovery (the same place you lowered it). In Recovery’s Terminal, run csrutil enable. Then, back in macOS, clear the boot argument.")
+                    Text("First clear the boot argument in macOS, while SIP is still partly off. Then turn SIP on from Recovery (the same place you lowered it).")
                         .font(DS.caption).foregroundStyle(DS.Ink.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    CommandBlock(where: "In Recovery → Utilities → Terminal", command: "csrutil enable")
-                    CommandBlock(where: "Back in macOS, in Terminal (Apple silicon)", command: "sudo nvram -d boot-args")
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Remove the bridge from this Mac").font(DS.Typo.rowTitle).foregroundStyle(DS.Ink.primary)
-                    Text("Takes the scripting addition out of /Library/ScriptingAdditions. Every window power stops at once. SIP stays as it is until you re-enable it in Recovery.")
-                        .font(DS.caption).foregroundStyle(DS.Ink.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: DS.Space.s) {
-                        Button {
-                            guard !busy else { return }
-                            busy = true; message = nil
-                            Task { @MainActor in
-                                do { try await DockBridge.shared.uninstall(); message = "Removed." }
-                                catch { message = (error as NSError).localizedDescription }
-                                busy = false
-                            }
-                        } label: {
-                            HStack(spacing: 7) {
-                                if busy { ProgressView().controlSize(.small) }
-                                else { Image(systemName: "trash").font(.system(size: 11.5, weight: .semibold)) }
-                                Text("Remove the bridge").font(.system(size: 12.5, weight: .semibold))
-                            }
-                            .foregroundStyle(DS.Ink.primary)
-                            .padding(.horizontal, 14).frame(height: 30)
-                            .background(DS.Ink.fillStrong, in: .capsule)
-                            .contentShape(Capsule())
-                        }
-                        .buttonStyle(Pressable(scale: 0.96))
-                        .disabled(busy)
-                        if let message {
-                            Text(message).font(DS.caption).foregroundStyle(DS.Ink.secondary).transition(.opacity)
-                        }
+                    if MacPlatform.appleSilicon {
+                        CommandBlock(where: "First, in macOS, in Terminal", command: "sudo nvram -d boot-args")
                     }
-                    .animation(DS.Motion.hover, value: message)
+                    CommandBlock(where: MacPlatform.appleSilicon ? "Then in Recovery → Utilities → Terminal" : "In Recovery → Utilities → Terminal",
+                                 command: "csrutil enable")
                 }
             }
         }
+    }
+
+    private var removeButton: some View {
+        Button {
+            guard !busy else { return }
+            busy = true; message = nil
+            Task { @MainActor in
+                do { try await DockBridge.shared.uninstall(); message = "Removed." }
+                catch { message = (error as NSError).localizedDescription }
+                busy = false
+            }
+        } label: {
+            HStack(spacing: 7) {
+                if busy { ProgressView().controlSize(.small) }
+                else { Image(systemName: "trash").font(.system(size: 11.5, weight: .semibold)) }
+                Text(busy ? "Waiting for the password…" : "Remove the bridge").font(.system(size: 12.5, weight: .semibold))
+            }
+            .foregroundStyle(DS.Ink.primary)
+            .padding(.horizontal, 14).frame(height: 30)
+            .background(DS.Ink.fillStrong, in: .capsule)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(Pressable(scale: 0.96))
+        .disabled(busy)
     }
 }
 

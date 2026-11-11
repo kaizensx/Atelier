@@ -51,6 +51,12 @@ final class DockBridge: ObservableObject, DockBridging {
                                                 nvramProtectionsOff: false, rawConfig: nil)
     private(set) var bootArgPresent = false
     private(set) var installedVersion: String?
+    /// The addition is on disk, whatever its version and whatever SIP says. Removing it needs no
+    /// SIP change (/Library/ScriptingAdditions is not SIP-protected), so Remove shows on this.
+    @Published private(set) var installed = false
+    /// What an administrator step is doing right now, for a progress line. The prompt runs off
+    /// the main thread, so the Studio keeps drawing while it waits for the password.
+    @Published private(set) var working: String?
 
     /// The version this build ships; must match Native/common.h OSAX_VERSION and the osax
     /// Info.plist written by build.sh. An installed addition of a different version counts as
@@ -81,6 +87,7 @@ final class DockBridge: ObservableObject, DockBridging {
         sip = Self.detectSIP()
         bootArgPresent = Self.detectBootArg()
         installedVersion = readInstalledVersion()
+        installed = FileManager.default.fileExists(atPath: osaxDir)
 
         // The precondition order lives in DockCore.BridgeGate (pure, unit-tested). The CPU is read
         // at runtime (sysctl via MacPlatform), not by build slice, so the Intel slice under Rosetta
@@ -166,14 +173,17 @@ final class DockBridge: ObservableObject, DockBridging {
         /usr/bin/codesign -f -s - \(q("\(osaxDir)/Contents/Resources/payload.bundle/Contents/MacOS/payload")) 2>/dev/null; \
         /usr/bin/killall Dock
         """
-        try runPrivileged(script, describing: "install the Dock bridge")
+        try await runPrivileged(script, describing: "install the Dock bridge")
         await refresh()
     }
 
+    /// The shell step that takes the addition out, for Remove Everything's single prompt.
+    var uninstallScript: String { "/bin/rm -rf \(Self.shellQuote(osaxDir)); /usr/bin/killall Dock 2>/dev/null; true" }
+
+    /// Deleting /Library/ScriptingAdditions/Atelier.osax needs an administrator, not SIP: it works
+    /// with SIP fully back on, which is exactly when someone wants it gone.
     func uninstall() async throws {
-        guard sip.isBridgeCapable else { throw BridgeError.notReady(.sipEnabled) }
-        let script = "/bin/rm -rf \(Self.shellQuote(osaxDir)); /usr/bin/killall Dock"
-        try runPrivileged(script, describing: "remove the Dock bridge")
+        try await runPrivileged(uninstallScript, describing: "remove the Dock bridge")
         await refresh()
     }
 
@@ -186,7 +196,7 @@ final class DockBridge: ObservableObject, DockBridging {
 
         let loader = "\(osaxDir)/Contents/MacOS/loader"
         let script = "\(Self.shellQuote(loader))"
-        try runPrivileged(script, describing: "load the Dock bridge into the Dock")
+        try await runPrivileged(script, describing: "load the Dock bridge into the Dock")
         await refresh()
     }
 
@@ -224,7 +234,7 @@ final class DockBridge: ObservableObject, DockBridging {
             steps.append(q("\(osaxDir)/Contents/MacOS/loader"))
         }
 
-        try runPrivileged(steps.joined(separator: "; "),
+        try await runPrivileged(steps.joined(separator: "; "),
                           describing: needsBootArg ? "set the boot argument and install the Dock bridge"
                                                    : "install and load the Dock bridge")
         await refresh()
@@ -237,7 +247,7 @@ final class DockBridge: ObservableObject, DockBridging {
     /// instead and never calls this.
     func restartIntoRecovery() async throws {
         let script = "/usr/sbin/nvram recovery-boot-mode=unused; /sbin/shutdown -r now"
-        try runPrivileged(script, describing: "restart into Recovery")
+        try await runPrivileged(script, describing: "restart into Recovery")
     }
 
     /// Re-load at login, but only if the owner enabled it. Still prompts for the password
@@ -426,30 +436,66 @@ final class DockBridge: ObservableObject, DockBridging {
         return String(data: data, encoding: .utf8)
     }
 
-    /// Run a shell script with administrator privileges via NSAppleScript (the system password
-    /// prompt). Throws on non-zero/failed execution.
-    private func runPrivileged(_ shellScript: String, describing what: String) throws {
-        let escaped = Self.appleScriptEscape(shellScript)
-        let source = "do shell script \"\(escaped)\" with administrator privileges"
-        guard let apple = NSAppleScript(source: source) else {
-            throw BridgeError.privilegedStepFailed("Could not build the request to \(what).")
-        }
-        var err: NSDictionary?
-        apple.executeAndReturnError(&err)
-        if let err, let msg = err[NSAppleScript.errorMessage] as? String {
-            throw BridgeError.privilegedStepFailed("Could not \(what): \(msg)")
+    /// Run a shell script with administrator privileges (the system password prompt), off the
+    /// main thread: the script may `killall Dock; sleep 1`, and the prompt waits on the person.
+    /// Throws on failure or cancel.
+    private func runPrivileged(_ shellScript: String, describing what: String) async throws {
+        working = what
+        defer { working = nil }
+        if let failure = await AdminPrompt.run(shellScript, reason: what) {
+            throw BridgeError.privilegedStepFailed("Could not \(what): \(failure)")
         }
     }
 
     /// POSIX single-quote a path for embedding in a /bin/sh command.
-    static func shellQuote(_ s: String) -> String {
+    nonisolated static func shellQuote(_ s: String) -> String {
         "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// Escape a string for inclusion inside an AppleScript double-quoted literal.
-    static func appleScriptEscape(_ s: String) -> String {
+    nonisolated static func appleScriptEscape(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\")
          .replacingOccurrences(of: "\"", with: "\\\"")
+    }
+}
+
+/// The system's administrator prompt for one shell script, run by an explicit click and never on
+/// its own. It runs `osascript` as a child process on a background queue, so the main thread
+/// (the Studio, the Dock, every panel) keeps going while the prompt waits and while the script
+/// runs. NSAppleScript did this on the main actor before, freezing Atelier for the whole step.
+enum AdminPrompt {
+    private static let queue = DispatchQueue(label: "net.dasantos.atelier.admin", qos: .userInitiated)
+
+    /// nil on success, otherwise what went wrong, in a short sentence ("User canceled.").
+    nonisolated static func run(_ shellScript: String, reason: String) async -> String? {
+        let source = "do shell script \"\(DockBridge.appleScriptEscape(shellScript))\" "
+            + "with prompt \"Atelier needs an administrator to \(DockBridge.appleScriptEscape(reason)).\" "
+            + "with administrator privileges"
+        return await withCheckedContinuation { continuation in
+            queue.async { continuation.resume(returning: runNow(source)) }
+        }
+    }
+
+    nonisolated private static func runNow(_ source: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", source]
+        let errors = Pipe()
+        process.standardError = errors
+        process.standardOutput = FileHandle.nullDevice
+        do { try process.run() } catch { return error.localizedDescription }
+        let data = errors.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus != 0 else { return nil }
+        return message(String(decoding: data, as: UTF8.self))
+    }
+
+    /// "0:120: execution error: User canceled. (-128)" becomes "User canceled."
+    nonisolated static func message(_ stderr: String) -> String {
+        var text = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let range = text.range(of: "execution error: ") { text = String(text[range.upperBound...]) }
+        if let open = text.range(of: " (", options: .backwards), text.hasSuffix(")") { text = String(text[..<open.lowerBound]) }
+        return text.isEmpty ? "The administrator step did not finish." : text
     }
 }
 

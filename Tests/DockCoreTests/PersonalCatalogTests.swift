@@ -75,6 +75,28 @@ private func setting(_ domain: String, key: String = "Sample", kind: PersonalKin
     #expect(engine.prefs.read(sample) == .string("mine"))
 }
 
+@Test func revertAllPutsBackEveryTrackedSettingAndOnlyThose() throws {
+    let (domain, suite) = scratch()
+    defer { cleanUp(domain, suite) }
+    let engine = PersonalEngine(ledger: PersonalLedger(suite: suite))
+    let absent = setting(domain, key: "WasAbsent")
+    let mine = setting(domain, key: "WasMine", kind: .string)
+    let untouched = setting(domain, key: "Untouched")
+    try engine.prefs.write(.string("mine"), for: mine)
+    try engine.prefs.write(.int(3), for: untouched)
+    try engine.apply(.int(7), to: absent)
+    try engine.apply(.string("atelier"), to: mine)
+    let result = engine.revertAll(in: [absent, mine, untouched])
+    #expect(Set(result.reverted.map(\.id)) == [absent.id, mine.id])
+    #expect(result.failed.isEmpty)
+    #expect(engine.prefs.read(absent) == nil)
+    #expect(engine.prefs.read(mine) == .string("mine"))
+    #expect(engine.prefs.read(untouched) == .int(3))
+    #expect(engine.ledger.trackedIDs.isEmpty)
+    // Nothing left: a second pass does nothing.
+    #expect(engine.revertAll(in: [absent, mine, untouched]).reverted.isEmpty)
+}
+
 @Test func boolsReadBackFromNumbers() {
     #expect(PersonalValue(NSNumber(value: 1), as: .bool) == .bool(true))
     #expect(PersonalValue("0" as CFString, as: .bool) == .bool(false))

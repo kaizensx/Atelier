@@ -842,29 +842,7 @@ final class ClipboardHistory {
     }
 }
 
-enum Calculator {
-    static func evaluate(_ text: String) -> String? {
-        let cleaned = text.replacingOccurrences(of: "x", with: "*").replacingOccurrences(of: ",", with: ".")
-        guard cleaned.rangeOfCharacter(from: .decimalDigits) != nil,
-              cleaned.rangeOfCharacter(from: CharacterSet(charactersIn: "+-*/")) != nil,
-              cleaned.allSatisfy({ "0123456789.+-*/() ".contains($0) }),
-              !cleaned.hasSuffix("+"), !cleaned.hasSuffix("-"), !cleaned.hasSuffix("*"), !cleaned.hasSuffix("/"),
-              !cleaned.contains("/0"), balanced(cleaned) else { return nil }
-        let floating = cleaned.replacing(/(\d+\.?\d*)/) { "\($0.output.1)*1.0" }
-        guard let value = NSExpression(format: floating).expressionValue(with: nil, context: nil) as? NSNumber else { return nil }
-        return value.doubleValue.formatted(.number.precision(.fractionLength(0...6)))
-    }
-
-    private static func balanced(_ text: String) -> Bool {
-        var depth = 0
-        for character in text {
-            if character == "(" { depth += 1 }
-            if character == ")" { depth -= 1 }
-            if depth < 0 { return false }
-        }
-        return depth == 0
-    }
-}
+// Calculator: DockCore/Calculator.swift, a parser of its own. NSExpression aborted on bad input.
 
 // MARK: - Unique effects
 

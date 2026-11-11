@@ -7,7 +7,7 @@ import IOKit.pwr_mgt
 // fan writes from root only. Installed only when the owner asks, as a LaunchDaemon, and removed
 // from the same card. It does as little as it can:
 //
-//   * every half second, reads the app's command (a small JSON file in a folder only the owner
+//   * every half second while it drives a fan (every 2 s while the fans are the system's), reads the app's command (a small JSON file in a folder only the owner
 //     can write) and the chip's temperatures, asks FanSafety what to do, and does it;
 //   * hands every fan back to the system when the command is older than 10 s (the app stopped,
 //     crashed or hung), when the app quits or turns Fan Control off, when the Mac goes to sleep
@@ -202,6 +202,8 @@ final class Helper {
     private var reclaims = 0
     private var lastError: String?
     private var lastState = ""
+    /// Whether a fan is under the helper's control, which sets how often it ticks.
+    private(set) var driving = false
 
     init(smc: SMC, owner: uid_t, directory: String? = nil) {
         self.smc = smc
@@ -245,8 +247,12 @@ final class Helper {
     func tick() {
         let now = Self.now()
         lastError = nil
-        let hottest = machine.hottest(smc)
-        let decision = FanSafety.decide(command: readCommand(), now: now, hottest: hottest, asleep: asleep,
+        let command = readCommand()
+        // The temperature only matters while a fan is asked for (or held for overheat): idle,
+        // the helper skips the sensor walk and only reads the command and the fans' status.
+        let wantsFans = command?.fans.contains { $0.rpm != nil } ?? false
+        let hottest = wantsFans || overheated || !controlled.isEmpty ? machine.hottest(smc) : nil
+        let decision = FanSafety.decide(command: command, now: now, hottest: hottest, asleep: asleep,
                                         wokeAt: wokeAt, overheated: &overheated)
         let described = "\(decision)"
         if described != lastDecision {
@@ -257,12 +263,15 @@ final class Helper {
         case .system(let reason):
             failedAt = [:]
             release(reason)
+            driving = !controlled.isEmpty
             writeStatus(state: "system", reason: reason, hottest: hottest)
         case .manual(let rpm):
             drive(rpm, now: now)
+            driving = true
             writeStatus(state: controlled.isEmpty ? "system" : "manual", reason: "command", hottest: hottest)
         case .overheat:
             drive(Dictionary(uniqueKeysWithValues: machine.fans.map { ($0.index, $0.max) }), now: now)
+            driving = true
             writeStatus(state: "overheat", reason: "hard limit", hottest: hottest)
         }
     }
@@ -357,7 +366,8 @@ final class Helper {
         }
         let status = FanHelperStatus(pid: getpid(), time: Self.now(), state: state, reason: reason, fans: fans,
                                      modeKey: machine.modeKeys[0], hasUnlock: machine.hasUnlock, unlockUsed: unlockUsed,
-                                     hottest: hottest, reclaims: reclaims, error: lastError)
+                                     hottest: hottest, reclaims: reclaims, error: lastError,
+                                     helperVersion: FanHelperInstall.helperVersion)
         if state + reason != lastState {
             log("state \(state) (\(reason))\(lastError.map { " error \($0)" } ?? "")")
             lastState = state + reason
@@ -393,12 +403,24 @@ private func powerCallback(_ refcon: UnsafeMutableRawPointer?, _ service: io_ser
     static var helper: Helper?
     static var signals: [DispatchSourceSignal] = []
     static var timer: DispatchSourceTimer?
+    static var fast = false
+
+    /// One tick, then the pace for the next: quick while a fan is driven, slow while idle.
+    static func tick() {
+        guard let helper else { return }
+        helper.tick()
+        guard helper.driving != fast, let timer else { return }
+        fast = helper.driving
+        let interval = FanHelperInstall.tickInterval(driving: fast)
+        timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(fast ? 50 : 250))
+    }
 }
 
 // MARK: Main
 
 let arguments = CommandLine.arguments
 if arguments.contains("--probe") { exit(probe()) }
+if arguments.contains("--version") { print(FanHelperInstall.helperVersion); exit(0) }
 
 guard arguments.contains("--daemon"), let ownerIndex = arguments.firstIndex(of: "--owner"),
       ownerIndex + 1 < arguments.count, let owner = UInt32(arguments[ownerIndex + 1]) else {
@@ -442,8 +464,9 @@ MainActor.assumeIsolated {
     }
 
     let timer = DispatchSource.makeTimerSource(queue: .main)
-    timer.schedule(deadline: .now() + 0.2, repeating: 0.5, leeway: .milliseconds(50))
-    timer.setEventHandler { MainActor.assumeIsolated { Daemon.helper?.tick() } }
+    // Idle pace at first; the first tick that drives a fan switches to the quick one.
+    timer.schedule(deadline: .now() + 0.2, repeating: FanHelperInstall.tickInterval(driving: false), leeway: .milliseconds(250))
+    timer.setEventHandler { MainActor.assumeIsolated { Daemon.tick() } }
     timer.resume()
     Daemon.timer = timer
 }

@@ -61,6 +61,14 @@ enum CrashGuard {
 
     @MainActor static var agentStatus: SMAppService.Status { agent.status }
 
+    /// Remove Everything: the agent leaves launchd, and its folder goes. Without this the
+    /// AtelierGuard launch agent stayed registered after Atelier's data was gone.
+    @MainActor static func unregister() async {
+        if agent.status != .notRegistered { try? await agent.unregister() }
+        UserDefaults.standard.removeObject(forKey: "crashGuard.registeredBuild")
+        try? FileManager.default.removeItem(at: folder)
+    }
+
     /// Kept in step with the Dock guardian: written when the macOS Dock is hidden, removed
     /// when it is back.
     static func writeRestoreScript(_ script: String) {

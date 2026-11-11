@@ -287,8 +287,8 @@ scripting addition ported from yabai. Every change is undone the moment you swit
 | Spaces Studio | Create, remove and reorder Spaces. Off on macOS 27 until verified there. |
 
 **Needs:** SIP partly off, an administrator password to install and load the bridge. Turning SIP
-partly off lowers macOS security; the chapter says so before you start. To undo: `csrutil enable` in
-recoveryOS and `sudo nvram -d boot-args`.
+partly off lowers macOS security; the chapter says so before you start. To undo: remove the bridge,
+`sudo nvram -d boot-args` while NVRAM is still unprotected, then `csrutil enable` in recoveryOS.
 
 ### Windows & Spaces
 

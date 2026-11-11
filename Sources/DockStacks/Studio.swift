@@ -206,7 +206,6 @@ struct StudioView: View {
     /// Read by the camera (`Chapter.camera`), so the band under the stage follows it too.
     @ObservedObject private var dockSide = StageDockSide.shared
     @AppStorage("studio.sidebarCollapsed") private var sidebarCollapsed = false
-    private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     var body: some View {
         GeometryReader { geometry in
@@ -277,7 +276,6 @@ struct StudioView: View {
             // Room, stage and sidebar arrive once per launch; Reduce Motion makes it a 0.15 s fade.
             withAnimation(DS.Motion.gentle(DS.Motion.arrive)) { entered = true }
         }
-        .onReceive(timer) { _ in model.tick() }
         // A new chapter starts level: easing a tilt back during the camera's flight doubled its cost.
         .onChange(of: model.chapter) {
             var level = Transaction()
@@ -1338,14 +1336,7 @@ struct SystemChapter: View {
 
         SectionHeader("Shortcuts", symbol: "command", hue: hue)
         RowGroup {
-            SettingRow(title: "Command", detail: "Search Atelier, apps and your clipboard.", symbol: "magnifyingglass", density: .compact) {
-                HStack(spacing: 4) {
-                    SystemKeycap(text: "⌥")
-                    SystemKeycap(text: "Space")
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Option Space")
-            }
+            CommandShortcutRow()
             SettingRow(title: "Shortcuts", detail: "Open a stack from the Shortcuts app.", symbol: "square.stack.3d.up", density: .compact) {
                 Text("atelier://open?name=Stack").font(.system(size: 11.5, weight: .medium, design: .monospaced))
                     .foregroundStyle(DS.Ink.secondary).textSelection(.enabled)
@@ -1356,14 +1347,55 @@ struct SystemChapter: View {
         StudioThisMacCard()
 
         SectionHeader("Remove Atelier", symbol: "trash", hue: DS.Ink.tertiary)
+        RemoveAtelierCard()
+    }
+}
+
+/// Undoing Atelier, in two strengths. Each opens a summary of exactly what will be put back
+/// before anything happens (RevertSheet, AtelierRevert.swift).
+private struct RemoveAtelierCard: View {
+    @State private var sheet: RevertSheet.Mode?
+
+    var body: some View {
         Card(style: .quiet) {
             VStack(alignment: .leading, spacing: DS.Space.m) {
+                SettingRow(title: "Revert All macOS Changes", detail: "Puts back every setting Atelier changed and turns those features off. Atelier stays.",
+                           symbol: "arrow.uturn.backward", density: .compact) {
+                    Button("Review…") { sheet = .revert }.controlSize(.small)
+                }
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Remove Everything").font(DS.title).foregroundStyle(DS.Ink.primary)
-                    Text("Removes stacks from the Dock, deletes app data including the timeline, and quits.")
+                    Text("Puts back every macOS change, removes stacks from the Dock, deletes app data including the timeline, and quits. You see the full list first.")
                         .font(DS.caption).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
                 }
-                HoldButton(title: "Hold to Remove") { model.uninstall() }
+                HoldButton(title: "Hold to Remove") { sheet = .remove }
+            }
+        }
+        .sheet(item: $sheet) { mode in RevertSheet(mode: mode) }
+    }
+}
+
+/// Command's shortcut, or why it is not Command's: a failed ⌥ Space registration used to be
+/// ignored while this row still showed the keycaps.
+private struct CommandShortcutRow: View {
+    @State private var failure = HotKey.failure
+
+    var body: some View {
+        SettingRow(title: "Command", detail: failure ?? "Search Atelier, apps and your clipboard.", symbol: "magnifyingglass",
+                   density: .compact) {
+            if failure == nil {
+                HStack(spacing: 4) {
+                    SystemKeycap(text: "⌥")
+                    SystemKeycap(text: "Space")
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Option Space")
+            } else {
+                Button("Try Again") {
+                    HotKey.install()
+                    failure = HotKey.failure
+                }
+                .controlSize(.small)
             }
         }
     }
@@ -1389,6 +1421,7 @@ struct TimeOverlay: View {
     @ObservedObject var model: ManagerModel
     @State private var position = 0.0
     @State private var ordered: [Snapshot] = []
+    @State private var loaded = false
 
     private var index: Int { ordered.isEmpty ? 0 : min(max(Int(position.rounded()), 0), ordered.count - 1) }
 
@@ -1418,6 +1451,11 @@ struct TimeOverlay: View {
                         .disabled(model.busy)
                 }
                 TimeTrack(dates: ordered.map(\.date), position: $position)
+            } else if !loaded {
+                HStack(spacing: DS.Space.s) {
+                    ProgressView().controlSize(.small)
+                    Text("Reading the timeline…").font(DS.body).foregroundStyle(DS.Ink.secondary)
+                }
             } else {
                 HStack(spacing: DS.Space.s) {
                     Image(systemName: "clock.arrow.circlepath").foregroundStyle(DS.Ink.accent)
@@ -1432,11 +1470,15 @@ struct TimeOverlay: View {
         .frame(maxHeight: .infinity, alignment: .bottom)
         // In the band under the stage, above the change card: it never covers the Dock it shows.
         .padding(.bottom, StudioLayout.bottom + 4)
-        .onAppear {
-            // An empty Dock is never a place worth going back to.
-            ordered = model.snapshots.reversed().filter { snapshot in
-                !Tiles.apps((try? DockStore.plist(at: snapshot.url)) ?? [:]).isEmpty
-            }
+        .task {
+            // An empty Dock is never a place worth going back to. Reading up to 200 snapshots is
+            // file work, so it runs off the main thread and the overlay fills in when it is done.
+            let snapshots = Array(model.snapshots.reversed())
+            let kept = await Task.detached(priority: .userInitiated) {
+                snapshots.filter { !Tiles.apps((try? DockStore.plist(at: $0.url)) ?? [:]).isEmpty }
+            }.value
+            ordered = kept
+            loaded = true
             position = Double(max(ordered.count - 1, 0))
             show()
         }
@@ -1650,8 +1692,8 @@ enum StudioThisMac {
     static func facts() -> ShellMacFacts {
         let version = ProcessInfo.processInfo.operatingSystemVersion
         let os = "\(version.majorVersion).\(version.minorVersion)" + (version.patchVersion > 0 ? ".\(version.patchVersion)" : "")
-        let info = Bundle.main.infoDictionary ?? [:]
-        let app = "\(info["CFBundleShortVersionString"] as? String ?? "dev") (\(info["CFBundleVersion"] as? String ?? "-"))"
+        // AtelierVersion ("1.0.0-beta.1"), the one the updater and the release notes use.
+        let app = "\(AtelierInfo.version) (\(AtelierInfo.build ?? "-"))"
         return ShellMacFacts(osVersion: os, osBuild: sysctlString("kern.osversion") ?? "?", model: sysctlString("hw.model") ?? "Mac",
                              chip: sysctlString("machdep.cpu.brand_string") ?? (MacPlatform.appleSilicon ? "Apple silicon" : "Intel"),
                              appleSilicon: MacPlatform.appleSilicon, translated: MacPlatform.translated,

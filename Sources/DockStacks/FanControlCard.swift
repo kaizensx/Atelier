@@ -65,25 +65,39 @@ struct FanControlCard: View {
     }
 
     @ViewBuilder private var helperRow: some View {
-        switch fans.helper {
-        case .absent:
-            SettingRow(title: "Fan helper", detail: "Writing to the fans needs root. One administrator password, removable here.",
-                       symbol: "lock.shield", density: .compact) {
-                Button("Install…") { fans.installHelper() }
-                    .buttonStyle(FanPillStyle(prominent: true, hue: hue)).disabled(fans.working)
+        if fans.working {
+            // The administrator prompt runs off the main thread; this says what it waits on.
+            SettingRow(title: "Fan helper", detail: "Waiting for the administrator password…", symbol: "lock.shield", density: .compact) {
+                ProgressView().controlSize(.small)
             }
-        case .installed:
-            SettingRow(title: "Fan helper", detail: "Installed, not answering yet.", symbol: "lock.shield", density: .compact) {
+        } else if fans.helperOutdated {
+            SettingRow(title: "Fan helper", detail: "An older helper is installed. Update it to match this Atelier.",
+                       symbol: "arrow.triangle.2.circlepath", density: .compact) {
                 HStack(spacing: 6) {
-                    Button("Reinstall…") { fans.installHelper() }.buttonStyle(FanPillStyle(prominent: false, hue: hue))
+                    Button("Update helper…") { fans.installHelper() }.buttonStyle(FanPillStyle(prominent: true, hue: hue))
                     Button("Remove") { fans.removeHelper() }.buttonStyle(FanPillStyle(prominent: false, hue: hue))
                 }
-                .disabled(fans.working)
             }
-        case .running:
-            SettingRow(title: "Fan helper", detail: helperDetail, symbol: "checkmark.shield", density: .compact) {
-                Button("Remove") { fans.removeHelper() }
-                    .buttonStyle(FanPillStyle(prominent: false, hue: hue)).disabled(fans.working)
+        } else {
+            switch fans.helper {
+            case .absent:
+                SettingRow(title: "Fan helper", detail: "Writing to the fans needs root. One administrator password, removable here.",
+                           symbol: "lock.shield", density: .compact) {
+                    Button("Install…") { fans.installHelper() }
+                        .buttonStyle(FanPillStyle(prominent: true, hue: hue))
+                }
+            case .installed:
+                SettingRow(title: "Fan helper", detail: "Installed, not answering yet.", symbol: "lock.shield", density: .compact) {
+                    HStack(spacing: 6) {
+                        Button("Reinstall…") { fans.installHelper() }.buttonStyle(FanPillStyle(prominent: false, hue: hue))
+                        Button("Remove") { fans.removeHelper() }.buttonStyle(FanPillStyle(prominent: false, hue: hue))
+                    }
+                }
+            case .running:
+                SettingRow(title: "Fan helper", detail: helperDetail, symbol: "checkmark.shield", density: .compact) {
+                    Button("Remove") { fans.removeHelper() }
+                        .buttonStyle(FanPillStyle(prominent: false, hue: hue))
+                }
             }
         }
     }

@@ -358,6 +358,9 @@ public struct FanHelperStatus: Codable, Equatable, Sendable {
     }
 
     public var version = 1
+    /// The helper binary's own version (FanHelperInstall.helperVersion when it was built).
+    /// Absent from helpers before it existed, which are therefore out of date.
+    public var helperVersion: Int?
     public var pid: Int32
     public var time: Double
     /// "system", "manual" or "overheat".
@@ -372,7 +375,9 @@ public struct FanHelperStatus: Codable, Equatable, Sendable {
     public var error: String?
 
     public init(pid: Int32, time: Double, state: String, reason: String, fans: [Fan], modeKey: String?,
-                hasUnlock: Bool, unlockUsed: Bool, hottest: Double?, reclaims: Int, error: String?) {
+                hasUnlock: Bool, unlockUsed: Bool, hottest: Double?, reclaims: Int, error: String?,
+                helperVersion: Int? = nil) {
+        self.helperVersion = helperVersion
         self.pid = pid
         self.time = time
         self.state = state
@@ -429,6 +434,26 @@ public enum FanSafety {
 
 /// The helper's place on disk and the LaunchDaemon that runs it as root.
 public enum FanHelperInstall {
+    /// Raise whenever AtelierFans changes, so an app update offers to update the installed
+    /// helper (it lives in /Library and is never replaced on its own).
+    /// 2: reports helperVersion; polls every 2 s while the fans are the system's.
+    public static let helperVersion = 2
+
+    /// Whether the installed helper is older than this build's. nil when there is no status to
+    /// judge by (not installed, or never ran).
+    public static func isOutdated(_ status: FanHelperStatus?) -> Bool? {
+        guard let status else { return nil }
+        return (status.helperVersion ?? 1) < helperVersion
+    }
+
+    /// How often the helper looks at the command and the SMC: twice a second while it drives a
+    /// fan, and every couple of seconds while the fans are the system's.
+    public static func tickInterval(driving: Bool) -> Double { driving ? 0.5 : 2 }
+
+    /// How old the helper's status may be while it still counts as running: a little more than
+    /// two idle ticks.
+    public static let statusFreshness = 5.0
+
     public static let label = "net.dasantos.atelier.fans"
     public static let helperPath = "/Library/PrivilegedHelperTools/net.dasantos.atelier.fans"
     public static let plistPath = "/Library/LaunchDaemons/net.dasantos.atelier.fans.plist"
