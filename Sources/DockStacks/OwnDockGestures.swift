@@ -220,8 +220,14 @@ final class OwnDockGestures: ObservableObject {
                 let target = focused.flatMap { window -> AXUIElement? in
                     (DockAX.attribute(window, kAXMinimizedAttribute) as? Bool) == true ? nil : window
                 } ?? DockAX.windows(pid).first { !$0.minimized }?.ref.element
-                if let target { AXUIElementSetAttributeValue(target, kAXMinimizedAttribute as CFString, kCFBooleanTrue) }
-                await MainActor.run { MinimizedWatcher.shared.dirty(pid) }
+                let ref = target.map { AXRef(element: $0) }
+                await MainActor.run {
+                    // Into the Atelier Dock with the effect when it takes minimises.
+                    if let ref, !MinimizeRedirect.shared.minimizeIfActive(ref.element) {
+                        AXUIElementSetAttributeValue(ref.element, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+                    }
+                    MinimizedWatcher.shared.dirty(pid)
+                }
             }
         case .hide:
             app.hide()

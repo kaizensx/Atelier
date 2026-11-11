@@ -624,7 +624,9 @@ final class TitleBarGestures: ObservableObject {
             commits[target.key] = nil
             preview.hide()
         case .minimize:
-            AXUIElementSetAttributeValue(target.element, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+            if !MinimizeRedirect.shared.minimizeIfActive(target.element) {
+                AXUIElementSetAttributeValue(target.element, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+            }
             commits[target.key] = nil
             preview.hide()
         case .close:

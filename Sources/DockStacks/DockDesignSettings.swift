@@ -331,6 +331,7 @@ struct DockEffectsCard: View {
             DockHubWideRow("Minimising") {
                 Segments(selection: $dock.design.minimize, options: DockMinimizeEffect.allCases.map { ($0, $0.title) })
             }
+            MinimizeEffectPicker()
             SettingRow(title: "Idle Breathing", detail: "The rim glows slowly in and out.", density: .compact) {
                 LuxSwitch(isOn: $dock.design.breathing, label: "Idle Breathing", tint: hue)
             }

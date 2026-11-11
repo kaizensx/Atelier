@@ -321,6 +321,8 @@ final class MinimizedWatcher {
     private var paths: [pid_t: String] = [:]
     private var observers: [pid_t: AXObserver] = [:]
     private var pending: Set<pid_t> = []
+    /// Apps read once already: a window minimised after that is a new one.
+    private var primed: Set<pid_t> = []
     private var counter = 0
     private var seen: [String: Int] = [:]
     private(set) var running = false
@@ -341,6 +343,7 @@ final class MinimizedWatcher {
         observers = [:]
         perApp = [:]
         paths = [:]
+        primed = []
         if !windows.isEmpty {
             windows = []
             changed?()
@@ -356,10 +359,19 @@ final class MinimizedWatcher {
         queue.async { [weak self] in
             // Registering talks to the app, so it happens here, with a short timeout.
             var observer: AXObserver?
-            guard AXObserverCreate(pid, { _, element, _, _ in
+            guard AXObserverCreate(pid, { _, element, notification, _ in
                 var pid: pid_t = 0
                 AXUIElementGetPid(element, &pid)
-                MainActor.assumeIsolated { MinimizedWatcher.shared.dirty(pid) }
+                let restored = (notification as String) == kAXWindowDeminiaturizedNotification
+                let ref = AXRef(element: element)
+                MainActor.assumeIsolated {
+                    // A window Atelier holds came back another way: its effect starts now, not
+                    // after the re-read, while it waits parked at the edge.
+                    if restored, MinimizeRedirect.shared.shrunkKeys.contains(CFHash(ref.element)) {
+                        MinimizeRedirect.shared.restoredElsewhere([ref])
+                    }
+                    MinimizedWatcher.shared.dirty(pid)
+                }
             }, &observer) == .success, let observer else { return }
             let element = DockAX.application(pid)
             for name in [kAXWindowMiniaturizedNotification, kAXWindowDeminiaturizedNotification, kAXWindowCreatedNotification,
@@ -384,6 +396,7 @@ final class MinimizedWatcher {
             CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes)
         }
         paths[pid] = nil
+        primed.remove(pid)
         guard perApp.removeValue(forKey: pid) != nil else { return }
         rebuild()
     }
@@ -411,11 +424,21 @@ final class MinimizedWatcher {
             if seen[id] == nil { counter += 1; seen[id] = counter }
             return MinimizedWindow(id: id, pid: pid, title: window.title, appPath: path, ref: window.ref, since: seen[id] ?? 0)
         }
+        // Read once: from now on a newly minimised window is one minimised since.
+        let wasPrimed = !primed.insert(pid).inserted
         guard list != (perApp[pid] ?? []) else { return }
         // Windows that came back by some other way than the dock: Atelier may hold them shrunk.
         let now = Set(list.map(\.id))
         let back = (perApp[pid] ?? []).filter { !now.contains($0.id) }.map(\.ref)
         if !back.isEmpty { MinimizeRedirect.shared.restoredElsewhere(back) }
+        // Windows minimised since the app was first read, some way no tap sees (its Window
+        // menu): Atelier holds them too, so they come back with the effect. Windows already
+        // minimised when Atelier started are left as they are.
+        if wasPrimed {
+            let before = Set((perApp[pid] ?? []).map(\.id))
+            let added = list.filter { !before.contains($0.id) }.map(\.ref)
+            if !added.isEmpty { MinimizeRedirect.shared.minimizedElsewhere(added) }
+        }
         perApp[pid] = list.isEmpty ? nil : list
         rebuild()
     }
