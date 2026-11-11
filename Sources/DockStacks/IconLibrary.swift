@@ -230,20 +230,17 @@ extension IconLibrary {
         !path.hasPrefix("/System/") && FileManager.default.isWritableFile(atPath: path)
     }
 
+    /// Through CustomIcons, so the change is listed and can be put back like any other.
     @discardableResult
     static func apply(_ image: NSImage, toApp path: String) -> Bool {
         guard canApply(toApp: path) else { return false }
-        return NSWorkspace.shared.setIcon(image, forFile: path, options: [])
+        return CustomIcons.shared.set(image, on: URL(fileURLWithPath: path))
     }
 
     @discardableResult
-    static func restore(app path: String) -> Bool {
-        NSWorkspace.shared.setIcon(nil, forFile: path, options: [])
-    }
+    static func restore(app path: String) -> Bool { CustomIcons.shared.revert(path) }
 
-    static func hasCustomIcon(_ path: String) -> Bool {
-        FileManager.default.fileExists(atPath: (path as NSString).appendingPathComponent("Icon\r"))
-    }
+    static func hasCustomIcon(_ path: String) -> Bool { CustomIcons.shared.hasCustomIcon(path) }
 }
 
 // MARK: - Floating picker

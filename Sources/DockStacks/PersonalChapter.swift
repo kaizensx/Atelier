@@ -76,6 +76,16 @@ final class PersonalModel: ObservableObject {
         finish(setting)
     }
 
+    /// Removes the key, so macOS goes back to its own default. Back to an absent original is a revert.
+    func clear(_ setting: PersonalSetting) {
+        guard setting.isAvailable() else { return }
+        if let original = engine.ledger.original(setting.id), original == nil { revert(setting); return }
+        guard engine.prefs.read(setting) != nil else { return }
+        do { try engine.apply(nil, to: setting) }
+        catch { notice = error.localizedDescription; revision += 1; return }
+        finish(setting)
+    }
+
     func revert(_ setting: PersonalSetting) {
         do { try engine.revert(setting) }
         catch { notice = error.localizedDescription; revision += 1; return }
@@ -92,12 +102,23 @@ final class PersonalModel: ObservableObject {
         if case let .restart(process) = setting.effect, Self.selfRelaunching.contains(process) { restart(process) }
     }
 
+    /// Restarts waiting for the one in flight. A change made while a process restarts may not
+    /// have been read yet, so it gets one more restart afterwards instead of none.
+    private var pendingRestarts: [String] = []
+
     func restart(_ process: String) {
-        guard restarting == nil else { return }
+        guard restarting == nil else {
+            if !pendingRestarts.contains(process) { pendingRestarts.append(process) }
+            return
+        }
         restarting = process
         Task.detached {
             Prefs.restart(process)
-            await MainActor.run { PersonalModel.shared.restarting = nil }
+            await MainActor.run {
+                let model = PersonalModel.shared
+                model.restarting = nil
+                if !model.pendingRestarts.isEmpty { model.restart(model.pendingRestarts.removeFirst()) }
+            }
         }
     }
 
@@ -126,6 +147,8 @@ struct PersonalChapter: View {
     var model: ManagerModel?
     /// Only these catalogue sections, for a place that holds part of an area (one app of Apps).
     var sections: [String]?
+    /// Inside another chapter on the same page: that one says the intro and the notice, once.
+    var embedded = false
     @ObservedObject private var personal = PersonalModel.shared
 
     private static let intros: [PersonalArea: String] = [
@@ -134,12 +157,12 @@ struct PersonalChapter: View {
         .input: "Pointer, keyboard, trackpad and typing. Many of these are read at login, and say so.",
         .sounds: "The alert sound and the little noises your Mac makes. The startup chime lives in NVRAM and is left alone.",
         .animations: "The motion macOS adds to apps, the Dock and Finder.",
-        .apps: "What opens at login, and settings every app shares. Each app with settings of its own has a place under Apps.",
+        .apps: "What opens at login, and settings every app shares.",
         .controlCenter: "Which items sit in the menu bar, and how the clock and battery read. ControlCenter restarts after a change.",
         .spotlight: "Spotlight's own interface switches, most of them internal. Spotlight restarts after a change.",
         .missionControl: "Mission Control, Spaces, Stage Manager, tiling and the app switcher, including hidden Dock switches.",
         .lockScreen: "The screen saver, the lock screen clock and what logging out remembers.",
-        .accessibility: "Visual accessibility. macOS guards this domain, so a change can be refused and applies after logging out.",
+        .accessibility: "Visual accessibility. Changing these needs Full Disk Access, and a change applies after logging out.",
         .appKit: "Behaviour every app shares: the caret, text, scrolling, windows and fonts. Apps pick it up when reopened.",
         .quickLook: "The preview panel, which runs inside each app. Reopen the app to see a change.",
     ]
@@ -151,7 +174,9 @@ struct PersonalChapter: View {
     }
 
     var body: some View {
-        if let app = singleApp {
+        if embedded {
+            EmptyView()
+        } else if let app = singleApp {
             Text("Settings \(app) keeps but does not show. Each row says when \(app) picks it up.")
                 .font(DS.body).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
         } else if let intro = Self.intros[area] {
@@ -171,7 +196,7 @@ struct PersonalChapter: View {
         default: EmptyView()
         }
         PersonalRows(area: area, sections: sections)
-        if let notice = personal.notice {
+        if !embedded, let notice = personal.notice {
             Text(notice).font(DS.caption).foregroundStyle(.orange.opacity(0.9)).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -183,8 +208,11 @@ struct PersonalRows: View {
     let area: PersonalArea
     /// Only these sections; all of the area when nil.
     var sections: [String]?
+    /// For the "Not on this macOS" group, whose Revert buttons follow the ledger.
+    @ObservedObject private var personal = PersonalModel.shared
 
     var body: some View {
+        let _ = personal.revision
         // Only what this macOS reads gets a control; the rest collapse into one group below.
         let split = PersonalAvailability.partition(PersonalCatalog.settings(in: area).filter { sections?.contains($0.section) ?? true })
         let all = split.supported
@@ -194,6 +222,8 @@ struct PersonalRows: View {
         // Lazy: a chapter with dozens of rows builds only the ones on screen, so opening it
         // never stalls the camera move.
         LazyVStack(alignment: .leading, spacing: 14) {
+            // Apps say this in their header card; everywhere else, once above the rows.
+            if area != .apps { FullDiskAccessGate(settings: all) }
             ForEach(shown, id: \.self) { section in
                 // A place that is one section already says its name in the title.
                 if shown.count > 1 || sections == nil { SectionHeader(section, symbol: Self.symbol(section)) }
@@ -234,6 +264,34 @@ struct PersonalRows: View {
         case "Tiling": "rectangle.split.2x1"
         case "Haptics": "hand.tap"
         default: "slider.horizontal.3"
+        }
+    }
+}
+
+/// "Needs Full Disk Access" with a way to grant it, while macOS would refuse a change to any of
+/// `settings`. Checked again every two seconds while shown, so it goes away once access is given.
+struct FullDiskAccessGate: View {
+    let settings: [PersonalSetting]
+    @State private var tick = 0
+
+    var body: some View {
+        let _ = tick
+        if let reason = settings.lazy.compactMap({ PersonalModel.shared.engine.prefs.writeBlocker($0) }).first {
+            HStack(spacing: 8) {
+                Image(systemName: "lock.fill").foregroundStyle(.orange)
+                Text(reason).font(DS.caption).foregroundStyle(.orange.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 6)
+                Chip("Open Settings") {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
+            .task(id: tick) {
+                try? await Task.sleep(for: .seconds(2))
+                tick += 1
+            }
         }
     }
 }
@@ -335,10 +393,13 @@ struct PersonalRow: View {
     @ViewBuilder private func wide(_ current: PersonalValue?) -> some View {
         switch setting.control {
         case let .choice(options) where options.count <= 4:
-            Segments(selection: Binding(get: { current ?? setting.fallback ?? options[0].value },
-                                        set: { personal.set($0, for: setting) }),
-                     options: options.map { ($0.value, $0.label) })
+            // Nothing stored and no known default: no option is lit, rather than the first one.
+            Segments(selection: Binding<PersonalValue?>(get: { current ?? setting.fallback },
+                                                        set: { if let value = $0 { personal.set(value, for: setting) } }),
+                     options: options.map { (Optional($0.value), $0.label) })
+            if Self.isUnknownDefault(setting, current) { systemDefaultNote }
         case let .number(range, step, unit):
+            let unknown = Self.isUnknownDefault(setting, current)
             CommitSlider(value: Binding(get: { current?.number ?? setting.fallback?.number ?? range.lowerBound },
                                         set: { value in
                                             let snapped = (value / step).rounded() * step
@@ -346,20 +407,58 @@ struct PersonalRow: View {
                                         }),
                          range: range) { value in
                 let snapped = (value / step).rounded() * step
-                return (snapped == snapped.rounded() ? String(Int(snapped)) : String(format: "%.2f", snapped)) + (unit.isEmpty ? "" : " " + unit)
+                let text = (snapped == snapped.rounded() ? String(Int(snapped)) : String(format: "%.2f", snapped)) + (unit.isEmpty ? "" : " " + unit)
+                // Untouched, the knob rests at the start but macOS uses its own value.
+                return unknown && snapped == range.lowerBound ? "Default" : text
             }
+            if unknown { systemDefaultNote }
         case let .text(placeholder):
             TextField(placeholder, text: $draftText)
                 .textFieldStyle(.plain).font(.system(size: 13, weight: .medium))
                 .padding(.horizontal, 12).frame(height: 34)
                 .background(DS.Ink.fill, in: .rect(cornerRadius: DS.Radius.control, style: .continuous))
-                .onAppear { if case let .string(text) = current { draftText = text } }
+                .onAppear { draftText = Self.text(current) }
+                // Revert, or a change made elsewhere, shows in the field.
+                .onChange(of: current) { _, new in draftText = Self.text(new) }
                 .onSubmit {
                     let text = draftText.trimmingCharacters(in: .whitespaces)
-                    if !text.isEmpty { personal.set(.string(text), for: setting) }
+                    // An empty field puts macOS's own default back.
+                    if text.isEmpty { personal.clear(setting) } else { personal.set(.string(text), for: setting) }
                 }
+        case .folder:
+            if let note = Self.captureTargetNote(setting) {
+                Text(note).font(DS.caption).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         default: EmptyView()
         }
+    }
+
+    private static func text(_ value: PersonalValue?) -> String {
+        if case let .string(text) = value { return text }
+        return ""
+    }
+
+    /// No value stored and the catalogue does not know macOS's default.
+    static func isUnknownDefault(_ setting: PersonalSetting, _ current: PersonalValue?) -> Bool {
+        current == nil && setting.fallback == nil
+    }
+
+    private var systemDefaultNote: some View {
+        Text("System default: nothing is set, so macOS uses its own value.")
+            .font(DS.caption).foregroundStyle(DS.Ink.tertiary)
+    }
+
+    /// The screenshot toolbar's Options menu can send captures to the clipboard, Preview, Mail or
+    /// Messages instead of a file; then the save folder is not used.
+    static func captureTargetNote(_ setting: PersonalSetting) -> String? {
+        guard setting.domain == "com.apple.screencapture", setting.key.hasPrefix("location") else { return nil }
+        let kind = setting.key == "location-screenrecording" ? "screenrecording" : "screenshot"
+        let target = PersonalModel.shared.engine.prefs.raw("target-" + kind, domain: setting.domain) as? String
+        guard let target, target != "file" else { return nil }
+        let names = ["clipboard": "the clipboard", "preview": "Preview", "mail": "Mail", "messages": "Messages"]
+        let noun = kind == "screenshot" ? "Screenshots" : "Recordings"
+        return "\(noun) go to \(names[target] ?? target) now, so this folder is not used. "
+            + "Choose Save to a folder from Options in the screenshot toolbar (⇧⌘5)."
     }
 
     private func chooseFolder() {
@@ -491,22 +590,29 @@ struct DesktopIconsCard: View {
     private func revert() {
         let store = UserDefaults.standard
         let saved = store.object(forKey: Self.memory)
+        let restored: Bool
         if let data = saved as? Data,
            let original = try? PropertyListSerialization.propertyList(from: data, format: nil) {
-            write(original as CFPropertyList)
+            restored = write(original as CFPropertyList)
         } else if saved as? String == Self.absent {
-            write(nil)
+            restored = write(nil)
+        } else {
+            restored = true
         }
+        // A refused write keeps the original, so Revert can be tried again.
+        guard restored else { return }
         store.removeObject(forKey: Self.memory)
         changed = false
         options = DesktopIconOptions(desktopViewSettings: Self.stored())
     }
 
-    private func write(_ value: CFPropertyList?) {
+    @discardableResult
+    private func write(_ value: CFPropertyList?) -> Bool {
         do {
             try PersonalPrefs().set(value, key: "DesktopViewSettings", domain: "com.apple.finder")
             personal.restart("Finder")
-        } catch { personal.notice = error.localizedDescription }
+            return true
+        } catch { personal.notice = error.localizedDescription; return false }
     }
 }
 

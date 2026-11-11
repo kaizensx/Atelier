@@ -791,7 +791,7 @@ final class WidgetBoard: ObservableObject {
     private let store = UserDefaults.standard
     @Published var enabled: Bool { didSet { store.set(enabled, forKey: "boardOn"); apply() } }
     @Published var editing = false { didSet { applyEditing() } }
-    @Published var placements: [WidgetPlacement] = [] { didSet { save(); syncDetached() } }
+    @Published var placements: [WidgetPlacement] = [] { didSet { save(); syncDetached(); stopOrphanedTimers() } }
     @Published var note: String { didSet { store.set(note, forKey: "boardNote") } }
     @Published var cities: [WorldCity] { didSet { store.set(try? JSONEncoder().encode(cities), forKey: "boardCities") } }
     /// The look every widget wears unless it has a style of its own.
@@ -878,6 +878,8 @@ final class WidgetBoard: ObservableObject {
         guard started else { return }
         guard enabled else {
             if editing { editing = false }
+            // A board that is off shows no timer, so none may keep chiming.
+            pomodoro.reset()
             // Tearing the views down lets every live meter they hold stop sampling.
             panels.values.forEach { $0.orderOut(nil); $0.contentView = nil }
             panels = [:]
@@ -1259,6 +1261,19 @@ final class WidgetBoard: ObservableObject {
     func release(picture name: String?) {
         guard let name, !photoInUse(name) else { return }
         WidgetPhotos.delete(name)
+    }
+
+    /// The Pomodoro runs on its own timer, not its view's. With no Pomodoro widget left on the
+    /// board (removed, swapped out by a layout, or emptied from a stack) it stops and resets.
+    private func stopOrphanedTimers() {
+        func hasPomodoro(_ list: [WidgetPlacement]) -> Bool {
+            list.contains { $0.kind == .pomodoro || hasPomodoro($0.options.stack ?? []) }
+        }
+        guard !hasPomodoro(placements) else { return }
+        // Only when something is left over, so a drag elsewhere on the board publishes nothing.
+        if pomodoro.running || pomodoro.finished > 0 || pomodoro.phase != .focus || pomodoro.remaining != pomodoro.total {
+            pomodoro.reset()
+        }
     }
 
     func remove(_ id: String) {

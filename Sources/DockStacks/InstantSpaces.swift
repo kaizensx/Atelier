@@ -10,9 +10,10 @@ import DockCore
 // Control-Arrow). And send a window to another desktop from the keyboard, the menu bar or a
 // drag, through the window-management bridge SkyLight keeps for itself (as yabai does with
 // SIP on), or on macOS 14 through the older calls that still worked there. Both are checked
-// at run time: if the swipe does not land, Atelier says so and falls back to Control-Arrow; a
-// send method that does not move the window is dropped for the next, and with none left,
-// sending says it is unavailable. Before macOS 27 the swipe is the bare Dock-control event
+// at run time: a swipe that does not land is finished with Control-Arrow, and after two such
+// misses in a row Atelier says so and uses Control-Arrow; a send method that does not move the
+// window is passed over for the next, and dropped once it has missed on two different windows
+// (the last one is never dropped). Before macOS 27 the swipe is the bare Dock-control event
 // InstantSpaceSwitcher and yabai post there; 27 needs the IOHID payload and a companion.
 //
 // Shortcuts come from Atelier's own event tap, so they work even with Mission Control's
@@ -68,7 +69,7 @@ final class InstantSpaces: ObservableObject {
         didSet {
             store.set(instant, forKey: "spaces.instant")
             // Switching it back on is a request to try again, e.g. after granting Accessibility.
-            if instant, probe == .fallback { probe = .untested; notice = nil }
+            if instant, probe == .fallback { probe = .untested; jumpPolicy.reset(); notice = nil }
         }
     }
     @Published var hotkeys: Bool { didSet { store.set(hotkeys, forKey: "spaces.hotkeys"); applyTap() } }
@@ -82,9 +83,12 @@ final class InstantSpaces: ObservableObject {
     @Published private(set) var windows: [SpaceWindow] = []
     @Published private(set) var notice: String?
 
-    /// The ways this Mac can send a window, best first; a method that is tried and does not
-    /// move the window is dropped for the rest of the session (see `send(window:toSpace:)`).
-    private var sendMethods = SpacesEngine.sendMethods
+    /// The ways this Mac can send a window, best first. A method that misses on two different
+    /// windows is dropped for the rest of the session, never the last one (`SpaceSendPolicy`).
+    private var sendPolicy = SpaceSendPolicy(SpacesEngine.sendMethods)
+    private var sendMethods: [SpaceSendMethod] { sendPolicy.methods }
+    /// Two jumps in a row that do not land switch the session to Control-Arrow (`SpaceJumpPolicy`).
+    private var jumpPolicy = SpaceJumpPolicy()
     var canSend: Bool { !sendMethods.isEmpty }
     /// Sending, as this Mac can do it: the menu, the card and the shortcuts all ask this.
     var sendAvailability: FeatureAvailability {
@@ -167,24 +171,38 @@ final class InstantSpaces: ObservableObject {
         SpacesEngine.displays().first { $0.spaces.contains { $0.id == space } }
     }
 
-    /// Watches the window server until the jump lands. The first time it does not, instant
-    /// switching is marked as not working on this Mac and the jump is finished the slow way.
-    private func confirm(_ target: Int, generation: Int, started: Date) {
+    /// Watches the window server until the jump lands. A jump that misses its deadline gets a
+    /// short grace: if it lands late, nothing more is done; if not, it is finished with
+    /// Control-Arrow from wherever the display is now. Only two misses in a row mark instant
+    /// switching as not working on this Mac.
+    private func confirm(_ target: Int, generation: Int, started: Date, missed: Bool = false) {
         let elapsed = Date().timeIntervalSince(started)
         if display(holding: target)?.current == target {
-            lastMs = elapsed * 1000
-            if probe != .works { probe = .works }
+            if !missed {
+                lastMs = elapsed * 1000
+                jumpPolicy.landed()
+                if probe != .works { probe = .works }
+            }
             return
         }
-        guard elapsed < 0.6 else {
-            guard generation == self.generation, probe != .works else { return }
-            probe = .fallback
-            notice = "Instant switching didn’t take on this Mac, so Atelier uses Control-Arrow."
+        var missed = missed
+        if !missed, elapsed >= SpaceJumpPolicy.landingTimeout {
+            missed = true
+            if jumpPolicy.missed() {
+                probe = .fallback
+                notice = "Instant switching didn’t take on this Mac, so Atelier uses Control-Arrow."
+            }
+        }
+        guard elapsed < SpaceJumpPolicy.landingTimeout + SpaceJumpPolicy.lateGrace else {
+            // A newer jump owns the display now; finishing this one would overshoot it.
+            guard generation == self.generation else { return }
             if let display = display(holding: target),
-               let steps = SpaceWalk.steps(in: display.spaces.map(\.id), from: display.current, to: target) { slide(steps) }
+               let steps = SpaceWalk.steps(in: display.spaces.map(\.id), from: display.current, to: target), steps != 0 { slide(steps) }
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.008) { self.confirm(target, generation: generation, started: started) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.008) {
+            self.confirm(target, generation: generation, started: started, missed: missed)
+        }
     }
 
     /// Control-Arrow, one press per step, spaced so each slide finishes before the next. It
@@ -221,37 +239,51 @@ final class InstantSpaces: ObservableObject {
     }
 
     func send(window: UInt32, toSpace space: Int) {
-        guard let method = sendMethods.first else {
+        guard !sendMethods.isEmpty else {
             notice = "Sending windows isn’t available on this version of macOS."
             return
         }
         guard SpacesEngine.spaces(ofWindow: window) != [space] else { return }
-        guard SpacesEngine.move(windows: [window], toSpace: space, using: method) else {
-            dropSendMethod(method, retrying: window, toSpace: space)
+        send(window: window, toSpace: space, tried: [])
+    }
+
+    /// Tries the methods in order for one send. Every method answers before the move lands, and
+    /// a refused one says nothing at all, so the window server is asked where the window went
+    /// after `SpaceSendPolicy.landingTimeout`. A miss counts against the method (two different
+    /// windows drop it) and this send moves on to the next method.
+    private func send(window: UInt32, toSpace space: Int, tried: Set<SpaceSendMethod>) {
+        guard let method = sendPolicy.order(excluding: tried).first else {
+            notice = "macOS didn’t move the window. Try again, or click the window first."
             return
         }
-        // Every method answers before the move lands, and a refused one says nothing at all,
-        // so the window server is asked where the window went. One that did not move it is
-        // dropped and the next is tried, so an older release falls through to what works.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            if SpacesEngine.spaces(ofWindow: window).contains(space) {
-                self.sends += 1
-                self.notice = nil
-                self.refreshWindows()
-            } else {
-                self.dropSendMethod(method, retrying: window, toSpace: space)
-            }
+        guard SpacesEngine.move(windows: [window], toSpace: space, using: method) else {
+            sendMissed(method, window: window, toSpace: space, tried: tried)
+            return
+        }
+        poll(window: window, toSpace: space, method: method, tried: tried, started: Date())
+    }
+
+    private func poll(window: UInt32, toSpace space: Int, method: SpaceSendMethod, tried: Set<SpaceSendMethod>, started: Date) {
+        if SpacesEngine.spaces(ofWindow: window).contains(space) {
+            sendPolicy.landed(method)
+            sends += 1
+            notice = nil
+            refreshWindows()
+            return
+        }
+        guard Date().timeIntervalSince(started) < SpaceSendPolicy<SpaceSendMethod>.landingTimeout else {
+            sendMissed(method, window: window, toSpace: space, tried: tried)
+            return
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            self.poll(window: window, toSpace: space, method: method, tried: tried, started: started)
         }
     }
 
-    private func dropSendMethod(_ method: SpaceSendMethod, retrying window: UInt32, toSpace space: Int) {
+    private func sendMissed(_ method: SpaceSendMethod, window: UInt32, toSpace space: Int, tried: Set<SpaceSendMethod>) {
         objectWillChange.send()
-        sendMethods.removeAll { $0 == method }
-        if sendMethods.isEmpty {
-            notice = "This version of macOS didn’t let Atelier move the window."
-        } else {
-            send(window: window, toSpace: space)
-        }
+        sendPolicy.missed(method, window: window)
+        send(window: window, toSpace: space, tried: tried.union([method]))
     }
 
     func perform(_ action: SpaceHotkey) {

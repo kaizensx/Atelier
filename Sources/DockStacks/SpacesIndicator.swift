@@ -42,6 +42,9 @@ final class SpacesIndicator: NSObject, ObservableObject {
     private let store = UserDefaults.standard
     private var item: NSStatusItem?
     private var observer: NSObjectProtocol?
+    /// Adding or removing a desktop posts no notification, so the list is re-read now and then
+    /// while the item shows. Reading it is one cheap window-server call.
+    private var poll: Timer?
 
     private override init() {
         enabled = UserDefaults.standard.bool(forKey: "spaces.enabled")
@@ -67,12 +70,20 @@ final class SpacesIndicator: NSObject, ObservableObject {
     // MARK: Reading the window server
 
     /// The main display's desktops, in order. Full-screen apps are left out: they are not places you name.
-    func refresh() {
-        guard let display = SpacesEngine.mainDisplay() else { return }
-        let list = display.desktops.enumerated().map { index, space in
+    /// Returns true when the list changed.
+    @discardableResult
+    func refresh() -> Bool {
+        guard let display = SpacesEngine.mainDisplay() else { return false }
+        let list = Self.desktops(of: display)
+        guard list != spaces else { return false }
+        spaces = list
+        return true
+    }
+
+    static func desktops(of display: ManagedDisplay) -> [DesktopSpace] {
+        display.desktops.enumerated().map { index, space in
             DesktopSpace(id: space.uuid, number: index + 1, current: space.id == display.current, sid: space.id)
         }
-        if list != spaces { spaces = list }
     }
 
     // MARK: Menu bar item
@@ -95,11 +106,23 @@ final class SpacesIndicator: NSObject, ObservableObject {
                     }
                 }
             }
+            if poll == nil {
+                let timer = Timer(timeInterval: 2, repeats: true) { _ in
+                    MainActor.assumeIsolated {
+                        if SpacesIndicator.shared.refresh() { SpacesIndicator.shared.render() }
+                    }
+                }
+                timer.tolerance = 0.5
+                RunLoop.main.add(timer, forMode: .common)
+                poll = timer
+            }
             refresh()
             render()
         } else {
             if let item { NSStatusBar.system.removeStatusItem(item) }
             item = nil
+            poll?.invalidate()
+            poll = nil
             if let observer { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
             observer = nil
         }
@@ -117,9 +140,15 @@ final class SpacesIndicator: NSObject, ObservableObject {
     }
 
     @objc private func clicked() {
-        refresh()
+        if refresh() { render() }
+        // With separate Spaces per display, switching and sending act on the display under the
+        // pointer, which is the one whose menu bar was clicked: list that display's desktops,
+        // so every entry is reachable. With one shared list this is the main display's.
+        let displays = SpacesEngine.displays()
+        let shown = SpaceWalk.displayForShortcuts(displays, cursorDisplay: SpacesEngine.cursorDisplayIdentifier())
+            .map(Self.desktops(of:)) ?? spaces
         let menu = NSMenu()
-        for space in spaces {
+        for space in shown {
             let entry = NSMenuItem(title: name(space), action: #selector(choose(_:)), keyEquivalent: space.number <= 9 ? "\(space.number)" : "")
             entry.keyEquivalentModifierMask = []
             entry.target = self
@@ -131,7 +160,7 @@ final class SpacesIndicator: NSObject, ObservableObject {
         // Send the front app's window: status items do not take focus, so it is still the user's.
         let send = NSMenuItem(title: "Send Window to", action: nil, keyEquivalent: "")
         let targets = NSMenu()
-        for space in spaces where !space.current {
+        for space in shown where !space.current {
             let entry = NSMenuItem(title: name(space), action: #selector(sendTo(_:)), keyEquivalent: "")
             entry.target = self
             entry.tag = space.sid
@@ -150,7 +179,7 @@ final class SpacesIndicator: NSObject, ObservableObject {
         item?.menu = nil
     }
 
-    // The menu lists the main display's desktops, so its items carry ManagedSpaceIDs rather
+    // The menu lists the clicked display's desktops, so its items carry ManagedSpaceIDs rather
     // than numbers: with separate Spaces per display, "Desktop 2" of another display differs.
     @objc private func choose(_ sender: NSMenuItem) { InstantSpaces.shared.go(toSpace: sender.tag) }
     @objc private func sendTo(_ sender: NSMenuItem) { InstantSpaces.shared.sendFocused(toSpace: sender.tag) }
@@ -179,12 +208,18 @@ struct SpacesBadge: View {
                     Circle().fill(.black.opacity(space.current ? 1 : 0.35))
                         .frame(width: space.current ? 8 : 6, height: space.current ? 8 : 6)
                 case .numbers:
-                    Text("\(space.number)").font(.system(size: 11, weight: .bold)).monospacedDigit()
-                        .foregroundStyle(space.current ? .white : .black)
-                        .frame(width: 16, height: 15)
-                        .background(RoundedRectangle(cornerRadius: 4, style: .continuous).fill(.black.opacity(space.current ? 1 : 0)))
-                        .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(.black.opacity(0.5), lineWidth: space.current ? 0 : 1))
-                        .compositingGroup()
+                    // A template image keeps only alpha, so a white digit on the black tile would
+                    // vanish. The current digit is cut out of its tile instead.
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 4, style: .continuous).fill(.black.opacity(space.current ? 1 : 0))
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .strokeBorder(.black.opacity(0.5), lineWidth: space.current ? 0 : 1)
+                        Text("\(space.number)").font(.system(size: 11, weight: .bold)).monospacedDigit()
+                            .foregroundStyle(.black)
+                            .blendMode(space.current ? .destinationOut : .normal)
+                    }
+                    .frame(width: 16, height: 15)
+                    .compositingGroup()
                 case .names:
                     if space.current {
                         Text(name(space)).font(.system(size: 12, weight: .semibold)).foregroundStyle(.black)

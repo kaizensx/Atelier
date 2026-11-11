@@ -143,8 +143,7 @@ struct AppHeaderCard: View {
 struct AppIconCard: View {
     let app: PersonalApp
     @State private var picking = false
-    @State private var notice: String?
-    @State private var custom = false
+    @ObservedObject private var icons = CustomIcons.shared
 
     /// Safari's path is a link into a system cryptex, so resolve before judging.
     private var path: String { URL(fileURLWithPath: app.path).resolvingSymlinksInPath().path }
@@ -159,7 +158,9 @@ struct AppIconCard: View {
                            symbol: "app.badge", density: .compact) {
                     HStack(spacing: 6) {
                         if changeable {
-                            if custom { Chip("Restore") { custom = !IconLibrary.restore(app: path) } }
+                            // Through CustomIcons, like Folder & App Icons, so the change is listed there
+                            // and Restore works from either place.
+                            if icons.hasCustomIcon(path) { Chip("Restore") { icons.revert(path) } }
                             Chip("Choose…") { picking = true }
                         } else {
                             // Keyed by the path the Dock and Orbit know the app by, not the resolved one.
@@ -170,17 +171,15 @@ struct AppIconCard: View {
                     }
                 }
                 .help(changeable ? "" : "\(app.name) lives on macOS's sealed system volume, so Finder keeps its icon. Atelier can still show another one everywhere it draws \(app.name): the Atelier Dock, Orbit, widgets.")
-                if let notice { Text(notice).font(DS.caption).foregroundStyle(.orange.opacity(0.9)) }
+                CustomIconsNotice()
             }
         }
-        .onAppear { custom = IconLibrary.hasCustomIcon(path) }
-        .onChange(of: app) { custom = IconLibrary.hasCustomIcon(path); notice = nil }
+        .onChange(of: app) { icons.notice = nil }
         .sheet(isPresented: $picking) {
             VStack(alignment: .trailing, spacing: 0) {
                 IconLibraryPicker(query: app.name) { image in
                     picking = false
-                    if IconLibrary.apply(image, toApp: path) { custom = true; notice = nil }
-                    else { notice = "macOS did not let Atelier change \(app.name)'s icon." }
+                    icons.set(image, on: URL(fileURLWithPath: path))
                 }
                 Button("Cancel") { picking = false }.keyboardShortcut(.cancelAction).padding([.horizontal, .bottom], 16)
             }

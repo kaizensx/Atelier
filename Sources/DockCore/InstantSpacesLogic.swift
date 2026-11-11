@@ -273,3 +273,66 @@ public enum InstantSpacesReport {
             "spacesHotkeys=\(hotkeys) spacesTap=\(tap) spacesLastMs=\(lastMs.map { String(format: "%.0f", $0) } ?? "-")"
     }
 }
+
+/// Which send methods stay in use for the session. A method answers before the move lands and
+/// a refused one says nothing, so a miss is judged by asking the window server after a wait.
+/// One slow or odd window must not cost the method for good: it is dropped only after it
+/// missed on two different windows, and the last method left is never dropped, so sending
+/// keeps trying rather than going dark for the session.
+public struct SpaceSendPolicy<Method: Hashable & Sendable>: Sendable {
+    /// How long a send gets to land before it counts as a miss.
+    public static var landingTimeout: Double { 0.5 }
+    /// Distinct windows a method must miss on before it is dropped.
+    public static var windowsToDrop: Int { 2 }
+
+    public private(set) var methods: [Method]
+    private var misses: [Method: Set<UInt32>] = [:]
+
+    public init(_ methods: [Method]) { self.methods = methods }
+
+    /// The methods to try for one send, best first, skipping those this send already tried.
+    public func order(excluding tried: Set<Method>) -> [Method] { methods.filter { !tried.contains($0) } }
+
+    /// A send that landed: the method's earlier misses were the windows', not its own.
+    public mutating func landed(_ method: Method) { misses[method] = nil }
+
+    /// A send that did not land. Returns true when the method is now dropped for the session.
+    @discardableResult
+    public mutating func missed(_ method: Method, window: UInt32) -> Bool {
+        guard methods.contains(method) else { return false }
+        misses[method, default: []].insert(window)
+        guard misses[method]!.count >= Self.windowsToDrop, methods.count > 1 else { return false }
+        methods.removeAll { $0 == method }
+        misses[method] = nil
+        return true
+    }
+}
+
+/// Whether the instant switch is trusted for the session. One jump that lands late (a busy
+/// window server, a Mission Control animation in the way) is not proof it does not work here:
+/// only two misses in a row, with no landing in between, switch the session to Control-Arrow.
+public struct SpaceJumpPolicy: Sendable, Equatable {
+    /// How long a jump gets before it counts as a miss.
+    public static var landingTimeout: Double { 0.6 }
+    /// After a miss, how much longer to wait for a late landing before finishing with Control-Arrow.
+    public static var lateGrace: Double { 0.6 }
+    public static var missesToFallBack: Int { 2 }
+
+    public private(set) var misses = 0
+    public init() {}
+
+    public var fallBack: Bool { misses >= Self.missesToFallBack }
+
+    public mutating func landed() { misses = 0 }
+
+    /// Returns true when this miss switches the session to Control-Arrow.
+    @discardableResult
+    public mutating func missed() -> Bool {
+        let before = fallBack
+        misses += 1
+        return fallBack && !before
+    }
+
+    /// A fresh start, e.g. after turning Switch Instantly back on.
+    public mutating func reset() { misses = 0 }
+}

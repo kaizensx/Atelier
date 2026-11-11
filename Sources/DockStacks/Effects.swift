@@ -833,9 +833,9 @@ final class ClipboardHistory {
         let board = NSPasteboard.general
         guard board.changeCount != lastChange else { return }
         lastChange = board.changeCount
-        // Password managers mark secrets as concealed.
-        guard board.types?.contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")) != true,
-              let text = board.string(forType: .string), !text.isEmpty else { return }
+        // The same privacy rule as the Clipboard widget: concealed, transient and generated copies are skipped.
+        guard let text = ClipboardPrivacy.keptText(types: board.types?.map(\.rawValue),
+                                                   text: board.string(forType: .string)) else { return }
         items.removeAll { $0 == text }
         items.insert(text, at: 0)
         items = Array(items.prefix(30))

@@ -458,10 +458,6 @@ struct AppleCornersCard: View {
     @ObservedObject var model: ManagerModel
     @ObservedObject private var corners = HotCorners.shared
 
-    static let actions: [(Int, String)] = [
-        (1, "Nothing"), (2, "Mission Control"), (3, "App Windows"), (4, "Desktop"), (5, "Screen Saver"),
-        (10, "Sleep Display"), (12, "Notification Centre"), (13, "Lock Screen"), (14, "Quick Note"),
-    ]
 
     var body: some View {
         RowGroup {
@@ -473,7 +469,7 @@ struct AppleCornersCard: View {
 
     private func row(_ spot: HotSpot) -> some View {
         let key = spot.appleKey ?? "tl"
-        let current = Int(model.dock.double("wvous-\(key)-corner", 1))
+        let current = AppleHotCorner.normalized(Int(model.dock.double("wvous-\(key)-corner", 1)))
         let clash = current > 1 && corners.enabled && corners.binding(spot).isActive && corners.binding(spot).modifiers.isEmpty
         return SettingRow(title: spot.title, detail: clash ? "Atelier acts here too. Add a modifier to one of them." : nil,
                           density: .compact) {
@@ -484,7 +480,7 @@ struct AppleCornersCard: View {
                         .help("macOS and Atelier will both act on this corner. Add a modifier to one of them.")
                         .accessibilityLabel("Both fire here")
                 }
-                DockMenuPill(selection: Binding(get: { current }, set: { model.setCorner(key, to: $0) }), options: Self.actions)
+                DockMenuPill(selection: Binding(get: { current }, set: { model.setCorner(key, to: $0) }), options: AppleHotCorner.options(current: current))
             }
         }
         .dockHubRow()

@@ -121,3 +121,51 @@ private func u32(_ bytes: [UInt8], _ at: Int) -> UInt32 {
     #expect(InstantSpacesReport.line(instant: false, jumps: 0, sends: 0, probe: "untested", send: "unavailable", hotkeys: true,
                                      tap: true, lastMs: nil).hasSuffix("spacesLastMs=-"))
 }
+
+// MARK: - Send and jump policies
+
+@Test func sendMethodSurvivesOneStubbornWindow() {
+    var policy = SpaceSendPolicy<SpaceSendMethod>([.bridged, .compatID])
+    // The same window missing twice is the window's problem, not the method's.
+    #expect(policy.missed(.bridged, window: 7) == false)
+    #expect(policy.missed(.bridged, window: 7) == false)
+    #expect(policy.methods == [.bridged, .compatID])
+    // A second, different window confirms it.
+    #expect(policy.missed(.bridged, window: 9) == true)
+    #expect(policy.methods == [.compatID])
+}
+
+@Test func sendMethodLandingClearsItsMisses() {
+    var policy = SpaceSendPolicy<SpaceSendMethod>([.bridged, .compatID])
+    policy.missed(.bridged, window: 1)
+    policy.landed(.bridged)
+    #expect(policy.missed(.bridged, window: 2) == false)
+    #expect(policy.methods == [.bridged, .compatID])
+}
+
+@Test func lastSendMethodIsNeverDropped() {
+    var policy = SpaceSendPolicy<SpaceSendMethod>([.bridged])
+    for window in UInt32(1)...5 { #expect(policy.missed(.bridged, window: window) == false) }
+    #expect(policy.methods == [.bridged])
+}
+
+@Test func sendOrderSkipsWhatThisSendTried() {
+    let policy = SpaceSendPolicy<SpaceSendMethod>([.bridged, .direct, .compatID])
+    #expect(policy.order(excluding: [.bridged]) == [.direct, .compatID])
+    #expect(policy.order(excluding: Set(SpaceSendMethod.allCases)).isEmpty)
+    #expect(SpaceSendPolicy<SpaceSendMethod>.landingTimeout >= 0.5)
+}
+
+@Test func oneLateJumpDoesNotSwitchTheSession() {
+    var policy = SpaceJumpPolicy()
+    #expect(policy.missed() == false)
+    #expect(!policy.fallBack)
+    policy.landed()
+    #expect(policy.missed() == false)
+    #expect(policy.missed() == true)
+    #expect(policy.fallBack)
+    // Only the switching miss reports the change.
+    #expect(policy.missed() == false)
+    policy.reset()
+    #expect(!policy.fallBack)
+}

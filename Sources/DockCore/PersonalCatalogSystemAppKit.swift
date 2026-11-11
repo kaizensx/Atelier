@@ -109,9 +109,7 @@ extension PersonalCatalog {
         appKit("Windows", "NSFullScreenTransitionDuration", kind: .float, control: .number(0...2, step: 0.05, unit: "s"),
                "Full Screen Transition", "How long a window takes to enter full screen.",
                preview: "A window growing into full screen at the chosen pace", caution: experiment()),
-        appKit("Windows", "NSDocumentRevisionsZoomDuration", kind: .float, control: .number(0...2, step: 0.05, unit: "s"),
-               "Version Browser Zoom Time", "The zoom into Browse All Versions.",
-               preview: "A document flying into the version timeline", caution: experiment()),
+        // Version Browser Zoom is one switch, under Animations (NSDocumentRevisionsWindowTransformAnimation).
         appKit("Windows", "NSSplitViewItemFullscreenEdgeRevealDelay", kind: .float,
                control: .number(0...2, step: 0.05, unit: "s"), "Full-Screen Sidebar Reveal",
                "How long the pointer waits at the edge before a hidden sidebar slides in.",

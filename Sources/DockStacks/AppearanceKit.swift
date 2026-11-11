@@ -1,6 +1,7 @@
 import AppKit
 import DockCore
 import AVFoundation
+import Security
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -175,35 +176,72 @@ final class LightApps: ObservableObject {
     @Published private(set) var apps: [LightApp] = []
     @Published private(set) var revision = 0
 
-    private static let key = "NSRequiresAquaSystemAppearance" as CFString
+    nonisolated private static let key = "NSRequiresAquaSystemAppearance"
+    /// Each app's NSRequiresAquaSystemAppearance, read once per scan rather than on every redraw.
+    private var light: [String: Bool] = [:]
+    private var scanning = false
 
-    private init() { apps = Self.scan() }
+    private init() { load() }
 
-    /// Reads /Applications again: an app installed since is listed.
-    func load() { apps = Self.scan() }
+    /// Reads /Applications again, off the main thread: an app installed since is listed.
+    func load() {
+        guard !scanning else { return }
+        scanning = true
+        Task.detached(priority: .utility) {
+            let apps = Self.scan()
+            let light = Dictionary(uniqueKeysWithValues: apps.map { ($0.id, Self.readLight($0.id)) })
+            await MainActor.run {
+                let store = LightApps.shared
+                store.light = light
+                store.apps = apps
+                store.scanning = false
+                store.revision += 1
+            }
+        }
+    }
 
-    private static func scan() -> [LightApp] {
+    nonisolated private static func scan() -> [LightApp] {
         let containers = NSHomeDirectory() + "/Library/Containers/"
+        var seen = Set<String>()
         return ((try? FileManager.default.contentsOfDirectory(atPath: "/Applications")) ?? [])
             .filter { $0.hasSuffix(".app") }
             .compactMap { name in
                 let url = URL(fileURLWithPath: "/Applications/" + name)
-                guard let id = Bundle(url: url)?.bundleIdentifier, id != Bundle.main.bundleIdentifier else { return nil }
-                return LightApp(id: id, name: String(name.dropLast(4)), url: url,
-                                sandboxed: FileManager.default.fileExists(atPath: containers + id))
+                guard let id = Bundle(url: url)?.bundleIdentifier, id != Bundle.main.bundleIdentifier,
+                      seen.insert(id).inserted else { return nil }
+                // The container only exists once the app has run, so an App Store app never opened
+                // has none yet. Its signature says whether it is sandboxed either way.
+                let sandboxed = FileManager.default.fileExists(atPath: containers + id) || isSandboxed(url)
+                return LightApp(id: id, name: String(name.dropLast(4)), url: url, sandboxed: sandboxed)
             }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    func isLight(_ app: LightApp) -> Bool {
-        _ = revision
-        return (CFPreferencesCopyAppValue(Self.key, app.id as CFString) as? Bool) == true
+    /// Whether the app's code signature carries the App Sandbox entitlement.
+    nonisolated private static func isSandboxed(_ url: URL) -> Bool {
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return false }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSRequirementInformation), &info) == errSecSuccess,
+              let dict = info as? [String: Any],
+              let entitlements = dict[kSecCodeInfoEntitlementsDict as String] as? [String: Any] else { return false }
+        return entitlements["com.apple.security.app-sandbox"] as? Bool == true
     }
 
-    func set(_ app: LightApp, light: Bool) {
+    nonisolated private static func readLight(_ id: String) -> Bool {
+        (CFPreferencesCopyAppValue(key as CFString, id as CFString) as? Bool) == true
+    }
+
+    func isLight(_ app: LightApp) -> Bool {
+        _ = revision
+        return light[app.id] ?? false
+    }
+
+    func set(_ app: LightApp, light value: Bool) {
         guard !app.sandboxed else { return }
-        CFPreferencesSetAppValue(Self.key, light ? kCFBooleanTrue : nil, app.id as CFString)
+        CFPreferencesSetAppValue(Self.key as CFString, value ? kCFBooleanTrue : nil, app.id as CFString)
         CFPreferencesAppSynchronize(app.id as CFString)
+        light[app.id] = Self.readLight(app.id)
         revision += 1
     }
 

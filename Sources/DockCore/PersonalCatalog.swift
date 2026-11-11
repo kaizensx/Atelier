@@ -217,6 +217,24 @@ public struct PersonalPrefs: Sendable {
 
     public func isReachable(_ setting: PersonalSetting) -> Bool { blocker(setting) == nil }
 
+    /// Domains in ~/Library/Preferences that any app may read but, from macOS 13, only an app
+    /// with Full Disk Access may change.
+    public static let writeGuardedDomains: Set<String> = ["com.apple.universalaccess"]
+
+    /// Why a change would be refused, or nil. Adds the write-only guard to `blocker`: the file
+    /// reads fine, so rows keep showing the real value, but cfprefsd refuses the write.
+    public func writeBlocker(_ setting: PersonalSetting) -> String? {
+        if let reason = blocker(setting) { return reason }
+        guard setting.storage == .standard, Self.writeGuardedDomains.contains(setting.domain) else { return nil }
+        let file = (preferencesRoot as NSString).appendingPathComponent(setting.domain + ".plist")
+        return PersonalWriteGate.isWritable(file) ? nil : Self.writeNotice
+    }
+
+    public static let writeNotice = "Needs Full Disk Access. macOS lets Atelier read these settings but not change them."
+
+    /// ~/Library/Preferences. Tests point `containers` elsewhere; this stays the real one.
+    var preferencesRoot: String { NSHomeDirectory() + "/Library/Preferences" }
+
     private static func privateNotice(_ setting: PersonalSetting) -> String {
         "macOS keeps \(setting.section)'s settings private. Give Atelier Full Disk Access to change them."
     }
@@ -239,14 +257,18 @@ public struct PersonalPrefs: Sendable {
 
     public func read(_ setting: PersonalSetting) -> PersonalValue? {
         guard isReachable(setting) else { return nil }
-        if let value = PersonalValue(raw(setting.key, domain: storeDomain(setting), currentHost: setting.currentHost), as: setting.kind) {
-            return value
-        }
+        if let value = stored(setting) { return value }
         // A menu bar module nobody chose for yet: AppKit's visibility flag says what shows now.
         if Self.isMenuModule(setting), let visible = PersonalValue(raw(Self.visibleKey(setting), domain: setting.domain), as: .bool) {
             return .int(visible == .bool(true) ? 18 : 8)
         }
         return nil
+    }
+
+    /// The value stored under the key itself, without `read`'s menu bar fallback.
+    public func stored(_ setting: PersonalSetting) -> PersonalValue? {
+        guard isReachable(setting) else { return nil }
+        return PersonalValue(raw(setting.key, domain: storeDomain(setting), currentHost: setting.currentHost), as: setting.kind)
     }
 
     static func isMenuModule(_ setting: PersonalSetting) -> Bool {
@@ -266,7 +288,7 @@ public struct PersonalPrefs: Sendable {
     }
 
     public func write(_ value: PersonalValue?, for setting: PersonalSetting) throws {
-        if let reason = blocker(setting) { throw DockFailure(reason) }
+        if let reason = writeBlocker(setting) { throw DockFailure(reason) }
         for domain in [setting.domain] + setting.mirrors {
             try set(value?.plist, key: setting.key, domain: storeDomain(domain, storage: setting.storage),
                     currentHost: setting.currentHost)
@@ -319,6 +341,27 @@ public struct PersonalLedger: Sendable {
     }
 
     public var trackedIDs: [String] { load().keys.sorted() }
+
+    /// After `plist` replaced the whole of `domain` outside the rows (a Dock scene or Timeline
+    /// restore), forgets each tracked setting that is back at its original, absent included.
+    /// One left at another value stays tracked, so Revert still puts the original back.
+    /// Returns the ids forgotten.
+    @discardableResult
+    public func reconcile(domain: String, with plist: [String: Any],
+                          settings: [PersonalSetting] = PersonalCatalog.all) -> [String] {
+        var entries = load()
+        var forgotten: [String] = []
+        for setting in settings where setting.domain == domain && !setting.currentHost && setting.storage == .standard {
+            guard let entry = entries[setting.id] else { continue }
+            let now = PersonalValue(plist[setting.key] as CFPropertyList?, as: setting.kind)
+            if now == entry.original {
+                entries[setting.id] = nil
+                forgotten.append(setting.id)
+            }
+        }
+        if !forgotten.isEmpty { save(entries) }
+        return forgotten
+    }
 }
 
 /// Change and revert, against any `PersonalPrefs` store. The app and the tests share it.
@@ -330,13 +373,20 @@ public struct PersonalEngine: Sendable {
         self.prefs = prefs; self.ledger = ledger
     }
 
-    public func apply(_ value: PersonalValue, to setting: PersonalSetting) throws {
+    /// Writes `value`, or removes the key with nil, remembering the original first.
+    public func apply(_ value: PersonalValue?, to setting: PersonalSetting) throws {
         let fresh = !ledger.isTracked(setting.id)
-        let original = prefs.read(setting)
+        // What is stored, not what `read` shows: a menu bar module with no key of its own reads
+        // as AppKit's visibility flag, and Revert must delete the key again, not write that.
+        let original = prefs.stored(setting)
         ledger.remember(setting.id, original: original)
+        let visibleID = Self.visibleID(setting)
+        if fresh, PersonalPrefs.isMenuModule(setting) {
+            ledger.remember(visibleID, original: PersonalValue(prefs.raw(PersonalPrefs.visibleKey(setting), domain: setting.domain), as: .bool))
+        }
         do { try prefs.write(value, for: setting) } catch {
             // A refused write leaves nothing to revert.
-            if fresh { try? prefs.write(original, for: setting); ledger.forget(setting.id) }
+            if fresh { try? prefs.write(original, for: setting); ledger.forget(setting.id); ledger.forget(visibleID) }
             throw error
         }
     }
@@ -345,8 +395,16 @@ public struct PersonalEngine: Sendable {
     public func revert(_ setting: PersonalSetting) throws {
         guard let original = ledger.original(setting.id) else { return }
         try prefs.write(original, for: setting)
+        let visibleID = Self.visibleID(setting)
+        if let visible = ledger.original(visibleID) {
+            try prefs.set(visible?.plist, key: PersonalPrefs.visibleKey(setting), domain: setting.domain)
+            ledger.forget(visibleID)
+        }
         ledger.forget(setting.id)
     }
+
+    /// The ledger entry for a menu bar module's AppKit visibility flag, which a write also changes.
+    static func visibleID(_ setting: PersonalSetting) -> String { setting.id + "|visible" }
 }
 
 // MARK: - Catalogue
@@ -546,11 +604,12 @@ public enum PersonalCatalog {
                control: .choice([.init(.float(0), "Instant"), .init(.float(0.5), "Quick"), .init(.float(1), "Normal")]),
                "Column Slide", "The slide when a column view moves.", fallback: .float(1),
                preview: "Finder columns sliding in"),
-        globalOff(.animations, "Apps", "NSDocumentRevisionsWindowTransformAnimation", "Version Browser Zoom",
-               "The zoom into Browse All Versions.", fallback: .bool(true), on: false,
+        // Both keys name the feature itself, so On writes true. Writing false switches it off.
+        global(.animations, "Apps", "NSDocumentRevisionsWindowTransformAnimation", "Version Browser Zoom",
+               "The zoom into Browse All Versions.", fallback: .bool(true),
                preview: "A document flying into the version timeline"),
-        globalOff(.animations, "Apps", "NSScrollViewRubberbanding", "Rubber-band Scrolling",
-               "Lists stretch past their ends.", fallback: .bool(true), on: false, preview: "A list bouncing at the top"),
+        global(.animations, "Apps", "NSScrollViewRubberbanding", "Rubber-band Scrolling",
+               "Lists stretch past their ends.", fallback: .bool(true), preview: "A list bouncing at the top"),
         global(.animations, "Apps", "NSInitialToolTipDelay", kind: .int,
                control: .choice([.init(.int(50), "Instant"), .init(.int(400), "Quick"), .init(.int(1000), "Normal")]),
                "Tooltip Delay", "How long the pointer rests before a tooltip shows, in milliseconds.",
@@ -628,19 +687,20 @@ public enum PersonalCatalog {
     ]
 
     // Mission Control and Spaces. mru-spaces was not found in Dock or the shared cache, so it is left out.
+    // In the Mission Control area with the rest, so Windows & Spaces shows one Mission Control section.
     static let windowSettings: [PersonalSetting] = [
-        dock(.windows, "Mission Control", "expose-group-apps", "Group Windows by App",
+        dock(.missionControl, "Mission Control", "expose-group-apps", "Group Windows by App",
              "Mission Control stacks each app's windows together.", fallback: .bool(false),
              preview: "Mission Control tiles clustering by app"),
-        dock(.windows, "Mission Control", "workspaces-auto-swoosh", "Jump to an App's Space",
+        dock(.missionControl, "Mission Control", "workspaces-auto-swoosh", "Jump to an App's Space",
              "Switching to an app moves to the Space with its window.", fallback: .bool(true), preview: "The screen sliding to another Space"),
-        dock(.windows, "Mission Control", "showAppExposeGestureEnabled", "App Exposé Gesture",
+        dock(.missionControl, "Mission Control", "showAppExposeGestureEnabled", "App Exposé Gesture",
              "Swipe down with three fingers to see an app's windows.", fallback: .bool(false), preview: "App Exposé spreading windows"),
-        dock(.windows, "Mission Control", "appswitcher-all-displays", "App Switcher on Every Display",
+        dock(.missionControl, "Mission Control", "appswitcher-all-displays", "App Switcher on Every Display",
              "⌘-Tab shows on all screens, not just the main one.", fallback: .bool(false), preview: "Two screens, each with the switcher"),
-        dock(.windows, "Mission Control", "minimize-to-application", "Minimise into App Icon",
+        dock(.missionControl, "Mission Control", "minimize-to-application", "Minimise into App Icon",
              "Minimised windows go into their app's Dock icon.", fallback: .bool(false), preview: "A window shrinking into its app icon"),
-        dock(.windows, "Mission Control", "workspaces-edge-delay", kind: .float, control: .number(0...1.5, step: 0.05, unit: "s"),
+        dock(.missionControl, "Mission Control", "workspaces-edge-delay", kind: .float, control: .number(0...1.5, step: 0.05, unit: "s"),
              "Edge Space Switch Delay", "How long a dragged window waits at the edge before changing Space.",
              fallback: .float(0.75), preview: "A window held at the screen edge, then switching Space"),
     ]
@@ -658,14 +718,6 @@ public enum PersonalCatalog {
         var seen: [String] = []
         for setting in settings(in: area) where !seen.contains(setting.section) { seen.append(setting.section) }
         return seen
-    }
-}
-
-private extension PersonalCatalog {
-    /// Same as `global` but for toggles that switch a feature off.
-    static func globalOff(_ area: PersonalArea, _ section: String, _ key: String, _ title: String, _ detail: String,
-                       fallback: PersonalValue?, on: Bool, preview: String) -> PersonalSetting {
-        global(area, section, key, kind: .bool, control: onOff(on), title, detail, fallback: fallback, preview: preview)
     }
 }
 
@@ -740,6 +792,35 @@ enum PersonalSyncGate {
         lock.lock(); defer { lock.unlock() }
         last[key] = nil
     }
+}
+
+/// Whether this process may write a privacy-guarded file, asked with access(2). Nothing is
+/// opened or written: on macOS 13 and later access(W_OK) already answers no for a guarded file
+/// without Full Disk Access, even though its mode says the owner may write. A missing file is
+/// writable (cfprefsd creates it). The answer is kept for two seconds, so rows can ask on every
+/// redraw and still notice within moments when Full Disk Access is granted.
+public enum PersonalWriteGate {
+    nonisolated(unsafe) private static var cache: [String: (writable: Bool, at: Date)] = [:]
+    private static let lock = NSLock()
+
+    public static func isWritable(_ path: String, maxAge: TimeInterval = 2,
+                                  probe: (String) -> Bool = PersonalWriteGate.probe) -> Bool {
+        lock.lock()
+        if let hit = cache[path], Date().timeIntervalSince(hit.at) < maxAge { lock.unlock(); return hit.writable }
+        lock.unlock()
+        let writable = probe(path)
+        lock.lock(); cache[path] = (writable, Date()); lock.unlock()
+        return writable
+    }
+
+    public static func probe(_ path: String) -> Bool {
+        guard FileManager.default.fileExists(atPath: path) else {
+            return access((path as NSString).deletingLastPathComponent, W_OK) == 0
+        }
+        return access(path, W_OK) == 0
+    }
+
+    public static func forget() { lock.lock(); cache = [:]; lock.unlock() }
 }
 
 // MARK: - Which macOS reads a key
@@ -873,7 +954,7 @@ public enum PersonalAvailability {
         // Hidden AppKit, Quick Look and Control Center values seen only here.
         put("NSGlobalDomain", ["NSSplitViewItemFullscreenEdgeRevealDelay", "NSSwitchDefaultAnimationDuration",
                                "NSOverlayScrollerHideDelay", "NSToolTipAutoWrappingDisabled",
-                               "NSFullScreenTransitionDuration", "NSDocumentRevisionsZoomDuration",
+                               "NSFullScreenTransitionDuration",
                                "QLEnableSelectionCycling", "QLPreviewKeepConstantWidth", "QLPanelMaxSizeMargin",
                                "QLPreviewPanelAutoResetLocationDelay", "userMenuExtraStyle"],
             thisMac(14, "A hidden default found in macOS 27's frameworks; older releases were not checked."))

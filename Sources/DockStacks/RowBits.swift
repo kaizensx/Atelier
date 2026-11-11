@@ -146,11 +146,22 @@ struct SettingsCompatHiddenItem: Identifiable {
     let id: String
     let title: String
     let requirement: String
+    /// Set when Atelier changed it on an earlier macOS: what Revert goes back to, and Revert.
+    /// The value can still be put back, so a key left behind by an upgrade is never stuck.
+    var was: String? = nil
+    var revert: (() -> Void)? = nil
 }
 
 extension PersonalSetting {
-    var compatHiddenItem: SettingsCompatHiddenItem {
-        SettingsCompatHiddenItem(id: id, title: title, requirement: availability.requirement(onMajor: PersonalAvailability.runningMajor))
+    @MainActor var compatHiddenItem: SettingsCompatHiddenItem {
+        var item = SettingsCompatHiddenItem(id: id, title: title,
+                                            requirement: availability.requirement(onMajor: PersonalAvailability.runningMajor))
+        let personal = PersonalModel.shared
+        if personal.isChanged(self) {
+            item.was = personal.originalLabel(self) ?? "macOS default"
+            item.revert = { [self] in personal.revert(self) }
+        }
+        return item
     }
 }
 
@@ -187,14 +198,20 @@ struct SettingsCompatHiddenGroup: View {
                 .help("These settings exist on other versions of macOS. This Mac runs macOS \(PersonalAvailability.runningMajor), which does not read them.")
                 .accessibilityLabel("Not on this macOS, \(items.count) settings")
                 .accessibilityValue(open ? "Expanded" : "Collapsed")
-                if open {
+                // Ones Atelier changed stay in view even when collapsed, so their Revert is never hidden.
+                let shown = open ? items : items.filter { $0.revert != nil }
+                if !shown.isEmpty {
                     RowGroup {
-                        ForEach(items) { item in
+                        ForEach(shown) { item in
                             SettingRow(title: item.title, density: .compact) {
-                                Text(item.requirement).font(DS.caption).foregroundStyle(DS.Ink.tertiary)
+                                HStack(spacing: 6) {
+                                    Text(item.requirement).font(DS.caption).foregroundStyle(DS.Ink.tertiary)
+                                        .opacity(0.7)
+                                    if let revert = item.revert { RevertGlyph(was: item.was ?? "macOS default", action: revert) }
+                                }
                             }
                             .padding(.vertical, DS.Space.s)
-                            .opacity(0.7)
+                            .opacity(item.revert == nil ? 0.7 : 1)
                         }
                     }
                 }

@@ -180,3 +180,116 @@ private func setting(_ domain: String, key: String = "Sample", kind: PersonalKin
     #expect(PersonalAvailability.themeIconStyleSupported("clear", major: 26))
     #expect(!PersonalAvailability.range(domain: "com.apple.dock", key: "adaptive-glass").contains(major: 15))
 }
+
+// MARK: - Toggle direction
+
+/// Words that make a key or a title mean "the feature is off".
+private let negativeKeyWords = ["disable", "hide", "suppress", "never", "dont", "prevent", "without", "nointro"]
+private let negativeTitleWords = ["hide", "turn off", "never", "disable", "no ", "don't", "without", "stop ", "silence"]
+
+private func isNegative(_ text: String, _ words: [String]) -> Bool {
+    let lower = text.lowercased()
+    return words.contains { lower.contains($0) }
+}
+
+/// A switch's On must turn on what its title names. A key that names the feature (Rubberbanding)
+/// is written true for On; a key that names its absence (DisableX, HideX) is written false,
+/// unless the title is itself negative ("Hide the Menu Bar" writes the hide key true).
+@Test func everyToggleOnTurnsOnWhatItsTitleSays() {
+    // Checked by hand: the title names the result of the Disable key ("Attachments as Icons"
+    // is DisableInlineAttachmentViewing true), so On writes true.
+    let reviewed: Set<String> = [
+        "com.apple.mail.DisableInlineAttachmentViewing", "com.apple.Preview.PVDisableHDRBackgroundAppDimming",
+        "com.apple.Spotlight.SUIDisableBrowseButtonAnimation", "NSGlobalDomain.NSToolTipAutoWrappingDisabled",
+    ]
+    var wrong: [String] = []
+    for setting in PersonalCatalog.all where !reviewed.contains(setting.id) {
+        guard case let .toggle(on, off) = setting.control else { continue }
+        let onIsTrue: Bool
+        switch (on, off) {
+        case let (.bool(onValue), .bool(offValue)) where onValue != offValue: onIsTrue = onValue
+        case let (.int(onValue), .int(offValue)) where Set([onValue, offValue]) == [0, 1]: onIsTrue = onValue == 1
+        default: continue
+        }
+        let flipped = isNegative(setting.key, negativeKeyWords) != isNegative(setting.title, negativeTitleWords)
+        if onIsTrue == flipped { wrong.append("\(setting.id) \"\(setting.title)\"") }
+    }
+    #expect(wrong.isEmpty, "On writes the opposite of what the title says: \(wrong)")
+}
+
+@Test func rubberBandAndVersionZoomTurnOnWithOn() {
+    for key in ["NSScrollViewRubberbanding", "NSDocumentRevisionsWindowTransformAnimation"] {
+        let setting = PersonalCatalog.all.first { $0.domain == "NSGlobalDomain" && $0.key == key }
+        #expect(setting?.control == .toggle(on: .bool(true), off: .bool(false)), "\(key)")
+    }
+}
+
+@Test func versionBrowserZoomAppearsOnce() {
+    #expect(PersonalCatalog.all.filter { $0.title.hasPrefix("Version Browser Zoom") }.count == 1)
+}
+
+// MARK: - Write guard, clearing, ledger reconcile
+
+@Test func writeGateAsksAccessAndCaches() throws {
+    let folder = FileManager.default.temporaryDirectory.appendingPathComponent("atelier-gate-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let file = folder.appendingPathComponent("guarded.plist").path
+    #expect(PersonalWriteGate.probe(file), "A missing file in a writable folder is writable")
+    FileManager.default.createFile(atPath: file, contents: Data())
+    #expect(PersonalWriteGate.probe(file))
+    try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: file)
+    #expect(!PersonalWriteGate.probe(file))
+    // Cached for maxAge: a second probe is not asked.
+    var asked = 0
+    let key = file + ".cache"
+    _ = PersonalWriteGate.isWritable(key, maxAge: 60) { _ in asked += 1; return false }
+    _ = PersonalWriteGate.isWritable(key, maxAge: 60) { _ in asked += 1; return true }
+    #expect(asked == 1)
+    #expect(PersonalWriteGate.isWritable(key, maxAge: 0) { _ in true })
+}
+
+@Test func onlyUniversalAccessIsWriteGuarded() {
+    let prefs = PersonalPrefs()
+    for setting in PersonalCatalog.all where setting.storage == .standard
+        && !PersonalPrefs.writeGuardedDomains.contains(setting.domain) {
+        #expect(prefs.writeBlocker(setting) == nil, "\(setting.id)")
+    }
+    #expect(PersonalCatalog.all.filter { $0.domain == "com.apple.universalaccess" }.count >= 13)
+}
+
+@Test func clearingRemovesTheKeyAndRevertPutsItBack() throws {
+    let (domain, suite) = scratch()
+    defer { cleanUp(domain, suite) }
+    let engine = PersonalEngine(ledger: PersonalLedger(suite: suite))
+    let sample = setting(domain, kind: .string)
+    try engine.prefs.write(.string("Shot"), for: sample)
+    try engine.apply(nil, to: sample)
+    #expect(engine.prefs.read(sample) == nil)
+    #expect(engine.ledger.original(sample.id) == .some(.string("Shot")))
+    try engine.revert(sample)
+    #expect(engine.prefs.read(sample) == .string("Shot"))
+    #expect(!engine.ledger.isTracked(sample.id))
+}
+
+@Test func ledgerForgetsKeysARestorePutBack() {
+    let (domain, suite) = scratch()
+    defer { cleanUp(domain, suite) }
+    let ledger = PersonalLedger(suite: suite)
+    let absent = setting(domain, key: "WasAbsent", kind: .bool)
+    let valued = setting(domain, key: "WasFive", kind: .int)
+    let moved = setting(domain, key: "WasOne", kind: .int)
+    ledger.remember(absent.id, original: nil)
+    ledger.remember(valued.id, original: .int(5))
+    ledger.remember(moved.id, original: .int(1))
+    // The restored domain: the absent key gone again, 5 back, the third at a new value.
+    let forgotten = ledger.reconcile(domain: domain, with: ["WasFive": 5, "WasOne": 3], settings: [absent, valued, moved])
+    #expect(Set(forgotten) == [absent.id, valued.id])
+    #expect(!ledger.isTracked(absent.id) && !ledger.isTracked(valued.id))
+    #expect(ledger.original(moved.id) == .some(.int(1)), "Still changed: Revert must put 1 back")
+}
+
+@Test func missionControlIsOneArea() {
+    #expect(PersonalCatalog.settings(in: .windows).isEmpty)
+    #expect(PersonalCatalog.sections(in: .missionControl).filter { $0 == "Mission Control" }.count == 1)
+}

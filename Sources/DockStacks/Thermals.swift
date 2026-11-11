@@ -589,7 +589,7 @@ struct ThermalsCard: View {
                 }
                 Text(sensors.available
                      ? (sensors.capabilities.fans
-                        ? "Read from the SMC and the chip's own die sensors. Only ever read: fans and charging are left alone."
+                        ? "Read from the SMC and the chip's own die sensors. Reading changes nothing: only Fan Control sets the fans."
                         : "Read from the SMC and the chip's own die sensors. This Mac has no fans, so there is no fan speed to show.")
                      : "This Mac doesn’t share its temperature sensors.")
                     .font(DS.caption).foregroundStyle(DS.Ink.tertiary)

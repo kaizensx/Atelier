@@ -94,12 +94,12 @@ enum TweakCatalog {
         finder("QuitMenuItem", "Quit Finder", "Adds Quit to the Finder menu."),
         finder("DisableAllAnimations", "No Finder Animations", "Finder stops animating."),
         finder("ShowRecentTags", "Hide Recent Tags", "Removes tags from the sidebar.", value: "false"),
-        // Capture
-        Tweak(area: .capture, domain: "com.apple.screencapture", process: "SystemUIServer", key: "disable-shadow", type: "bool", value: "true",
+        // Capture. screencaptureui reads these at each capture through cfprefsd, so nothing restarts.
+        Tweak(area: .capture, domain: "com.apple.screencapture", process: nil, key: "disable-shadow", type: "bool", value: "true",
               title: "No Window Shadow", detail: "Window captures come out without a shadow.", proof: .reversible),
-        Tweak(area: .capture, domain: "com.apple.screencapture", process: "SystemUIServer", key: "show-thumbnail", type: "bool", value: "false",
+        Tweak(area: .capture, domain: "com.apple.screencapture", process: nil, key: "show-thumbnail", type: "bool", value: "false",
               title: "No Floating Thumbnail", detail: "Screenshots save immediately."),
-        Tweak(area: .capture, domain: "com.apple.screencapture", process: "SystemUIServer", key: "include-date", type: "bool", value: "false",
+        Tweak(area: .capture, domain: "com.apple.screencapture", process: nil, key: "include-date", type: "bool", value: "false",
               title: "No Date in Name", detail: "Shorter screenshot file names."),
         // Input
         global(.input, "NSScrollAnimationEnabled", "bool", "false", "Direct Scrolling", "Removes smooth scrolling."),

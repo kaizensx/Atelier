@@ -191,6 +191,9 @@ public enum DockStore {
         for key in Tiles.keysToDelete(current: current, target: plist) {
             try run("/usr/bin/defaults", ["delete", domain, key])
         }
+        // A scene or Timeline restore can put back, or delete, keys the setting rows changed.
+        // The rows' ledger follows, so none shows a change that is no longer there.
+        PersonalLedger().reconcile(domain: domain, with: plist)
         restart()
     }
 

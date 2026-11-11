@@ -88,9 +88,10 @@ enum NavRegistry {
     static let items: [NavItem] = {
         var list = listed
         // An area nobody placed yet still shows, so a new catalogue is never unreachable.
-        // Mission Control lives inside Windows & Spaces. Per-app settings are not offered:
-        // Atelier keeps to what applies everywhere, and "All Apps" lives in Every App.
-        let placed = Set(list.compactMap(\.area)).union([.missionControl, .apps])
+        // The Windows area is empty: its rows are Mission Control's, inside Windows & Spaces.
+        // Per-app settings are not offered: Atelier keeps to what applies everywhere, and
+        // "All Apps" lives in Every App.
+        let placed = Set(list.compactMap(\.area)).union([.windows, .apps])
         for area in PersonalArea.allCases where !placed.contains(area) {
             list.append(.personal(area, area.rawValue.capitalized, symbol: "slider.horizontal.3", in: .system))
         }
@@ -180,10 +181,10 @@ enum NavRegistry {
         // One place for windows, Spaces, Mission Control and Stage Manager.
         NavItem(.windows, "Windows & Spaces", symbol: "macwindow.on.rectangle", in: .windows,
                 keywords: ["mission control", "spaces", "stage manager", "exposé", "resize", "tiling", "app switcher", "cmd tab"],
-                area: .windows) { model in
+                area: .missionControl) { model in
             TweakList(model: model, tweaks: TweakCatalog.tweaks(for: .windows))
             SettingsCompatHiddenGroup(items: TweakCatalog.unsupported(for: .windows).map(\.compatHiddenItem))
-            PersonalChapter(area: .windows, model: model)
+            // One chapter: Mission Control, Spaces, the app switcher, Stage Manager and tiling.
             PersonalChapter(area: .missionControl, model: model)
         },
         // Finder & Files
@@ -256,7 +257,7 @@ enum NavRegistry {
             SectionHeader("macOS settings", symbol: "macwindow")
             PersonalChapter(area: .appKit, model: model)
             // What every app shares: reopening windows, keeping changes, what opens at login.
-            PersonalChapter(area: .apps, model: model, sections: ["All Apps"])
+            PersonalChapter(area: .apps, model: model, sections: ["All Apps"], embedded: true)
         },
         .personal(.quickLook, "Quick Look", symbol: "eye", in: .system, keywords: ["preview", "spacebar"]),
         // Tools

@@ -284,10 +284,8 @@ final class ManagerModel: ObservableObject {
 
     func setCorner(_ key: String, to value: Int) {
         perform("Applying…", {
-            try DockStore.update("Corner \(key)") { plist in
-                plist["wvous-\(key)-corner"] = value
-                plist["wvous-\(key)-modifier"] = 0
-            }
+            // The modifier is the user's: changing the action keeps it.
+            try DockStore.update("Corner \(key)") { AppleHotCorner.set(key, to: value, in: &$0) }
         })
     }
 

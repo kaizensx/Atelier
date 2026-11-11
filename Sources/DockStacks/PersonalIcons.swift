@@ -68,6 +68,11 @@ final class CustomIcons: ObservableObject {
     static let shared = CustomIcons()
     @Published private(set) var paths: [String] = UserDefaults.standard.stringArray(forKey: "customIcons.paths") ?? []
     @Published var notice: String?
+    /// The last change failed on an app bundle: macOS 13 and later only let an app change
+    /// another app with App Management (Privacy & Security). The notice offers to open it.
+    @Published private(set) var needsAppManagement = false
+
+    static let appManagementSettings = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles")
 
     enum Refusal: String {
         case system = "System items are protected by macOS."
@@ -90,26 +95,53 @@ final class CustomIcons: ObservableObject {
         return dictionary[kSecCodeInfoIdentifier as String] != nil
     }
 
-    func set(_ image: NSImage, on url: URL) {
-        if let refusal = refusal(for: url) { notice = refusal.rawValue; return }
+    /// The one way Atelier changes a Finder icon, so every change is listed and can be put back.
+    @discardableResult
+    func set(_ image: NSImage, on url: URL) -> Bool {
+        needsAppManagement = false
+        if let refusal = refusal(for: url) { notice = refusal.rawValue; return false }
         guard NSWorkspace.shared.setIcon(image, forFile: url.path, options: []) else {
-            notice = "macOS did not accept the icon for \(url.lastPathComponent)."
-            return
+            refused(url, putBack: false)
+            return false
         }
         if !paths.contains(url.path) { paths.append(url.path); save() }
         notice = nil
         refresh(url)
+        return true
     }
 
-    func revert(_ path: String) {
+    /// Puts the original back, for an icon Atelier set or one it finds inside an app.
+    @discardableResult
+    func revert(_ path: String) -> Bool {
+        needsAppManagement = false
         let url = URL(fileURLWithPath: path)
         if FileManager.default.fileExists(atPath: path), !NSWorkspace.shared.setIcon(nil, forFile: path, options: []) {
-            notice = "Could not put back the icon of \(url.lastPathComponent)."
-            return
+            refused(url, putBack: true)
+            return false
         }
         paths.removeAll { $0 == path }
         save()
+        notice = nil
         refresh(url)
+        return true
+    }
+
+    /// Whether the item has a custom icon: one Atelier set, or an Icon\r file put there by anyone.
+    func hasCustomIcon(_ path: String) -> Bool {
+        paths.contains(path) || FileManager.default.fileExists(atPath: (path as NSString).appendingPathComponent("Icon\r"))
+    }
+
+    /// Says why. A refused app bundle is nearly always App Management, which the user can grant.
+    private func refused(_ url: URL, putBack: Bool) {
+        let name = url.deletingPathExtension().lastPathComponent
+        if url.pathExtension == "app" {
+            needsAppManagement = true
+            notice = "macOS stopped Atelier changing \(name). Turn on Atelier in Privacy & Security › App Management, "
+                + "then try again."
+        } else {
+            notice = putBack ? "Could not put back the icon of \(url.lastPathComponent)."
+                : "macOS did not accept the icon for \(url.lastPathComponent)."
+        }
     }
 
     private func save() { UserDefaults.standard.set(paths, forKey: "customIcons.paths") }
@@ -118,6 +150,25 @@ final class CustomIcons: ObservableObject {
     private func refresh(_ url: URL) {
         NSWorkspace.shared.noteFileSystemChanged(url.path)
         if url.pathExtension == "app" { notice = "The Dock shows the new icon after the app is reopened." }
+    }
+}
+
+/// The last icon change's notice, with a way into App Management when that is what it needs.
+struct CustomIconsNotice: View {
+    @ObservedObject private var icons = CustomIcons.shared
+
+    var body: some View {
+        if let notice = icons.notice {
+            HStack(spacing: 8) {
+                Text(notice).font(DS.caption)
+                    .foregroundStyle(icons.needsAppManagement ? Color.orange.opacity(0.9) : DS.Ink.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if icons.needsAppManagement {
+                    Spacer(minLength: 6)
+                    Chip("Open Settings") { if let url = CustomIcons.appManagementSettings { NSWorkspace.shared.open(url) } }
+                }
+            }
+        }
     }
 }
 
@@ -447,7 +498,7 @@ struct AppIconStudio: View {
         }
         .animation(DS.Motion.reveal, value: app)
         CustomIconList(kind: .apps)
-        if let notice = icons.notice { Text(notice).font(DS.caption).foregroundStyle(DS.Ink.tertiary) }
+        CustomIconsNotice()
     }
 
     /// No app yet: the apps worth trying first, as a gallery.
