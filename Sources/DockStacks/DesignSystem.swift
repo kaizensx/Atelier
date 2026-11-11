@@ -725,6 +725,8 @@ extension HeroCard where Controls == EmptyView {
 }
 
 struct HeroBadge: View {
+    /// Room a note pinned to the plate's top right leaves for the badge at its top left.
+    static let clearance: CGFloat = 132
     let text: String
     var hue: Color = DS.Ink.accent
 

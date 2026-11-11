@@ -154,7 +154,7 @@ private struct ToolsHero<Plate: View, Readout: View, Controls: View>: View {
             RoundedRectangle(cornerRadius: DS.Radius.plate, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
         }
-        .overlay(alignment: .topTrailing) { AvailabilityNote(availability: availability).padding(10) }
+        .overlay(alignment: .topTrailing) { AvailabilityNote(availability: availability).padding(10).padding(.leading, HeroBadge.clearance) }
     }
 }
 

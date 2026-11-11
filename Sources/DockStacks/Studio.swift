@@ -697,6 +697,29 @@ struct ScenesChapter: View {
         }
     }
 
+    private var nameField: some View {
+        TextField("Scene name", text: $name).textFieldStyle(.plain).font(.system(size: 13, weight: .medium))
+            .padding(.horizontal, 12).frame(minWidth: 110).frame(height: 32)
+            .background(DS.Ink.fill, in: .rect(cornerRadius: DS.Radius.control, style: .continuous))
+            .overlay { RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous).strokeBorder(DS.Ink.hairline, lineWidth: 0.5) }
+            .onSubmit { if !name.isEmpty && !model.busy { model.saveProfile(named: name); name = "" } }
+    }
+
+    @ViewBuilder private var ideas: some View {
+        if model.profiles.isEmpty {
+            ForEach(["Work", "Play", "Focus"], id: \.self) { idea in
+                Chip(idea) { name = idea }
+            }
+        }
+    }
+
+    private var savePill: some View {
+        ScenesPill(title: "Save Current", hue: hue, filled: true) { model.saveProfile(named: name); name = "" }
+            .disabled(name.isEmpty || model.busy)
+            .opacity(name.isEmpty || model.busy ? 0.45 : 1)
+            .fixedSize()
+    }
+
     /// The Dock as it is now, on a lit plate, with the field that saves it.
     private var hero: some View {
         let paths = Tiles.apps(model.dock.plist).compactMap(Tiles.path(of:))
@@ -704,7 +727,13 @@ struct ScenesChapter: View {
             ZStack(alignment: .topLeading) {
                 RadialGradient(colors: [hue.opacity(name.isEmpty ? 0.22 : 0.42), .clear],
                                center: UnitPoint(x: 0.5, y: 1.15), startRadius: 0, endRadius: 300)
-                ScenesDockStrip(paths: paths, icon: 30, limit: 12)
+                // As many icons as the plate holds: a fixed twelve pushed the card wider than a
+                // narrow panel, clipping the plate and its readout.
+                ViewThatFits(in: .horizontal) {
+                    ForEach([12, 9, 7, 5, 3], id: \.self) { limit in
+                        ScenesDockStrip(paths: paths, icon: 30, limit: limit)
+                    }
+                }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                     .padding(.bottom, 26)
                 HeroBadge(text: "Beyond macOS", hue: hue).padding(10)
@@ -730,20 +759,14 @@ struct ScenesChapter: View {
                     Text("Set up a Dock for work, another for play, then switch in one move or by the hour.")
                         .font(DS.body).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
                 }
-                HStack(spacing: DS.Space.s) {
-                    TextField("Scene name", text: $name).textFieldStyle(.plain).font(.system(size: 13, weight: .medium))
-                        .padding(.horizontal, 12).frame(height: 32)
-                        .background(DS.Ink.fill, in: .rect(cornerRadius: DS.Radius.control, style: .continuous))
-                        .overlay { RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous).strokeBorder(DS.Ink.hairline, lineWidth: 0.5) }
-                        .onSubmit { if !name.isEmpty && !model.busy { model.saveProfile(named: name); name = "" } }
-                    if model.profiles.isEmpty {
-                        ForEach(["Work", "Play", "Focus"], id: \.self) { idea in
-                            Chip(idea) { name = idea }
-                        }
+                // One line while it fits; in a narrow panel the ideas move to a line of their own,
+                // so the field and the button are never squeezed.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: DS.Space.s) { nameField; ideas; savePill }
+                    VStack(alignment: .leading, spacing: DS.Space.s) {
+                        HStack(spacing: DS.Space.s) { nameField; savePill }
+                        HStack(spacing: DS.Space.s) { ideas }
                     }
-                    ScenesPill(title: "Save Current", hue: hue, filled: true) { model.saveProfile(named: name); name = "" }
-                        .disabled(name.isEmpty || model.busy)
-                        .opacity(name.isEmpty || model.busy ? 0.45 : 1)
                 }
             }
             .padding(.horizontal, DS.Space.s)

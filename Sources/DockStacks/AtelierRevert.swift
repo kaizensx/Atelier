@@ -191,9 +191,22 @@ enum AtelierRevert {
 
     /// Quits for real. applicationShouldTerminate cancels any other quit (Atelier closes to the
     /// menu bar), which is why Remove Everything used to leave Atelier running.
+    /// Remove Everything runs from a sheet, and AppKit refuses to terminate while a sheet is up
+    /// ("App termination blocked by modal sheet"), so every sheet is ended first.
     static func quitAfterRemoval() {
         AppDelegate.quitForReal = true
-        NSApp.terminate(nil)
+        for window in NSApp.windows {
+            if let sheet = window.attachedSheet { window.endSheet(sheet) }
+        }
+        NSApp.stopModal()
+        // A SwiftUI sheet goes away on a later turn of the run loop, not at endSheet: wait for it.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { NSApp.terminate(nil) }
+        // Should a sheet still hold the quit, do what terminate would: the quit-time restores,
+        // then exit.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+            NSApp.delegate?.applicationWillTerminate?(Notification(name: NSApplication.willTerminateNotification, object: NSApp))
+            exit(0)
+        }
     }
 
     /// From applicationWillTerminate, after every restoreOnQuit: some of them write a key on the
@@ -288,6 +301,9 @@ struct RevertSheet: View {
     @State private var removeBridge = true
     @State private var running: String?
     @State private var problems: [String]?
+    /// The list's own height: a scroll view in a sheet has no height of its own and collapsed to
+    /// a row and a half, so the sheet takes the list's height up to a cap and scrolls past it.
+    @State private var listHeight: CGFloat = 120
 
     private var title: String { mode == .remove ? "Remove Everything" : "Revert All macOS Changes" }
 
@@ -331,8 +347,9 @@ struct RevertSheet: View {
                         }
                     }
                 }
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
             }
-            .frame(maxHeight: 380)
+            .frame(height: min(max(listHeight, 40), 380))
             HStack(spacing: DS.Space.s) {
                 if let running {
                     ProgressView().controlSize(.small)

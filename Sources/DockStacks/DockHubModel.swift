@@ -394,7 +394,7 @@ enum DockHubAction: String, Codable, CaseIterable, Identifiable, Sendable {
 
 struct DockHubPrefs: Codable, Equatable, Sendable {
     /// Live Peek shows a still picture of each window. Needs Screen Recording.
-    var windowPreviews = false
+    var windowPreviews = true
     var sectionStyle = DockSectionStyle.label
     /// Apps other than the one in front fade back.
     var focusMode = false

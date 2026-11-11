@@ -1339,21 +1339,26 @@ struct LivingCard: View {
         let picture = still ?? LivingThumbnails.cached(shader)
         Button(action: select) {
             ZStack(alignment: .bottomLeading) {
-                ZStack {
-                    if let picture {
-                        Image(nsImage: picture).resizable().aspectRatio(contentMode: .fill)
-                    } else {
-                        Rectangle().fill(DS.Ink.fill)
+                // The cell sets the size and the picture fills it: a filling image sized itself
+                // would take its own wider width and push the card past its grid column.
+                Color.clear
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 96)
+                    .overlay {
+                        ZStack {
+                            if let picture {
+                                Image(nsImage: picture).resizable().aspectRatio(contentMode: .fill)
+                            } else {
+                                Rectangle().fill(DS.Ink.fill)
+                            }
+                            if hovering {
+                                LivingPreview(shader: shader, fps: 30, running: true)
+                                    .transition(.opacity)
+                            }
+                        }
                     }
-                    if hovering {
-                        LivingPreview(shader: shader, fps: 30, running: true)
-                            .transition(.opacity)
-                    }
-                }
-                .frame(height: 96)
-                .frame(maxWidth: .infinity)
-                .clipped()
-                .allowsHitTesting(false)
+                    .clipped()
+                    .allowsHitTesting(false)
                 LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
                     .allowsHitTesting(false)
                 // Hover is a tint, never a lift: the card holds a live Metal canvas.

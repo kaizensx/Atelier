@@ -35,7 +35,9 @@ extension View {
     /// the switch is on or off (the controls below it only appear when on).
     func displayCompatNote(_ availability: FeatureAvailability) -> some View {
         overlay(alignment: .topTrailing) {
-            AvailabilityNote(availability: availability).padding(10)
+            // Starts clear of the plate's "Beyond macOS" badge at the top left: a long note
+            // wraps onto a second line instead of running underneath it.
+            AvailabilityNote(availability: availability).padding(10).padding(.leading, HeroBadge.clearance)
         }
     }
 }

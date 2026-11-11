@@ -426,6 +426,12 @@ final class TypingSounds: ObservableObject {
     }
 
     private func play(_ kind: TypingKeyClass) {
+        if players.isEmpty { prepare() }
+        // A key that arrives before the background render landed (a cold launch, a new pack) is
+        // never dropped: the pack renders here, once, in a few milliseconds.
+        if bankPack != pack || bank.count != TypingKeyClass.allCases.count {
+            install(TypingSynth.renderPack(pack), for: pack)
+        }
         guard !players.isEmpty, bank.count == TypingKeyClass.allCases.count else { return }
         let variants = bank[kind.rawValue]
         // Never the same variant twice in a row: a machine-gun repeat is what gives synthesis away.
