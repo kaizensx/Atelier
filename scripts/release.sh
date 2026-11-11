@@ -37,9 +37,22 @@ notes_for() {   # the CHANGELOG section of a version, without its heading
     on { print }' CHANGELOG.md
 }
 
+install_archive() {   # unzip an archive over /Applications/Atelier.app, as the updater would
+  local zip="$1" dest="/Applications/Atelier.app" tmp
+  tmp=$(mktemp -d)
+  ditto -x -k "$zip" "$tmp"
+  [[ -f "$tmp/Atelier.app/Contents/Info.plist" ]] || die "archive has no Atelier.app"
+  pkill -x DockStacks || true; pkill -x AtelierGuard || true; sleep 1
+  rm -rf "$dest.new"; ditto "$tmp/Atelier.app" "$dest.new"
+  rm -rf "$dest"; mv "$dest.new" "$dest"; rm -rf "$tmp"
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$dest"
+  open "$dest"
+}
+
 package() {     # $1 = version
   local v="$1" out="dist/$1"
   [[ -f "$KEY" ]] || die "No update key at $KEY"
+  grep -q "static let publicKey = \"$PUB\"" Sources/DockStacks/Updater.swift || die "Updater.swift's public key is not $PUB"
   say "Tests"
   swift test 2>&1 | tail -1
   say "Build $v"
@@ -55,9 +68,8 @@ package() {     # $1 = version
   notes_for "$v" > "$out/NOTES.md"
   [[ -s "$out/NOTES.md" ]] || die "CHANGELOG.md has no section for [$v]"
   git rev-parse HEAD > "$out/COMMIT"
-  say "Install on this Mac for testing"
-  zsh build.sh --install >/dev/null
-  open /Applications/Atelier.app
+  say "Install on this Mac for testing: the very archive that will be published"
+  install_archive "$out/Atelier-$v.zip"
   date -u +%FT%TZ > "$out/TESTED_BUILD"
   print -P "%F{green}✓%f Atelier $v is installed here. Try it, then: scripts/release.sh ${2:-beta}"
 }

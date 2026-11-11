@@ -20,7 +20,7 @@ enum UpdateConfig {
     static var releasesURL: URL { URL(string: "https://api.github.com/repos/\(repository)/releases?per_page=30")! }
     static var releasesPage: URL { URL(string: "https://github.com/\(repository)/releases")! }
     /// Public half of the release signing key. The private half never leaves the maintainer's Mac.
-    static let publicKey = "Y1GKXZIFsjhQfyC6AEWw5IpQ2kJ1io990yZS83bWjXc="
+    static let publicKey = "y1GKXZIFsjhQfyC6AEWw5IpQ2kJ1io990yZS83bWjXc="
 }
 
 @MainActor
