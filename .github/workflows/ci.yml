@@ -16,7 +16,7 @@ jobs:
           swift --version
       # DockCore holds every rule Atelier follows, as plain Swift, and all of the tests.
       - name: Build DockCore and its tests
-        run: swift build --target DockCoreTests
+        run: swift build --product DockStacksPackageTests
       - name: Test
         run: swift test --skip-build
 
