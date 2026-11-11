@@ -6,6 +6,10 @@ shows.
 
 ## [1.0.0-beta.3]
 
+**New**
+- Mods: an installed plugin's page now has **In Atelier**, listing where it shows up (Dock tile,
+  widgets, commands, hot corner actions) with a button to each. The author's description stays.
+
 **Improved**
 - Mods and Themes & Plugins are one place now: Mods › Library holds your themes and the theme
   designer.
@@ -17,6 +21,7 @@ shows.
 - Installing a plugin from its page now asks for its permissions right away.
 - "Open in Atelier" on the website opens that mod's page.
 - GitHub Notifications 1.0.1 asks for the token once; later, use Set GitHub Token.
+- Opening another place in the Studio starts at its top, not at the last place's scroll position.
 
 ## [1.0.0-beta.2]
 

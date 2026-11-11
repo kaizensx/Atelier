@@ -201,7 +201,10 @@ struct ModPage: View {
     let entry: ModEntry
     let back: () -> Void
     let install: (ModEntry) -> Void
+    /// Opens another chapter, for the "In Atelier" shortcuts.
+    var go: (Chapter) -> Void = { _ in }
     @ObservedObject private var store = ModStore.shared
+    @ObservedObject private var registry = PluginRegistry.shared
     @State private var shot = 0
 
     var body: some View {
@@ -225,6 +228,8 @@ struct ModPage: View {
             if !entry.description.isEmpty {
                 Card { ModMarkdown(text: entry.description) }
             }
+
+            if entry.kind == .plugin, store.installedVersion(entry.id) != nil { inAtelier }
 
             if entry.kind == .plugin { permissions }
 
@@ -321,6 +326,63 @@ struct ModPage: View {
         .opacity(enabled ? 1 : 0)
         .disabled(!enabled)
         .accessibilityLabel(symbol == "chevron.left" ? "Previous screenshot" : "Next screenshot")
+    }
+
+    /// Where this plugin shows up, read from what it registered while running. A quick way to
+    /// find its pieces; the author's own description above stays as it is.
+    private var inAtelier: some View {
+        let id = entry.id
+        let on = registry.enabled.contains(id)
+        let tiles = registry.dockTiles.filter { $0.plugin == id }
+        let widgets = registry.widgets.filter { $0.plugin == id }
+        let commands = registry.commands.filter { $0.plugin == id }
+        let corners = registry.cornerActions.filter { $0.plugin == id }
+        return VStack(alignment: .leading, spacing: 0) {
+            SectionHeader("In Atelier", symbol: "scope", detail: "Where this plugin shows up on your Mac.", hue: ModsHue.tint)
+            RowGroup {
+                if !on {
+                    SettingRow(title: "Off", detail: "Turn it on to use it. Its Dock tile, widgets and commands show up here.",
+                               symbol: "power", density: .compact) {
+                        if let plugin = registry.installed.first(where: { $0.id == id }) {
+                            Button("Turn On") {
+                                if plugin.manifest.permissions.isEmpty { registry.enable(plugin, granting: []) }
+                                else { store.pendingPermission = plugin }
+                            }.buttonStyle(ModPill())
+                        }
+                    }
+                } else if tiles.isEmpty && widgets.isEmpty && commands.isEmpty && corners.isEmpty {
+                    SettingRow(title: "Nothing to open", detail: "This plugin works in the background and adds nothing you can open.",
+                               symbol: "gearshape.2", density: .compact) { EmptyView() }
+                }
+                if on {
+                    ForEach(tiles) { tile in
+                        SettingRow(title: tile.spec.title, detail: "Dock tile, on your Atelier Dock.",
+                                   symbol: "dock.rectangle", density: .compact) {
+                            Button("Dock") { go(.dock) }.buttonStyle(ModPill(prominent: false))
+                        }
+                    }
+                    ForEach(widgets) { widget in
+                        SettingRow(title: widget.spec.title, detail: "Widget. In Widgets, add a Plugin widget and pick it.",
+                                   symbol: "square.grid.2x2", density: .compact) {
+                            Button("Widgets") { go(.widgets) }.buttonStyle(ModPill(prominent: false))
+                        }
+                    }
+                    ForEach(commands) { command in
+                        SettingRow(title: command.spec.title, detail: "Command. Also in the Command palette.",
+                                   symbol: "command", density: .compact) {
+                            Button("Run") { registry.run(command) }.buttonStyle(ModPill(prominent: false))
+                        }
+                    }
+                    ForEach(corners) { corner in
+                        SettingRow(title: corner.spec.title, detail: "Hot corner action. Put it on a corner in Hot Corners.",
+                                   symbol: "rectangle.inset.topleft.filled", density: .compact) {
+                            Button("Hot Corners") { go(.corners) }.buttonStyle(ModPill(prominent: false))
+                        }
+                    }
+                }
+            }
+            .padding(.top, DS.Space.s)
+        }
     }
 
     private var permissions: some View {

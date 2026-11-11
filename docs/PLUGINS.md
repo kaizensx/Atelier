@@ -52,7 +52,9 @@ atelier.command({ title: "Say Hello", run: () => console.log("Hello!") });
 ```
 
 Drop the folder on **Mods › Library** in Atelier (or use **Install Plugin…**), switch it on,
-then add a **Plugin** widget to the board and pick "Hello". `console.log` output appears in the
+then add a **Plugin** widget to the board and pick "Hello". Once a plugin is on, its page in
+Mods lists what it registered under **In Atelier** (Dock tiles, widgets, commands, corner actions)
+with a button to each place. `console.log` output appears in the
 chapter's Console.
 
 ## How plugins run

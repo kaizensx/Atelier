@@ -373,6 +373,7 @@ struct StageHeader: View {
 
 /// The open place's panel, from the registry. Scrolls to a row that search pointed at.
 struct ChapterPanel: View {
+    private static let top = "chapter-panel-top"
     @ObservedObject var model: ManagerModel
     @ObservedObject private var focus = NavFocus.shared
     @Environment(\.accessibilityReduceTransparency) private var solid
@@ -388,6 +389,7 @@ struct ChapterPanel: View {
                         .padding(.horizontal, DS.Inset.card)
                         .padding(.top, DS.Space.l)
                         .padding(.bottom, DS.Space.xs)
+                        .id(Self.top)
                     Cascade { if let item { item.content(model) } }
                 }
                 .padding(DS.Inset.panel)
@@ -395,6 +397,11 @@ struct ChapterPanel: View {
             }
             .scrollIndicators(.never)
             .clipShape(.rect(cornerRadius: DS.Radius.panel, style: .continuous))
+            // A new place opens at its top, not at the last place's scroll offset, unless search
+            // pointed at a row (handled below).
+            .onChange(of: model.panelChapter) {
+                if focus.target == nil { proxy.scrollTo(Self.top, anchor: .top) }
+            }
             // Keyed on the panel's chapter too: a link that opens another chapter sets the target
             // before that chapter's rows exist. A second pass once the panel has landed catches a
             // freshly opened window, whose scroll view has no size yet at the first one.

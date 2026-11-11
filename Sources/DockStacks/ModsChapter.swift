@@ -19,7 +19,8 @@ struct ModsChapter: View {
         // they stayed off screen and never came up (the permission ask after installing a plugin).
         VStack(alignment: .leading, spacing: DS.Space.l) {
             if let id = selected, let entry = store.index?.mod(id) {
-                ModPage(entry: entry, back: { withAnimation(DS.Motion.reveal) { selected = nil } }, install: install)
+                ModPage(entry: entry, back: { withAnimation(DS.Motion.reveal) { selected = nil } }, install: install,
+                        go: { model.go($0) })
             } else {
                 ModsTabsView(model: model, tab: $tab, open: { id in withAnimation(DS.Motion.reveal) { selected = id } }, install: install)
             }

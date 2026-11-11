@@ -54,6 +54,20 @@ to the whole Mac; **Revert** undoes the run.
 | Looks gallery | Apply, Revert, Make your own. Icon styles (Clear, Tinted) apply on macOS 26 and later only. | None |
 | Change with the Day *(Beyond macOS)* | Each Look takes over as its hour arrives. | None |
 
+### Mods
+
+Community plugins and themes from the signed catalog at github.com/kaizensx/atelier-mods.
+
+- **Browse:** search, filter by Plugins or Themes, open a mod's page (screenshots, description,
+  permissions, version history) and install it. Plugins ask for their permissions right after.
+- **Installed:** every mod on this Mac. Click a row to open its page; plugins have their on/off
+  switch in the row; hold **Remove** to take one out.
+- **Updates:** newer versions from the catalog, one at a time or all at once.
+- **In Atelier:** on an installed plugin's page, where it shows up: its Dock tile, widgets, commands
+  (with Run) and hot corner actions, each with a button to its place. The author's description
+  stays as written.
+- **Links:** "Open in Atelier" on the website opens the mod's page.
+
 ### Mods › Library (themes and plugins)
 
 A theme restyles everything Atelier can reach from one `.ateliertheme` file. Plugins add widgets,
