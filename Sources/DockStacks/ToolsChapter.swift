@@ -130,7 +130,8 @@ struct ToolsCards: View {
     private var pinCard: some View {
         Card(style: pin.count > 0 ? .lit(hue) : .standard) {
             VStack(alignment: .leading, spacing: DS.Space.m) {
-                HStack(spacing: DS.Space.m) {
+                // The shortcut and Pin move under the text when they would squeeze it.
+                AdaptiveRowLayout(spacing: DS.Space.m, hasSymbol: true) {
                     Image(systemName: "pip").font(.system(size: 14, weight: .semibold)).foregroundStyle(hue)
                         .frame(width: 32, height: 32)
                         .background(hue.opacity(0.14), in: .rect(cornerRadius: 9, style: .continuous))

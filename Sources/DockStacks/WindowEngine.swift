@@ -1968,9 +1968,15 @@ struct BordersCard: View {
                     context.stroke(Path(ellipseIn: CGRect(x: center.x - 19, y: center.y - 19, width: 38, height: 38)),
                                    with: .color(.white), lineWidth: 2)
                 }
-                context.draw(Text(style.title).font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(style == borders.style ? DS.Ink.primary : DS.Ink.secondary),
-                             at: CGPoint(x: center.x, y: 48))
+                let label = context.resolve(Text(style.title).font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(style == borders.style ? DS.Ink.primary : DS.Ink.secondary))
+                // In a narrow panel a long name ran into its neighbours: shrink it to its column instead.
+                let width = label.measure(in: CGSize(width: 400, height: 40)).width
+                let fit = min(1, max(step - 4, 1) / max(width, 1))
+                var line = context
+                line.translateBy(x: center.x, y: 48)
+                line.scaleBy(x: fit, y: fit)
+                line.draw(label, at: .zero)
             }
         }
         .frame(height: 58)

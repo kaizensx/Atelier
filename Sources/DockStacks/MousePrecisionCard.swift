@@ -222,10 +222,10 @@ struct MousePrecisionCard: View {
                     if !device.speedHonoured {
                         AvailabilityNote(availability: .limited(MouseDeviceInfo.pointerSpeedLimitNote))
                     }
-                    HStack(spacing: 10) {
+                    // The legend and the caption wrap rather than cut a device's name short.
+                    WrapStack(spacing: 10, lineSpacing: 4) {
                         legend(color: hue, dashed: false, device.name)
                         legend(color: .white.opacity(0.4), dashed: true, "macOS")
-                        Spacer(minLength: 0)
                         Text(caption(setting)).font(DS.caption).foregroundStyle(DS.Ink.secondary)
                     }
                     Text(note(device, setting)).font(DS.caption).foregroundStyle(DS.Ink.tertiary)
@@ -280,7 +280,8 @@ struct MousePrecisionCard: View {
         HStack(spacing: 5) {
             Capsule().fill(dashed ? .clear : color).frame(width: 14, height: 2.4)
                 .overlay { if dashed { Capsule().stroke(color, style: StrokeStyle(lineWidth: 1.2, dash: [3, 2])) } }
-            Text(text).font(.system(size: 10.5, weight: .medium)).foregroundStyle(DS.Ink.secondary).lineLimit(1)
+            Text(text).font(.system(size: 10.5, weight: .medium)).foregroundStyle(DS.Ink.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

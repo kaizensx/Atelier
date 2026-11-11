@@ -259,10 +259,11 @@ struct PluginManagerSection: View {
     var body: some View {
         SectionHeader("Plugins", symbol: "puzzlepiece.extension", hue: DS.Ink.accent)
             .help("Plugins are small JavaScript programs that add widgets, Dock tiles, commands and hot-corner actions. Each runs in its own sandboxed engine, off the main thread, with no file access and no network unless you allow it.")
-        HStack(alignment: .center, spacing: DS.Space.s) {
+        // The buttons move under the sentence when they would squeeze it.
+        AdaptiveRowLayout(spacing: DS.Space.s, hasSymbol: false, minText: 170) {
             Text("Each runs sandboxed: no file access, and no network unless you allow it.")
                 .font(DS.caption).foregroundStyle(DS.Ink.tertiary).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: DS.Space.s)
+                .frame(maxWidth: .infinity, alignment: .leading)
             Chip("Install Plugin…") { installPanel() }
             Chip("Show Folder") { NSWorkspace.shared.activateFileViewerSelecting([PluginRegistry.folder]) }
         }

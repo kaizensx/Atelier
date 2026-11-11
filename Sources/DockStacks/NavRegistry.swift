@@ -123,7 +123,7 @@ enum NavRegistry {
             WidgetsChapter()
         },
         NavItem(.effects, "Effects", symbol: "wand.and.stars", in: .desktop,
-                keywords: ["focus light", "vignette", "grain", "night tint", "pixel grid", "keystrokes", "ripples", "notch shelf",
+                keywords: ["focus light", "vignette", "grain", "pixel grid", "keystrokes", "ripples", "notch shelf",
                            "clean desktop", "caffeinate", "keep awake", "menu bar hider", "ambient", "glow"]) { _ in
             DesktopPlusEffectsChapter()
         },
@@ -201,9 +201,11 @@ enum NavRegistry {
         },
         // System
         NavItem(.appearance, "Display & Appearance", symbol: "circle.lefthalf.filled", in: .system,
-                keywords: ["night shift", "true tone", "warmth", "icon tint", "dark", "clear", "tinted", "scroll bars", "tabs", "schedule", "light apps", "rounded corners", "screen corners", "extra dim", "darker", "brightness", "night", "below black", "xdr", "boost", "brighter", "nits", "hdr", "candlelight", "candle", "warmer", "kelvin", "f.lux", "hud", "osd", "volume overlay", "notch", "island", "keyboard backlight", "key light", "idle", "notch-free", "hide notch", "16:10", "resolution", "display mode", "refresh rate", "hz", "120hz", "60hz", "scaled", "low resolution", "hidpi", "retina", "virtual display", "dummy", "headless", "betterdummy", "deskpad", "mirror", "ddc", "ddc/ci", "external monitor", "monitor brightness", "contrast", "monitor volume", "input source", "monitorcontrol", "lunar"]) { model in
+                keywords: ["night shift", "true tone", "warmth", "icon tint", "dark", "clear", "tinted", "scroll bars", "tabs", "schedule", "light apps", "rounded corners", "screen corners", "extra dim", "darker", "brightness", "night", "below black", "xdr", "boost", "brighter", "nits", "hdr", "candlelight", "candle", "warmer", "kelvin", "f.lux", "night tint", "warm schedule", "hud", "osd", "volume overlay", "notch", "island", "keyboard backlight", "key light", "idle", "notch-free", "hide notch", "16:10", "resolution", "display mode", "refresh rate", "hz", "120hz", "60hz", "scaled", "low resolution", "hidpi", "retina", "virtual display", "dummy", "headless", "betterdummy", "deskpad", "mirror", "ddc", "ddc/ci", "external monitor", "monitor brightness", "contrast", "monitor volume", "input source", "monitorcontrol", "lunar"]) { model in
             // Heroes first, by family: Light (amber), then Surfaces (sky). Stock switches follow.
             LightCards()
+            // Night Tint moved here from Effects: every way to warm the screen in one place.
+            NightTintCard()
             ExternalMonitorsCard()
             SectionHeader("Surfaces", symbol: "rectangle.on.rectangle",
                           detail: "What sits on top of the screen: the overlay, the key light, the corners.", hue: DS.Spectrum.surfaces)

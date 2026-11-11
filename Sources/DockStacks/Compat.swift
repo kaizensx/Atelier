@@ -314,14 +314,16 @@ struct AvailabilityNote: View {
 
     var body: some View {
         if let note = availability.note {
-            HStack(spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Image(systemName: availability.isUsable ? "info.circle" : "nosign")
                     .font(.system(size: 11, weight: .semibold))
-                Text(note).font(DS.caption)
+                // The whole note, wrapped: an ellipsis would hide the part that says why.
+                Text(note).font(DS.caption).fixedSize(horizontal: false, vertical: true)
             }
             .foregroundStyle(availability.isUsable ? DS.Ink.secondary : Color.orange.opacity(0.95))
             .padding(.horizontal, 10).padding(.vertical, 6)
-            .background((availability.isUsable ? DS.Ink.fill : Color.orange.opacity(0.12)), in: .capsule)
+            .background((availability.isUsable ? DS.Ink.fill : Color.orange.opacity(0.12)),
+                        in: .rect(cornerRadius: 14, style: .continuous))
             .accessibilityElement(children: .combine)
         }
     }

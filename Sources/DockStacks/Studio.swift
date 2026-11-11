@@ -528,7 +528,9 @@ struct Chip: View {
 
     var body: some View {
         Button(action: action) {
+            // Never squeezed into two lines or clipped: a chip keeps its label's width.
             Text(title).font(.system(size: 12, weight: .medium))
+                .lineLimit(1).fixedSize()
                 .padding(.horizontal, 12).frame(height: 30)
                 .background(DS.Ink.fillStrong, in: .capsule)
                 .contentShape(Capsule())

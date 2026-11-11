@@ -181,7 +181,8 @@ private struct ActionTile: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: DS.Space.m) {
+            // Glyph above the words: beside them, a half-width tile left the text a sliver.
+            VStack(alignment: .leading, spacing: DS.Space.s) {
                 Image(systemName: symbol).font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(prominent ? Color.black.opacity(0.8) : DS.Ink.accent)
                     .frame(width: 36, height: 36)
@@ -191,9 +192,8 @@ private struct ActionTile: View {
                     Text(title).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(DS.Ink.primary)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(detail).font(DS.caption).foregroundStyle(DS.Ink.secondary)
-                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer(minLength: 0)
             }
             .padding(DS.Inset.card)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

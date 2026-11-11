@@ -626,14 +626,18 @@ private struct ThermalsPlate: View {
             HStack(spacing: 14) {
                 ForEach([ThermalTrace.cpu, .gpu, .power].filter { $0.shown(sensors.capabilities) }) { trace in
                     VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 4) {
-                            Image(systemName: trace.symbol).font(.system(size: 9.5, weight: .semibold))
-                            Text(trace.title).font(.system(size: 10.5, weight: .semibold))
-                            Spacer(minLength: 0)
+                        // Name over value: side by side, "Power" broke in two in a narrow panel.
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 4) {
+                                Image(systemName: trace.symbol).font(.system(size: 9.5, weight: .semibold))
+                                Text(trace.title).font(.system(size: 10.5, weight: .semibold)).lineLimit(1).fixedSize()
+                            }
                             Text(trace.text(trace.current(sensors))).font(.system(size: 10.5, weight: .medium)).monospacedDigit()
+                                .lineLimit(1).fixedSize()
                                 .foregroundStyle(.white.opacity(0.7))
                         }
                         .foregroundStyle(.white.opacity(0.85))
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         ThermalSparkline(trace: trace, live: live)
                             .frame(height: 50)
                     }

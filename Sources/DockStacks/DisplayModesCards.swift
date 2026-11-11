@@ -29,7 +29,8 @@ struct KeepModeBanner: View {
 
     var body: some View {
         if case .pending(let previous, let applied, _) = engine.revert {
-            HStack(spacing: DS.Space.m) {
+            // The buttons move under the sentence when the card is narrow, never squeezing it.
+            AdaptiveRowLayout(spacing: DS.Space.m, hasSymbol: true, minText: 150) {
                 ZStack {
                     Circle().stroke(DS.Ink.track, lineWidth: 3)
                     Circle().trim(from: 0, to: Double(engine.secondsLeft) / ModeRevertMachine.seconds)
@@ -43,7 +44,7 @@ struct KeepModeBanner: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Keep this mode?").font(DS.Typo.rowTitle).foregroundStyle(DS.Ink.primary)
                     Text("\(applied.sizeText) at \(applied.refreshText). Back to \(previous.sizeText) in \(engine.secondsLeft) s.")
-                        .font(DS.caption).foregroundStyle(DS.Ink.secondary).lineLimit(2)
+                        .font(DS.caption).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Button("Revert") { engine.revertNow() }
@@ -72,6 +73,7 @@ private struct ModePillStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 12, weight: .semibold))
+            .lineLimit(1).fixedSize()
             .foregroundStyle(prominent ? Color.black.opacity(0.85) : DS.Ink.primary)
             .padding(.horizontal, 12).frame(height: 26)
             .background(prominent ? AnyShapeStyle(hue) : AnyShapeStyle(DS.Ink.fill), in: .capsule)
@@ -195,16 +197,16 @@ struct DisplayModesPickerCard: View {
     var body: some View {
         Card {
             VStack(alignment: .leading, spacing: DS.Space.m) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: 3) {
+                    // The title and the current mode share a line; the sentence gets the card's width.
+                    WrapStack(spacing: DS.Space.m, lineSpacing: 2) {
                         Text("Display Modes").font(DS.title).foregroundStyle(DS.Ink.primary)
-                        Text("Every mode the display offers, hidden ones too, at every refresh rate.")
-                            .font(DS.caption).foregroundStyle(DS.Ink.secondary)
+                        if let current = engine.current {
+                            Text("\(current.sizeText) · \(current.refreshText)").font(DS.Typo.value).foregroundStyle(DS.Ink.secondary)
+                        }
                     }
-                    Spacer(minLength: 0)
-                    if let current = engine.current {
-                        Text("\(current.sizeText) · \(current.refreshText)").font(DS.Typo.value).foregroundStyle(DS.Ink.secondary)
-                    }
+                    Text("Every mode the display offers, hidden ones too, at every refresh rate.")
+                        .font(DS.caption).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 if engine.displays.count > 1 {
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -299,25 +301,26 @@ struct DisplayModesPickerCard: View {
     private func row(_ resolution: DisplayResolution) -> some View {
         let isCurrent = engine.current.map { $0.width == resolution.width && $0.height == resolution.height
             && $0.pixelWidth == resolution.pixelWidth } ?? false
-        return HStack(spacing: 10) {
+        return AdaptiveRowLayout(spacing: 10, hasSymbol: false, minText: 150) {
             Button {
                 if let mode = DisplayModeGrouping.pick(resolution, keeping: engine.current) { engine.choose(mode) }
             } label: {
                 HStack(spacing: 6) {
-                    Text("\(resolution.width) × \(resolution.height)").font(.system(size: 12.5, weight: isCurrent ? .semibold : .medium))
+                    // Verbatim: a size, never "2,056" with the locale's grouping.
+                    Text(verbatim: "\(resolution.width) × \(resolution.height)").font(.system(size: 12.5, weight: isCurrent ? .semibold : .medium))
                         .monospacedDigit().foregroundStyle(isCurrent ? DS.Ink.primary : DS.Ink.secondary)
                     badge(resolution.isHiDPI ? "HiDPI" : "1×", lit: resolution.isHiDPI)
                     if resolution.isDefault { badge("Default", lit: false) }
                     if resolution.isNative { badge("Native", lit: false) }
                 }
-                .frame(minWidth: 170, alignment: .leading)
+                .fixedSize()
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(Pressable(scale: 0.98))
             .accessibilityLabel("\(resolution.width) by \(resolution.height)\(resolution.isHiDPI ? ", HiDPI" : "")")
             .accessibilityAddTraits(isCurrent ? .isSelected : [])
-            Spacer(minLength: 0)
-            HStack(spacing: 4) {
+            WrapStack(spacing: 4, lineSpacing: 4) {
                 ForEach(resolution.modes) { mode in refreshChip(mode) }
             }
         }
@@ -330,6 +333,7 @@ struct DisplayModesPickerCard: View {
         let text = mode.refreshRate > 0 ? mode.refreshText.replacingOccurrences(of: " Hz", with: "") : "—"
         return Button { engine.choose(mode) } label: {
             Text(text).font(.system(size: 10.5, weight: selected ? .bold : .medium)).monospacedDigit()
+                .lineLimit(1).fixedSize()
                 .foregroundStyle(selected ? Color.black.opacity(0.85) : DS.Ink.secondary)
                 .padding(.horizontal, 7).frame(height: 20)
                 .background(selected ? AnyShapeStyle(hue) : AnyShapeStyle(DS.Ink.fill), in: .capsule)
@@ -366,16 +370,13 @@ struct VirtualScreensCard: View {
         let availability = engine.availability
         Card {
             VStack(alignment: .leading, spacing: DS.Space.m) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 8) {
-                            Text("HiDPI Anywhere").font(DS.title).foregroundStyle(DS.Ink.primary)
-                            HeroBadge(text: "Beyond macOS", hue: hue)
-                        }
-                        Text("Retina-sharp text and any scaled size on a monitor macOS calls low resolution, plus headless screens for sharing and recording.")
-                            .font(DS.caption).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 3) {
+                    WrapStack(spacing: 8, lineSpacing: 4) {
+                        Text("HiDPI Anywhere").font(DS.title).foregroundStyle(DS.Ink.primary)
+                        HeroBadge(text: "Beyond macOS", hue: hue)
                     }
-                    Spacer(minLength: 0)
+                    Text("Retina-sharp text and any scaled size on a monitor macOS calls low resolution, plus headless screens for sharing and recording.")
+                        .font(DS.caption).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 AvailabilityNote(availability: availability)
                 monitorsSection
@@ -397,24 +398,25 @@ struct VirtualScreensCard: View {
         Eyebrow(text: "Monitors")
         if externals.isEmpty {
             Text("Connect a monitor to give it HiDPI. The built-in display is already Retina.")
-                .font(DS.caption).foregroundStyle(DS.Ink.tertiary)
+                .font(DS.caption).foregroundStyle(DS.Ink.tertiary).fixedSize(horizontal: false, vertical: true)
         }
         ForEach(externals) { monitor in monitorRow(monitor) }
     }
 
     private func monitorRow(_ monitor: VirtualDisplays.Monitor) -> some View {
         let active = engine.hiDPISpec(for: monitor)
-        return HStack(spacing: 10) {
+        return AdaptiveRowLayout(spacing: 10, hasSymbol: true, minText: 150) {
             Image(systemName: "display").font(.system(size: 15, weight: .medium))
                 .foregroundStyle(active != nil ? hue : DS.Ink.secondary).frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
-                Text(monitor.name).font(DS.Typo.rowTitle).foregroundStyle(DS.Ink.primary).lineLimit(1)
-                Text(monitorDetail(monitor, active: active)).font(DS.caption).foregroundStyle(DS.Ink.tertiary).lineLimit(1)
+                Text(monitor.name).font(DS.Typo.rowTitle).foregroundStyle(DS.Ink.primary).fixedSize(horizontal: false, vertical: true)
+                Text(monitorDetail(monitor, active: active)).font(DS.caption).foregroundStyle(DS.Ink.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
             Menu {
                 ForEach(HiDPIMath.scaledSizes(native: (monitor.nativeWidth, monitor.nativeHeight)), id: \.width) { size in
-                    Button("Looks like \(size.width) × \(size.height)") {
+                    Button(String("Looks like \(size.width) × \(size.height)")) {
                         engine.enableHiDPI(on: monitor, points: size)
                     }
                 }
@@ -456,28 +458,31 @@ struct VirtualScreensCard: View {
             }
         }
         ForEach(screens) { spec in screenRow(spec) }
-        HStack(spacing: 8) {
-            Menu {
-                ForEach(Self.presets, id: \.self) { preset in
-                    Button(preset.replacingOccurrences(of: "x", with: " × ")) { addSize = preset }
+        VStack(alignment: .leading, spacing: DS.Space.s) {
+            HStack(spacing: 8) {
+                Menu {
+                    ForEach(Self.presets, id: \.self) { preset in
+                        Button(preset.replacingOccurrences(of: "x", with: " × ")) { addSize = preset }
+                    }
+                } label: {
+                    Text(addSize.replacingOccurrences(of: "x", with: " × ")).font(.system(size: 12, weight: .semibold)).monospacedDigit()
                 }
-            } label: {
-                Text(addSize.replacingOccurrences(of: "x", with: " × ")).font(.system(size: 12, weight: .semibold)).monospacedDigit()
+                .menuStyle(.borderlessButton).fixedSize()
+                Segments(selection: $addRefresh, options: Self.rates.map { ($0, "\(Int($0)) Hz") })
             }
-            .menuStyle(.borderlessButton).fixedSize()
-            Segments(selection: $addRefresh, options: Self.rates.map { ($0, "\(Int($0)) Hz") })
-                .frame(width: 190)
-            HStack(spacing: 6) {
-                Text("HiDPI").font(DS.caption).foregroundStyle(DS.Ink.secondary)
-                LuxSwitch(isOn: $addHiDPI, label: "HiDPI", tint: hue)
-            }
-            Spacer(minLength: 0)
-            Button("Add Screen") {
-                if let size = HiDPIMath.parseSize(addSize) {
-                    engine.add(width: size.width, height: size.height, refreshRate: addRefresh, hiDPI: addHiDPI)
+            HStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Text("HiDPI").font(DS.caption).foregroundStyle(DS.Ink.secondary)
+                    LuxSwitch(isOn: $addHiDPI, label: "HiDPI", tint: hue)
                 }
+                Spacer(minLength: 0)
+                Button("Add Screen") {
+                    if let size = HiDPIMath.parseSize(addSize) {
+                        engine.add(width: size.width, height: size.height, refreshRate: addRefresh, hiDPI: addHiDPI)
+                    }
+                }
+                .buttonStyle(ModePillStyle(prominent: true, hue: hue))
             }
-            .buttonStyle(ModePillStyle(prominent: true, hue: hue))
         }
         Text("A virtual screen lives while Atelier runs. Quitting removes it and puts every monitor back; the next launch brings it back.")
             .font(DS.caption).foregroundStyle(DS.Ink.tertiary).fixedSize(horizontal: false, vertical: true)
@@ -485,15 +490,15 @@ struct VirtualScreensCard: View {
 
     private func screenRow(_ spec: VirtualDisplays.Spec) -> some View {
         let up = engine.live[spec.id] != nil
-        return HStack(spacing: 10) {
+        return AdaptiveRowLayout(spacing: 10, hasSymbol: true, minText: 150) {
             Image(systemName: "rectangle.dashed").font(.system(size: 15, weight: .medium))
                 .foregroundStyle(up ? hue : DS.Ink.tertiary).frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
-                Text(spec.name).font(DS.Typo.rowTitle).foregroundStyle(DS.Ink.primary).lineLimit(1)
-                Text("\(spec.width) × \(spec.height) · \(DisplayModeInfo.refreshText(spec.refreshRate))\(spec.hiDPI ? " · HiDPI" : "")\(up ? "" : " · not running")")
-                    .font(DS.caption).foregroundStyle(DS.Ink.tertiary)
+                Text(spec.name).font(DS.Typo.rowTitle).foregroundStyle(DS.Ink.primary).fixedSize(horizontal: false, vertical: true)
+                Text(verbatim: "\(spec.width) × \(spec.height) · \(DisplayModeInfo.refreshText(spec.refreshRate))\(spec.hiDPI ? " · HiDPI" : "")\(up ? "" : " · not running")")
+                    .font(DS.caption).foregroundStyle(DS.Ink.tertiary).fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
             if !up {
                 Button("Start") { engine.start(spec.id) }
                     .buttonStyle(ModePillStyle(prominent: false, hue: hue))

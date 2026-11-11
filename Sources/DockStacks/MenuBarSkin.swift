@@ -592,20 +592,27 @@ struct MenuBarSkinPreview: View {
 
     private var row: some View {
         let size = height * 0.5
-        return HStack(spacing: height * 0.55) {
-            Image(systemName: "apple.logo")
-            Text("Finder").fontWeight(.bold)
-            Text("File")
-            Text("Edit")
-            Text("View")
-            Spacer()
-            Image(systemName: "wifi")
-            Image(systemName: "battery.75percent")
-            Text("10:09")
+        // A narrow bar drops menus from the right, as a real one does, instead of cutting names short.
+        return ViewThatFits(in: .horizontal) {
+            items(menus: ["File", "Edit", "View"])
+            items(menus: ["File"])
+            items(menus: [])
         }
         .font(.system(size: size, weight: .medium))
         .foregroundStyle(skin.textIsLight ? Color.white.opacity(0.95) : Color.black.opacity(0.85))
         .padding(.horizontal, height * 0.6)
         .frame(width: width, height: height)
+    }
+
+    private func items(menus: [String]) -> some View {
+        HStack(spacing: height * 0.55) {
+            Image(systemName: "apple.logo")
+            Text("Finder").fontWeight(.bold).fixedSize()
+            ForEach(menus, id: \.self) { Text($0).fixedSize() }
+            Spacer(minLength: height * 0.55)
+            Image(systemName: "wifi")
+            Image(systemName: "battery.75percent")
+            Text("10:09").fixedSize()
+        }
     }
 }

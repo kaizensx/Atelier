@@ -209,7 +209,9 @@ struct SettingRow<Trailing: View>: View {
 
     var body: some View {
         let compact = density == .compact
-        HStack(alignment: .center, spacing: compact ? 10 : 14) {
+        // Title and detail keep a readable column: when the trailing controls would squeeze them,
+        // the controls move under the text instead (AdaptiveRowLayout).
+        AdaptiveRowLayout(spacing: compact ? 10 : 14, hasSymbol: symbol != nil) {
             if let symbol {
                 Image(systemName: symbol)
                     .font(.system(size: compact ? 12 : 14, weight: .medium))
@@ -220,22 +222,227 @@ struct SettingRow<Trailing: View>: View {
                 Text(title)
                     .font(compact ? DS.Typo.rowTitle : DS.title)
                     .foregroundStyle(DS.Ink.primary)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let detail {
-                    // Two lines at most, never an ellipsis: write details short.
+                    // Wraps as far as it needs, never an ellipsis: write details short.
                     Text(detail)
                         .font(DS.caption)
                         .foregroundStyle(DS.Ink.secondary)
-                        .lineLimit(compact ? 2 : nil)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             trailing
         }
+        .padding(.vertical, compact ? DS.Space.xs : 0)
         .frame(minHeight: compact ? 36 : nil)
         // Every row previews on the stage; a row's own, specific preview takes over.
         .contentShape(Rectangle())
         .modifier(FallbackStagePreview(title: title, detail: detail))
+    }
+}
+
+/// A setting row's geometry: [symbol] text [trailing…]. The trailing controls keep their ideal
+/// width and sit on the right while the text column keeps at least `minText` points; past that
+/// they move under the text, so a wide control never squeezes a title into a narrow column and
+/// a control never clips. A flexible control (a slider) shares the row with the text, as in an HStack.
+struct AdaptiveRowLayout: Layout {
+    var spacing: Double
+    var hasSymbol: Bool
+    var minText = 160.0
+    /// Between the text and controls that moved under it.
+    var stackSpacing = DS.Space.s
+
+    private struct Plan {
+        var stacked: Bool
+        var indent: Double
+        var textWidth: Double
+        var trailing: [CGSize]
+        var size: CGSize
+    }
+
+    private func plan(_ width: Double?, _ subviews: Subviews) -> Plan {
+        guard !subviews.isEmpty else { return Plan(stacked: false, indent: 0, textWidth: 0, trailing: [], size: .zero) }
+        let symbol = hasSymbol ? subviews.first : nil
+        let textIndex = hasSymbol ? 1 : 0
+        guard textIndex < subviews.count else { return Plan(stacked: false, indent: 0, textWidth: 0, trailing: [], size: .zero) }
+        let text = subviews[textIndex]
+        let items = subviews.indices.filter { $0 > textIndex }.map { subviews[$0] }
+        let symbolWidth = symbol.map { $0.sizeThatFits(.unspecified).width } ?? 0
+        let indent = symbol == nil ? 0 : symbolWidth + spacing
+        let ideals = items.map { $0.sizeThatFits(.unspecified) }
+        let visible = ideals.filter { $0.width > 0 || $0.height > 0 }
+        let gaps = spacing * Double(max(visible.count - 1, 0))
+
+        guard let width else {
+            // Ideal size: everything on one line.
+            let textSize = text.sizeThatFits(.unspecified)
+            let trailingWidth = visible.reduce(0) { $0 + $1.width } + gaps
+            let height = max(textSize.height, visible.map(\.height).max() ?? 0, symbol?.sizeThatFits(.unspecified).height ?? 0)
+            return Plan(stacked: false, indent: indent, textWidth: textSize.width, trailing: ideals,
+                        size: CGSize(width: indent + textSize.width + (visible.isEmpty ? 0 : spacing + trailingWidth), height: height))
+        }
+
+        let room = max(width - indent, 0)
+        if visible.isEmpty {
+            let textHeight = text.sizeThatFits(ProposedViewSize(width: room, height: nil)).height
+            let height = max(textHeight, symbol?.sizeThatFits(.unspecified).height ?? 0)
+            return Plan(stacked: false, indent: indent, textWidth: room, trailing: ideals, size: CGSize(width: width, height: height))
+        }
+
+        // A control that grows when offered more (a slider) is flexible; the rest keep their ideal width.
+        let flexible = items.indices.map { i -> Bool in
+            guard ideals[i].width > 0 else { return false }
+            return items[i].sizeThatFits(ProposedViewSize(width: room, height: nil)).width > ideals[i].width + 1
+        }
+        let fixedWidth = items.indices.filter { !flexible[$0] }.reduce(0) { $0 + ideals[$1].width }
+        let flexCount = flexible.filter { $0 }.count
+        let inlineText = room - spacing - fixedWidth - gaps
+        var sizes = ideals
+        // Inline when the column stays readable, or when the text fits it on one line anyway.
+        if inlineText >= minText || (flexCount == 0 && inlineText >= text.sizeThatFits(.unspecified).width) {
+            var textWidth = inlineText
+            if flexCount > 0 {
+                // Like an HStack: the text and the flexible controls share what is left.
+                textWidth = max(minText, inlineText / 2)
+                let each = max((inlineText - textWidth) / Double(flexCount), 0)
+                for i in items.indices where flexible[i] {
+                    sizes[i] = items[i].sizeThatFits(ProposedViewSize(width: each, height: nil))
+                    sizes[i].width = each
+                }
+            }
+            let textHeight = text.sizeThatFits(ProposedViewSize(width: textWidth, height: nil)).height
+            let height = max(textHeight, sizes.map(\.height).max() ?? 0, symbol?.sizeThatFits(.unspecified).height ?? 0)
+            return Plan(stacked: false, indent: indent, textWidth: textWidth, trailing: sizes, size: CGSize(width: width, height: height))
+        }
+
+        // Stacked: the text takes the whole column, the controls follow it on their own line,
+        // each no wider than the column and a flexible one as wide as it.
+        let lineRoom = room
+        let flexEach = max((lineRoom - fixedWidth - gaps) / Double(max(flexCount, 1)), 0)
+        for i in items.indices {
+            if flexible[i] {
+                sizes[i] = items[i].sizeThatFits(ProposedViewSize(width: flexEach, height: nil))
+                sizes[i].width = flexEach
+            } else if ideals[i].width > lineRoom {
+                sizes[i] = items[i].sizeThatFits(ProposedViewSize(width: lineRoom, height: nil))
+                sizes[i].width = min(sizes[i].width, lineRoom)
+            }
+        }
+        let lines = Self.lines(sizes, room: lineRoom, spacing: spacing)
+        let controlsHeight = lines.reduce(0) { $0 + $1.height } + DS.Space.s * Double(max(lines.count - 1, 0))
+        let textHeight = text.sizeThatFits(ProposedViewSize(width: room, height: nil)).height
+        return Plan(stacked: true, indent: indent, textWidth: room, trailing: sizes,
+                    size: CGSize(width: width, height: textHeight + stackSpacing + controlsHeight))
+    }
+
+    /// Controls that moved under the text, wrapped like words when one line is not enough.
+    private static func lines(_ sizes: [CGSize], room: Double, spacing: Double) -> [(items: [Int], height: Double)] {
+        var lines: [(items: [Int], height: Double)] = []
+        var used = 0.0
+        for (i, size) in sizes.enumerated() where size.width > 0 || size.height > 0 {
+            if lines.isEmpty || (used + size.width > room + 0.5 && !lines[lines.count - 1].items.isEmpty) {
+                lines.append(([], 0))
+                used = 0
+            }
+            lines[lines.count - 1].items.append(i)
+            lines[lines.count - 1].height = max(lines[lines.count - 1].height, size.height)
+            used += size.width + spacing
+        }
+        return lines
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        plan(proposal.width.map(Double.init), subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let plan = plan(bounds.width, subviews)
+        let textIndex = hasSymbol ? 1 : 0
+        guard textIndex < subviews.count else { return }
+        let text = subviews[textIndex]
+        let textSize = text.sizeThatFits(ProposedViewSize(width: plan.textWidth, height: nil))
+        if hasSymbol, let symbol = subviews.first {
+            let size = symbol.sizeThatFits(.unspecified)
+            // Beside the title line when stacked, centred on the row otherwise.
+            let y = plan.stacked ? bounds.minY + min(textSize.height, 20) / 2 : bounds.midY
+            symbol.place(at: CGPoint(x: bounds.minX, y: y), anchor: .leading, proposal: ProposedViewSize(size))
+        }
+        let items = subviews.indices.filter { $0 > textIndex }.map { subviews[$0] }
+        if !plan.stacked {
+            text.place(at: CGPoint(x: bounds.minX + plan.indent, y: bounds.midY), anchor: .leading,
+                       proposal: ProposedViewSize(width: plan.textWidth, height: textSize.height))
+            var x = bounds.maxX
+            for (i, item) in items.enumerated().reversed() {
+                let size = plan.trailing[i]
+                guard size.width > 0 || size.height > 0 else { continue }
+                item.place(at: CGPoint(x: x, y: bounds.midY), anchor: .trailing, proposal: ProposedViewSize(size))
+                x -= size.width + spacing
+            }
+            return
+        }
+        text.place(at: CGPoint(x: bounds.minX + plan.indent, y: bounds.minY), anchor: .topLeading,
+                   proposal: ProposedViewSize(width: plan.textWidth, height: textSize.height))
+        var y = bounds.minY + textSize.height + stackSpacing
+        for line in Self.lines(plan.trailing, room: plan.textWidth, spacing: spacing) {
+            var x = bounds.minX + plan.indent
+            for i in line.items {
+                let size = plan.trailing[i]
+                items[i].place(at: CGPoint(x: x, y: y + line.height / 2), anchor: .leading, proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += line.height + DS.Space.s
+        }
+    }
+}
+
+/// Wraps its children like words: as many on a line as fit, then the next line. For rows of
+/// chips and buttons, so the last one never runs off the card or gets clipped. A child wider
+/// than the line is offered the line's width.
+struct WrapStack: Layout {
+    var spacing = DS.Space.s
+    var lineSpacing = DS.Space.s
+
+    private func lines(_ subviews: Subviews, width: Double) -> [[(Int, CGSize)]] {
+        var lines: [[(Int, CGSize)]] = [[]]
+        var used = 0.0
+        for (i, subview) in subviews.enumerated() {
+            var size = subview.sizeThatFits(.unspecified)
+            if size.width > width {
+                size = subview.sizeThatFits(ProposedViewSize(width: width, height: nil))
+                size.width = min(size.width, width)
+            }
+            if size.width == 0 && size.height == 0 { continue }
+            if used + size.width > width + 0.5, !(lines.last?.isEmpty ?? true) {
+                lines.append([])
+                used = 0
+            }
+            lines[lines.count - 1].append((i, size))
+            used += size.width + spacing
+        }
+        return lines
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        let lines = lines(subviews, width: width)
+        let height = lines.reduce(0) { $0 + ($1.map(\.1.height).max() ?? 0) } + lineSpacing * Double(max(lines.count - 1, 0))
+        let widest: Double = lines.map { line in Double(line.reduce(0) { $0 + $1.1.width }) + spacing * Double(max(line.count - 1, 0)) }.max() ?? 0
+        // Hugs its lines, so a row of chips never claims space it does not use.
+        return CGSize(width: min(widest, proposal.width.map(Double.init) ?? widest), height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for line in lines(subviews, width: bounds.width) {
+            let height = line.map(\.1.height).max() ?? 0
+            var x = bounds.minX
+            for (i, size) in line {
+                subviews[i].place(at: CGPoint(x: x, y: y + height / 2), anchor: .leading, proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += height + lineSpacing
+        }
     }
 }
 
@@ -303,8 +510,11 @@ struct SectionHeader: View {
                         .foregroundStyle(hue ?? DS.Ink.accent)
                         .frame(width: 16)
                 }
+                // The name takes the room it needs; the hairline only what is left.
                 Text(title).font(DS.Typo.section).foregroundStyle(DS.Ink.primary.opacity(0.92))
-                Rectangle().fill(DS.Ink.hairline).frame(height: 0.5).frame(maxWidth: .infinity)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .layoutPriority(1)
+                Rectangle().fill(DS.Ink.hairline).frame(height: 0.5).frame(minWidth: DS.Space.l, maxWidth: .infinity)
             }
             if let detail {
                 Text(detail).font(DS.caption).foregroundStyle(DS.Ink.tertiary)
@@ -567,7 +777,9 @@ struct Segments<Value: Hashable>: View {
     @Namespace private var space
 
     var body: some View {
-        HStack(spacing: 2) {
+        // One line of equal options while they fit; past that the options wrap onto more lines
+        // instead of truncating their labels.
+        SegmentsLayout(spacing: 2) {
             ForEach(options, id: \.0) { value, label in
                 Button {
                     withAnimation(DS.Motion.settle) { selection = value }
@@ -575,6 +787,9 @@ struct Segments<Value: Hashable>: View {
                     Text(label)
                         .font(.system(size: 12, weight: selection == value ? .semibold : .medium))
                         .foregroundStyle(selection == value ? DS.Ink.primary : DS.Ink.secondary)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.horizontal, DS.Space.s)
                         .frame(maxWidth: .infinity, minHeight: 30)
                         .background {
                             if selection == value {
@@ -597,6 +812,71 @@ struct Segments<Value: Hashable>: View {
         }
         .padding(3)
         .background(DS.Ink.fill, in: .rect(cornerRadius: DS.Radius.control, style: .continuous))
+    }
+}
+
+/// Segments' options: one line, equal widths, when the widest label allows; ideal widths with the
+/// slack shared out when only the sum fits; otherwise lines of options, each line filled edge to edge.
+struct SegmentsLayout: Layout {
+    var spacing = 2.0
+
+    private func lines(_ ideals: [CGSize], width: Double) -> [[Int]] {
+        var lines: [[Int]] = [[]]
+        var used = 0.0
+        for (i, size) in ideals.enumerated() {
+            if used + size.width > width + 0.5, !(lines.last?.isEmpty ?? true) {
+                lines.append([])
+                used = 0
+            }
+            lines[lines.count - 1].append(i)
+            used += size.width + spacing
+        }
+        return lines
+    }
+
+    /// Each option's frame, relative to the layout's origin.
+    private func frames(_ subviews: Subviews, width: Double?) -> [CGRect] {
+        let ideals = subviews.map { $0.sizeThatFits(.unspecified) }
+        guard !ideals.isEmpty else { return [] }
+        let height = ideals.map(\.height).max() ?? 30
+        guard let width, width.isFinite else {
+            // Ideal: equal widths, each as wide as the widest label.
+            let widest = ideals.map(\.width).max() ?? 0
+            return ideals.indices.map { CGRect(x: Double($0) * (widest + spacing), y: 0, width: widest, height: height) }
+        }
+        var frames: [CGRect] = []
+        var y = 0.0
+        for line in lines(ideals, width: width) {
+            let gaps = spacing * Double(line.count - 1)
+            let widest = line.map { ideals[$0].width }.max() ?? 0
+            let equal = (width - gaps) / Double(line.count)
+            let sum = line.reduce(0) { $0 + ideals[$1].width }
+            let slack = max(width - gaps - sum, 0) / Double(line.count)
+            var x = 0.0
+            for i in line {
+                // Equal widths when the widest fits; otherwise each label's own width plus a share.
+                let w = widest <= equal ? equal : ideals[i].width + slack
+                frames.append(CGRect(x: x, y: y, width: w, height: height))
+                x += w + spacing
+            }
+            y += height + spacing
+        }
+        return frames
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width.map(Double.init)
+        let frames = frames(subviews, width: width)
+        let maxX = frames.map { Double($0.maxX) }.max() ?? 0
+        let maxY = frames.map { Double($0.maxY) }.max() ?? 0
+        return CGSize(width: width.flatMap { $0.isFinite ? $0 : nil } ?? maxX, height: maxY)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for (subview, frame) in zip(subviews, frames(subviews, width: bounds.width)) {
+            subview.place(at: CGPoint(x: bounds.minX + frame.minX, y: bounds.minY + frame.minY),
+                          proposal: ProposedViewSize(frame.size))
+        }
     }
 }
 

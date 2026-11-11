@@ -350,6 +350,16 @@ final class Effects: ObservableObject {
     func start() {
         // The skin keeps its panels across screen changes; it listens for them itself.
         if !started { applySkin() }
+        // Rounded Screen had two homes; Rounded Screen Corners in Display & Appearance is the one
+        // left. A radius set here carries over once, so corners someone turned on stay round.
+        if rounded > 0.5 {
+            let corners = ScreenCorners.shared
+            if !corners.enabled {
+                corners.radius = min(max(rounded, 4), 28)
+                corners.enabled = true
+            }
+            rounded = 0
+        }
         applyRounded(); applyFocus(); applyClock()
         applyPulse(); applyRipples(); applyDayLine(); applyGlow(); applyWidgets()
         Shelf.shared.setEnabled(shelf)

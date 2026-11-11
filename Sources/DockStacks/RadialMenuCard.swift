@@ -78,10 +78,11 @@ struct RadialMenuCard: View {
     }
 
     private func legendRow(_ keys: String, _ action: String) -> some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(keys).font(.system(size: 11.5, weight: .medium)).foregroundStyle(DS.Ink.primary)
                 .frame(width: 84, alignment: .leading)
             Text(action).font(DS.caption).foregroundStyle(DS.Ink.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

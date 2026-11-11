@@ -297,6 +297,7 @@ struct ShortcutRecorder: View {
             } label: {
                 Text(model.recording ? (model.rejected ? "Add ⌘, ⌥ or ⌃" : "Type shortcut…") : combo?.display ?? "Set Shortcut")
                     .font(.system(size: 12, weight: .medium)).monospacedDigit()
+                    .lineLimit(1).fixedSize()
                     .foregroundStyle(model.recording ? DS.Ink.primary : combo == nil ? DS.Ink.secondary : DS.Ink.primary)
                     .frame(minWidth: 86).frame(height: 28).padding(.horizontal, 8)
                     .background(model.recording ? AnyShapeStyle(DS.Ink.accent.opacity(0.55)) : AnyShapeStyle(DS.Ink.fillStrong),

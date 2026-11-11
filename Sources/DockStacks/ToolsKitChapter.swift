@@ -24,7 +24,8 @@ struct ToolboxChapter: View {
         FinderScriptsCard()
         SectionHeader("Devices", symbol: "display.2",
                       detail: "Resolution and sound, switched in a click.", hue: hue)
-        DisplayModesCard()
+        // One home per feature: display modes live in Display & Appearance, with the revert countdown.
+        ToolsDisplayModesLink()
         AudioCard()
         Text("Brightness and the battery charge limit have no public API, so Atelier does not offer them. Battery health is in the Battery widget.")
             .font(DS.caption).foregroundStyle(DS.Ink.tertiary).fixedSize(horizontal: false, vertical: true)
@@ -101,9 +102,11 @@ private struct ToolsHero<Plate: View, Readout: View, Controls: View>: View {
                 .disabled(!availability.isUsable)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: DS.Space.m) {
-                HStack(alignment: .center, spacing: DS.Space.m) {
+                // The shortcut and the pill move under the pitch when they would squeeze it.
+                AdaptiveRowLayout(spacing: DS.Space.m, hasSymbol: false, minText: 180) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(title).font(DS.Typo.hero).tracking(-0.3).foregroundStyle(DS.Ink.primary)
+                            .fixedSize(horizontal: false, vertical: true)
                         Text(pitch).font(DS.body).foregroundStyle(DS.Ink.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -165,6 +168,7 @@ private struct ToolsRunPill: View {
     var body: some View {
         Button(action: action) {
             Text(title).font(.system(size: 13, weight: .semibold))
+                .lineLimit(1).fixedSize()
                 .foregroundStyle(active ? Color.black.opacity(0.85) : DS.Ink.primary)
                 .padding(.horizontal, 16).frame(minWidth: 76).frame(height: 30)
                 .background(active ? AnyShapeStyle(hue) : AnyShapeStyle(hue.opacity(0.2)), in: .capsule)
@@ -188,7 +192,7 @@ private struct ToolsReadout: View {
     }
 }
 
-/// A plain tool: a glyph tile in the family's light, a title, two lines at most, its control.
+/// A plain tool: a glyph tile in the family's light, a title, its detail, its control.
 private struct ToolsKitCard<Trailing: View, Content: View>: View {
     let symbol: String
     let title: String
@@ -200,7 +204,7 @@ private struct ToolsKitCard<Trailing: View, Content: View>: View {
     var body: some View {
         Card(style: style) {
             VStack(alignment: .leading, spacing: DS.Space.m) {
-                HStack(alignment: .center, spacing: DS.Space.m) {
+                AdaptiveRowLayout(spacing: DS.Space.m, hasSymbol: true) {
                     Image(systemName: symbol).font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(DS.Spectrum.sensors)
                         .frame(width: 32, height: 32)
@@ -208,7 +212,7 @@ private struct ToolsKitCard<Trailing: View, Content: View>: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title).font(DS.title).foregroundStyle(DS.Ink.primary)
                         Text(detail).font(DS.caption).foregroundStyle(DS.Ink.secondary)
-                            .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     trailing
@@ -650,35 +654,41 @@ private struct FinderScriptsCard: View {
 
 // MARK: - Display modes
 
-private struct DisplayModesCard: View {
-    @ObservedObject private var modes = DisplayModes.shared
+/// Display modes had two homes. Display & Appearance keeps them, with every hidden mode and
+/// the "Keep this mode?" countdown; this links there.
+private struct ToolsDisplayModesLink: View {
+    @State private var hover = false
 
     var body: some View {
-        RowGroup {
-            ForEach(modes.screens) { screen in
-                SettingRow(title: screen.name, detail: "Every mode it offers, including hidden ones.", symbol: "display", density: .compact) {
-                    HStack(spacing: 6) {
-                        if modes.canRestore(screen.id) { Chip("Restore") { modes.restore(screen.id) } }
-                        Menu {
-                            ForEach(screen.modes) { mode in
-                                Button((mode.id == screen.current ? "✓ " : "") + mode.label) { modes.set(mode, on: screen.id) }
-                            }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Text(screen.modes.first { $0.id == screen.current }?.label ?? "Choose")
-                                    .font(.system(size: 12, weight: .medium)).monospacedDigit()
-                                Image(systemName: "chevron.up.chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(DS.Ink.tertiary)
-                            }
-                            .padding(.horizontal, 12).frame(height: 30)
-                            .background(DS.Ink.fillStrong, in: .capsule)
-                        }
-                        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-                    }
+        Button {
+            NotificationCenter.default.post(name: .studioChapter, object: Chapter.appearance.rawValue)
+        } label: {
+            HStack(spacing: DS.Space.m) {
+                Image(systemName: "display").font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(DS.Spectrum.sensors)
+                    .frame(width: 32, height: 32)
+                    .background(DS.Spectrum.sensors.opacity(0.13), in: .rect(cornerRadius: 9, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Display Modes").font(DS.Typo.rowTitle).foregroundStyle(DS.Ink.primary)
+                    Text("Every size and refresh rate, hidden ones too, in Display & Appearance.")
+                        .font(DS.caption).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(hover ? DS.Spectrum.sensors : DS.Ink.tertiary)
             }
+            .padding(.horizontal, DS.Inset.card).padding(.vertical, DS.Space.m)
+            .background { CardSurface(style: .standard) }
+            .overlay {
+                RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous)
+                    .strokeBorder(DS.Spectrum.sensors.opacity(hover ? 0.45 : 0), lineWidth: 0.75)
+            }
+            .contentShape(Rectangle())
         }
-        .onAppear { modes.refresh() }
-        if let notice = modes.notice { ToolsNote(text: notice, warning: true) }
+        .buttonStyle(Pressable(scale: 0.99))
+        .animation(DS.Motion.hover, value: hover)
+        .onHover { hover = $0 }
+        .accessibilityLabel("Open Display & Appearance: Display Modes")
     }
 }
 

@@ -171,20 +171,11 @@ struct DesktopPlusEffectsChapter: View {
 
     // MARK: Groups
 
+    // One home per feature: Rounded Screen Corners and Night Tint live in Display & Appearance,
+    // beside Night Shift and Candlelight. Effects keeps the textures only Atelier draws.
     @ViewBuilder private var screen: some View {
-        DPSection(title: "Screen", symbol: "display", detail: "Light and texture over everything.")
+        DPSection(title: "Screen", symbol: "display", detail: "Texture over everything.")
         RowGroup {
-            VStack(alignment: .leading, spacing: DS.Space.xs) {
-                SettingRow(title: "Rounded Screen", detail: "Soft corners on every display.", symbol: "rectangle.roundedtop",
-                           density: .compact) {
-                    Text(effects.rounded < 0.5 ? "Off" : "\(Int(effects.rounded)) pt").font(DS.Typo.value).foregroundStyle(DS.Ink.secondary)
-                }
-                .stagePreview(.toggle("rounded", "Rounded Screen", isOn: effects.rounded > 0.5, region: StageRegion.whole) { snapshot in
-                    snapshot.rounded = snapshot.rounded > 0.5 ? 0 : 18
-                })
-                CommitSlider(value: $effects.rounded, range: 0...32) { $0 < 0.5 ? "Off" : "\(Int($0)) pt" }
-                    .padding(.leading, 28).padding(.bottom, DS.Space.s)
-            }
             EffectsRow(title: "Vignette", detail: "A gentle darkening toward the edges, like a lens.", symbol: "camera.aperture",
                        isOn: $plus.vignette,
                        preview: .overlay("vignette", "Vignette", isOn: plus.vignette) { _ in EffectPreviews.vignette(plus.vignetteStrength) }) {
@@ -194,24 +185,6 @@ struct DesktopPlusEffectsChapter: View {
                        help: "Drawn once, never animated.", isOn: $plus.grain,
                        preview: .overlay("grain", "Film Grain", isOn: plus.grain) { _ in EffectPreviews.grain(plus.grainStrength) }) {
                 CommitSlider(value: $plus.grainStrength, range: 0...1)
-            }
-            EffectsRow(title: "Night Tint", detail: "Warms the screen on a schedule, fading over 45 minutes.", symbol: "moon",
-                       help: "Works beside Night Shift.", isOn: $plus.nightTint,
-                       preview: .overlay("night", "Night Tint", isOn: plus.nightTint) { _ in EffectPreviews.nightTint(plus.nightWarmth) }) {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 10) {
-                        Text("From").font(DS.caption).foregroundStyle(DS.Ink.secondary)
-                        timePicker($plus.nightStart, label: "Start")
-                        Text("to").font(DS.caption).foregroundStyle(DS.Ink.secondary)
-                        timePicker($plus.nightEnd, label: "End")
-                        Spacer()
-                        Text(look.night > 0.01 ? "On now" : "Waiting").font(DS.caption).foregroundStyle(DS.Ink.secondary)
-                    }
-                    HStack(spacing: 10) {
-                        Text("Warmth").font(DS.caption).foregroundStyle(DS.Ink.secondary).frame(width: 52, alignment: .leading)
-                        CommitSlider(value: $plus.nightWarmth, range: 0...1)
-                    }
-                }
             }
         }
     }
@@ -291,7 +264,7 @@ struct DesktopPlusEffectsChapter: View {
         RowGroup {
             VStack(alignment: .leading, spacing: DS.Space.xs) {
                 SettingRow(title: "Caffeinate", detail: caffeinateDetail, symbol: "cup.and.saucer", density: .compact) { EmptyView() }
-                HStack(spacing: 8) {
+                WrapStack(spacing: 8) {
                     Chip("15 min") { plus.caffeinate(minutes: 15) }
                     Chip("1 hour") { plus.caffeinate(minutes: 60) }
                     Chip("3 hours") { plus.caffeinate(minutes: 180) }
@@ -307,6 +280,37 @@ struct DesktopPlusEffectsChapter: View {
         if plus.caffeinateForever { return "Keeping the display awake until you stop it, or quit." }
         if let until = plus.caffeinateUntil { return "Keeping the display awake until \(until.formatted(date: .omitted, time: .shortened))." }
         return "Keeps the display awake for a while, then lets it sleep."
+    }
+}
+
+/// Night Tint, in Display & Appearance beside Night Shift and Candlelight: a scheduled warm
+/// overlay that works with either.
+struct NightTintCard: View {
+    @ObservedObject private var look = DesktopPlus.shared.look
+    @ObservedObject private var plus = DesktopPlus.shared
+
+    var body: some View {
+        RowGroup {
+            EffectsRow(title: "Night Tint", detail: "Warms the screen on a schedule, fading over 45 minutes.", symbol: "moon",
+                       help: "Works beside Night Shift.", isOn: $plus.nightTint,
+                       preview: .overlay("night", "Night Tint", isOn: plus.nightTint) { _ in EffectPreviews.nightTint(plus.nightWarmth) }) {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 10) {
+                        Text("From").font(DS.caption).foregroundStyle(DS.Ink.secondary)
+                        timePicker($plus.nightStart, label: "Start")
+                        Text("to").font(DS.caption).foregroundStyle(DS.Ink.secondary)
+                        timePicker($plus.nightEnd, label: "End")
+                        Spacer(minLength: 0)
+                        Text(look.night > 0.01 ? "On now" : "Waiting").font(DS.caption).foregroundStyle(DS.Ink.secondary)
+                            .fixedSize()
+                    }
+                    HStack(spacing: 10) {
+                        Text("Warmth").font(DS.caption).foregroundStyle(DS.Ink.secondary).frame(width: 52, alignment: .leading)
+                        CommitSlider(value: $plus.nightWarmth, range: 0...1)
+                    }
+                }
+            }
+        }
     }
 
     private func timePicker(_ minutes: Binding<Double>, label: String) -> some View {
@@ -600,7 +604,7 @@ struct FocusIslandCard: View {
                 // stagePreview: a countdown pill beside the replica notch.
                 SettingRow(title: "Focus Island", detail: "A countdown beside the notch. The screen pulses when time is up.") { EmptyView() }
                 AvailabilityNote(availability: DesktopAvailability.focusIsland)
-                HStack(spacing: 8) {
+                WrapStack(spacing: 8) {
                     Chip("15 min") { effects.startFocus(minutes: 15) }
                     Chip("25 min") { effects.startFocus(minutes: 25) }
                     Chip("50 min") { effects.startFocus(minutes: 50) }
