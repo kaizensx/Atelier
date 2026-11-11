@@ -170,7 +170,7 @@ Open a chapter below. [docs/FEATURES.md](docs/FEATURES.md) lists every card and 
 permission each one needs, and its `atelier://` test hook.
 
 <details>
-<summary><b>Your Mac</b> &nbsp;<sub>Home, Looks, Themes & Plugins</sub></summary>
+<summary><b>Your Mac</b> &nbsp;<sub>Home, Looks, Mods</sub></summary>
 
 <br>
 
@@ -178,7 +178,7 @@ permission each one needs, and its `atelier://` test hook.
 |---|---|---|
 | **Home** | A live replica of your Mac, and a shelf of tiles for what a stock Mac cannot do. Hover a tile to play it on the stage. | No equivalent. |
 | **Looks** | Curated themes in one click: Dock, menu bar, wallpaper, widgets and icon tint together. **Change with the Day** hands over from one Look to the next at the hour you set. Revert undoes the run. | No themes beyond Light, Dark and accent colour. |
-| **Themes & Plugins** | A theme is one JSON file that restyles everything Atelier reaches. Plugins add widgets, Dock tiles, commands and corner actions in sandboxed JavaScript. See [docs/README.md](docs/README.md). | No theme or plugin system. |
+| **Mods** | Community plugins and themes from a signed catalog on GitHub: browse, install, update and remove in one place. **Library** holds your own: create a theme from your Mac, import, and manage plugins. A theme is one JSON file that restyles everything Atelier reaches; plugins add widgets, Dock tiles, commands and corner actions in sandboxed JavaScript. See [docs/README.md](docs/README.md). | No theme or plugin system. |
 
 </details>
 
@@ -353,9 +353,11 @@ is in [COMPATIBILITY.md](COMPATIBILITY.md).
 
 ## Mods
 
-**Coming in beta 2.** A Mods chapter in Atelier and a catalog on GitHub, for plugins and themes
-made by the community. Until then, themes and plugins already install by hand: drop a
-`.ateliertheme` or `.atelierplugin` on **Themes & Plugins**. The formats are in
+Open **Mods** in Atelier to browse plugins and themes made by the community, from the catalog at
+[kaizensx/atelier-mods](https://github.com/kaizensx/atelier-mods) and on
+[the website](https://kaizensx.github.io/Atelier/mods.html). Every index is signed and every
+package is checked before it is unpacked; plugins still ask for each permission. Your own live in
+**Mods › Library**: drop a `.ateliertheme` or `.atelierplugin` there to install it. The formats are in
 [docs/THEMES.md](docs/THEMES.md) and [docs/PLUGINS.md](docs/PLUGINS.md), with examples in
 [`examples/`](examples).
 

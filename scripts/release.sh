@@ -55,6 +55,8 @@ package() {     # $1 = version
   local v="$1" out="dist/$1"
   [[ -f "$KEY" ]] || die "No update key at $KEY"
   grep -q "static let publicKey = \"$PUB\"" Sources/DockStacks/Updater.swift || die "Updater.swift's public key is not $PUB"
+  say "Preflight: public text, changelog, personal data"
+  zsh scripts/preflight.sh || die "preflight failed: fix the text above first"
   say "Tests"
   swift test 2>&1 | tail -1
   say "Build $v"
@@ -89,6 +91,7 @@ publish() {     # $1 = version, $2 = prerelease flag
   gh release create "$tag" --repo "$REPO" ${2:+--prerelease} --title "Atelier $v" --notes-file "$out/NOTES.md" \
     "$out/Atelier-$v.zip" "$out/Atelier-$v.zip.sig" "$out/Atelier-$v.zip.sha256"
   print -P "%F{green}✓%f Published https://github.com/$REPO/releases/tag/$tag"
+  zsh scripts/postflight.sh "$v" || print -P "%F{red}✗%f postflight found problems: fix them before announcing"
 }
 
 case "${1:-}" in

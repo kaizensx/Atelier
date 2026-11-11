@@ -61,6 +61,9 @@ final class ModStore: ObservableObject {
     @Published private(set) var work: [String: Work] = [:]
     @Published private(set) var failures: [String: String] = [:]
     @Published var notice: String?
+    /// A mod page asked for by a link (the website's "Open in Atelier"); the chapter opens it.
+    @Published var requestedPage: String?
+
     /// A plugin just installed or updated that needs the owner's permission before it runs.
     @Published var pendingPermission: InstalledPlugin?
     /// Plugins that an update left switched off until their new permissions are allowed.
@@ -275,8 +278,16 @@ final class ModStore: ObservableObject {
             if c == "default" { use(nil) } else if let url = URL(string: c) { use(url) }
         }
         if value("check") != nil { refresh() }
-        // Acting on mods from a link: only against a local test catalog.
+        // Acting on mods from a link: only against a local test catalog. A link from the website
+        // (atelier://mods?install=<id> or open=<id>) only opens that mod's page; installing it
+        // still takes the person's own click there.
         guard testing else {
+            if let id = value("install") ?? value("open") {
+                // After the Studio has switched to Mods (which rebuilds the chapter), not before.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    MainActor.assumeIsolated { ModStore.shared.requestedPage = id }
+                }
+            }
             if value("report") != nil { writeReport() }
             return
         }

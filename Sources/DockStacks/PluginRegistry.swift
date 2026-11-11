@@ -293,9 +293,10 @@ final class PluginRegistry: ObservableObject {
                 runtimes[id]?.settle(request, ok: false, payload: .object(["error": .string("prompt: at most one question every 10 seconds.")]))
                 return
             }
-            let answer = PluginPrompt.ask(title: title, message: message, placeholder: placeholder, secure: secure, from: name)
             lastPrompt[id] = Date()
-            runtimes[id]?.settle(request, ok: true, payload: .object(["text": answer.map(JSONValue.string) ?? .null]))
+            PluginPrompt.ask(title: title, message: message, placeholder: placeholder, secure: secure, from: name) { [weak self] answer in
+                self?.runtimes[id]?.settle(request, ok: true, payload: .object(["text": answer.map(JSONValue.string) ?? .null]))
+            }
         case .timer, .clearTimer, .http:
             break
         }
@@ -363,18 +364,101 @@ final class PluginRegistry: ObservableObject {
 /// the plugin that asked.
 @MainActor
 enum PluginPrompt {
-    static func ask(title: String, message: String?, placeholder: String?, secure: Bool, from plugin: String) -> String? {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = (message.map { $0 + "\n\n" } ?? "") + "Asked by the plugin “\(plugin)”."
-        alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "Cancel")
-        let field: NSTextField = secure ? NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
-                                        : NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
-        field.placeholderString = placeholder
-        alert.accessoryView = field
-        alert.window.initialFirstResponder = field
-        return alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil
+    private static var open: NSPanel?
+
+    /// Asks in Atelier's own small window, in front and focused, without blocking the app:
+    /// an NSAlert run modally from a background app could come up blank or behind other windows.
+    static func ask(title: String, message: String?, placeholder: String?, secure: Bool, from plugin: String,
+                    answer: @escaping @MainActor (String?) -> Void) {
+        open?.close()
+        let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 420, height: 220),
+                            styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.isMovableByWindowBackground = true
+        panel.level = .floating
+        panel.isReleasedWhenClosed = false
+        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        panel.standardWindowButton(.zoomButton)?.isHidden = true
+        // Whatever had focus before, so closing the prompt hands it back instead of letting the
+        // window behind pick its first focusable view and draw a stray focus ring.
+        let before = NSApp.keyWindow
+        let beforeResponder = before?.firstResponder
+        var finished = false
+        let finish: @MainActor (String?) -> Void = { text in
+            guard !finished else { return }
+            finished = true
+            // Drop the field's focus first: closing with it focused can strand its focus ring on screen.
+            panel.makeFirstResponder(nil)
+            panel.orderOut(nil)
+            panel.close()
+            if open === panel { open = nil }
+            if let before, before !== panel { before.makeFirstResponder(beforeResponder) }
+            DispatchQueue.main.async {
+                if let key = NSApp.keyWindow, key !== before, key.firstResponder is NSText { key.makeFirstResponder(nil) }
+            }
+            answer(text)
+        }
+        let view = PluginPromptView(title: title, message: message, placeholder: placeholder ?? "", secure: secure,
+                                    plugin: plugin, done: finish)
+        panel.contentView = NSHostingView(rootView: view.preferredColorScheme(.dark))
+        panel.setContentSize(panel.contentView!.fittingSize)
+        panel.center()
+        NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: panel, queue: .main) { _ in
+            MainActor.assumeIsolated { finish(nil) }
+        }
+        open = panel
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+    }
+}
+
+private struct PluginPromptView: View {
+    let title: String
+    let message: String?
+    let placeholder: String
+    let secure: Bool
+    let plugin: String
+    let done: @MainActor (String?) -> Void
+    @State private var text = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "puzzlepiece.extension.fill").font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(DS.Ink.accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.system(size: 14, weight: .semibold)).foregroundStyle(DS.Ink.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Asked by the plugin \u{201C}\(plugin)\u{201D}").font(DS.caption).foregroundStyle(DS.Ink.tertiary)
+                }
+            }
+            if let message, !message.isEmpty {
+                Text(message).font(DS.caption).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Group {
+                if secure { SecureField(placeholder, text: $text) } else { TextField(placeholder, text: $text) }
+            }
+            // Own field look: AppKit's focus ring could outlive this window and stay on screen.
+            .textFieldStyle(.plain)
+            .focusEffectDisabled()
+            .font(.system(size: 13))
+            .padding(.horizontal, 10).frame(height: 30)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(focused ? DS.Ink.accent : Color.white.opacity(0.12),
+                                                                    lineWidth: focused ? 1.5 : 1))
+            .focused($focused)
+            .onSubmit { done(text) }
+            HStack {
+                Spacer()
+                Button("Cancel") { done(nil) }.keyboardShortcut(.cancelAction)
+                Button("OK") { done(text) }.keyboardShortcut(.defaultAction).disabled(text.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+        .onAppear { focused = true }
     }
 }
 

@@ -4,6 +4,20 @@ Every version ships as a beta first (GitHub pre-release, Beta channel), and is p
 stable release once it has been tested. The sections below are the release notes the updater
 shows.
 
+## [1.0.0-beta.3]
+
+**Improved**
+- Mods and Themes & Plugins are one place now: Mods › Library holds your themes and the theme
+  designer.
+- Installed mods: click a row to open its page; plugins have their on/off switch right in the row.
+
+**Fixed**
+- A plugin asking for text (like the GitHub token) now opens a clear Atelier window with its
+  question, instead of an empty one.
+- Installing a plugin from its page now asks for its permissions right away.
+- "Open in Atelier" on the website opens that mod's page.
+- GitHub Notifications 1.0.1 asks for the token once; later, use Set GitHub Token.
+
 ## [1.0.0-beta.2]
 
 **New**

@@ -199,7 +199,7 @@ pages.home = async () => {
   if (box) {
     const ids = cat.featured?.length ? cat.featured : cat.mods.map((m) => m.id);
     const list = ids.map((id) => cat.mods.find((m) => m.id === id)).filter(Boolean).slice(0, 3);
-    box.innerHTML = list.length ? list.map((m) => modCard(m, { featured: true })).join("") : empty(icon.box, "The catalog opens with beta 2", "Plugins and themes from the community, shared on GitHub.");
+    box.innerHTML = list.length ? list.map((m) => modCard(m, { featured: true })).join("") : empty(icon.box, "The catalog is loading", "Plugins and themes from the community, shared on GitHub.");
     reveal(box);
   }
   const people = await data("contributors.json");
@@ -279,7 +279,7 @@ pages.mod = async () => {
       <aside>
         <div class="shell" data-reveal><div class="core card" style="display:grid;gap:14px">
           <a class="btn" href="${esc(install)}" style="justify-content:space-between">Open in Atelier<span class="ico">${icon.arrow}</span></a>
-          <p class="small faint">Atelier shows what the mod asks for and installs it only after you confirm. The Mods chapter arrives in beta 2.</p>
+          <p class="small faint">Atelier shows what the mod asks for and installs it only after you confirm. Open it from the Mods chapter.</p>
           <div class="btns">
             ${m.package?.url ? `<a class="btn ghost sm" href="${esc(m.package.url)}" rel="noopener">Download<span class="ico">${icon.down}</span></a>` : ""}
             ${m.homepage ? `<a class="btn ghost sm" href="${esc(m.homepage)}" rel="noopener">Source<span class="ico">${icon.arrow}</span></a>` : ""}

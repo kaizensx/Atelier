@@ -51,7 +51,7 @@ atelier.widget({
 atelier.command({ title: "Say Hello", run: () => console.log("Hello!") });
 ```
 
-Drop the folder on **Themes & Plugins** in Atelier (or use **Install Plugin…**), switch it on,
+Drop the folder on **Mods › Library** in Atelier (or use **Install Plugin…**), switch it on,
 then add a **Plugin** widget to the board and pick "Hello". `console.log` output appears in the
 chapter's Console.
 
@@ -268,7 +268,7 @@ atelier.theme.apply({ colors: { accent: "#FF8A3D" }, wallpaper: { shader: "nebul
 
 `setTimeout`, `setInterval` (at least 1 s), `clearTimeout` and `clearInterval` work as in a
 browser; a plugin may have up to 64 at once. `console.log`, `info`, `warn`, `error` and `debug`
-write to the Console in Themes & Plugins.
+write to the Console in Mods › Library.
 
 ## Limits
 

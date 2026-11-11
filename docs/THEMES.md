@@ -69,7 +69,7 @@ Midnight Glass.ateliertheme/        a folder; Finder shows it as one file once A
 
 ## Applying, previewing and reverting
 
-* **Preview.** Resting the pointer on a theme in Looks or Themes & Plugins shows it on the stage
+* **Preview.** Resting the pointer on a theme in Looks or Mods › Library shows it on the stage
   without changing anything.
 * **Apply.** Clicking applies each section through the module's own settings, exactly as if
   you had changed each control yourself. Icon styles restart the Dock, but only when the icon
@@ -81,7 +81,7 @@ Midnight Glass.ateliertheme/        a folder; Finder shows it as one file once A
 
 ## Sharing
 
-* **Create Theme from my Mac** (Themes & Plugins) saves your current setup as a theme.
+* **Create Theme from my Mac** (Mods › Library) saves your current setup as a theme.
 * **Save as Theme File…** (right-click a card) writes any theme as a `.ateliertheme` folder.
 * To share by link, zip the bundle, host it over https and share
   `atelier://theme?url=https://example.com/Midnight%20Glass.ateliertheme.zip`

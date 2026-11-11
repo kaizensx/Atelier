@@ -15,17 +15,20 @@ struct ModsChapter: View {
     @State private var nativeAsk: ModEntry?
 
     var body: some View {
-        if let id = selected, let entry = store.index?.mod(id) {
-            ModPage(entry: entry, back: { withAnimation(DS.Motion.reveal) { selected = nil } }, install: install)
-            sheets
-        } else {
-            ModsTabsView(tab: $tab, open: { id in withAnimation(DS.Motion.reveal) { selected = id } }, install: install)
-            sheets
+        // The sheets hang off the whole chapter: on a zero-height view at the end of a long page
+        // they stayed off screen and never came up (the permission ask after installing a plugin).
+        VStack(alignment: .leading, spacing: DS.Space.l) {
+            if let id = selected, let entry = store.index?.mod(id) {
+                ModPage(entry: entry, back: { withAnimation(DS.Motion.reveal) { selected = nil } }, install: install)
+            } else {
+                ModsTabsView(model: model, tab: $tab, open: { id in withAnimation(DS.Motion.reveal) { selected = id } }, install: install)
+            }
         }
+        .background { sheets }
     }
 
     private var sheets: some View {
-        Color.clear.frame(height: 0)
+        Color.clear
             .sheet(item: $store.pendingPermission) { plugin in
                 PluginPermissionsSheet(plugin: plugin) { granted in
                     if let granted { PluginRegistry.shared.enable(plugin, granting: granted) }
@@ -43,7 +46,24 @@ struct ModsChapter: View {
                 store.refreshIfStale()
                 registry.reload()
                 themes.reload()
+                openRequested()
             }
+            .onChange(of: store.requestedPage) { openRequested() }
+            .onChange(of: store.index?.mods.count) { openRequested() }
+    }
+
+    /// Opens the page a link asked for, once the catalog that lists it has loaded.
+    private func openRequested() {
+        guard let id = store.requestedPage else { return }
+        if store.index?.mod(id) != nil {
+            withAnimation(DS.Motion.reveal) { selected = id }
+            store.requestedPage = nil
+        } else if store.index == nil {
+            store.refreshIfStale()
+        } else {
+            store.notice = "That mod isn't in the catalog."
+            store.requestedPage = nil
+        }
     }
 
     private func install(_ entry: ModEntry) {
@@ -51,10 +71,11 @@ struct ModsChapter: View {
     }
 }
 
-enum ModsTab: Hashable { case browse, installed, updates }
+enum ModsTab: Hashable { case browse, installed, updates, library }
 
 /// The three tabs, with the catalog's status line above them.
 struct ModsTabsView: View {
+    @ObservedObject var model: ManagerModel
     @Binding var tab: ModsTab
     let open: (String) -> Void
     let install: (ModEntry) -> Void
@@ -69,7 +90,7 @@ struct ModsTabsView: View {
 
         let count = store.updates.count
         Segments(selection: $tab, options: [(.browse, "Browse"), (.installed, "Installed"),
-                                            (.updates, count > 0 ? "Updates (\(count))" : "Updates")])
+                                            (.updates, count > 0 ? "Updates (\(count))" : "Updates"), (.library, "Library")])
 
         if let notice = store.notice {
             Label(notice, systemImage: "checkmark.circle.fill").font(DS.caption).foregroundStyle(ModsHue.tint)
@@ -80,6 +101,8 @@ struct ModsTabsView: View {
         case .browse: ModsBrowse(open: open)
         case .installed: ModsInstalled(open: open)
         case .updates: ModsUpdates(open: open)
+        // What used to be Themes & Plugins: making, importing and managing your own.
+        case .library: ThemesChapter(model: model)
         }
     }
 }
@@ -250,19 +273,33 @@ struct ModsInstalled: View {
         let newer = entry.map { ModVersions.isNewer($0.version, than: mod.version) } ?? false
         let source = entry != nil ? (store.fromCatalog[mod.id] != nil ? "From the catalog" : "In the catalog") : "Added by you"
         let on = mod.kind == .plugin && registry.enabled.contains(mod.id)
-        return SettingRow(title: name(mod), detail: "\(mod.kind.title) · \(mod.version) · \(source)" + (on ? " · On" : ""),
+        let plugin = registry.installed.first { $0.id == mod.id }
+        return SettingRow(title: name(mod), detail: "\(mod.kind.title) · \(mod.version) · \(source)",
                           symbol: mod.kind.symbol, density: .compact) {
             HStack(spacing: DS.Space.s) {
                 if newer, let entry {
                     Button("Update to \(entry.version)") { Task { await store.install(entry) } }.buttonStyle(ModPill())
                 }
-                if entry != nil {
-                    Button("Details") { open(mod.id) }.buttonStyle(ModPill(prominent: false))
-                }
                 if store.work[mod.id] != nil { ProgressView().controlSize(.small) }
-                ModHoldPill { store.remove(mod.id) }
+                if let plugin {
+                    // A plugin runs only while it is on; switching it on asks for its permissions first.
+                    LuxSwitch(isOn: Binding(get: { on }, set: { want in
+                        if want {
+                            if plugin.manifest.permissions.isEmpty { registry.enable(plugin, granting: []) }
+                            else { store.pendingPermission = plugin }
+                        } else { registry.disable(plugin.id) }
+                    }), label: "Turn \(name(mod)) on or off")
+                }
+                // Short label so a plugin's switch, remove and chevron stay on one line.
+                ModHoldPill(title: "Remove") { store.remove(mod.id) }.help("Hold to remove")
+                if entry != nil {
+                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(DS.Ink.tertiary)
+                }
             }
         }
+        // The whole row opens the mod's page, not only a small button.
+        .contentShape(Rectangle())
+        .onTapGesture { if entry != nil { open(mod.id) } }
     }
 }
 

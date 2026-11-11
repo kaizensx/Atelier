@@ -65,4 +65,9 @@ atelier.widget({
 atelier.command({ id: "token", title: "Set GitHub Token", run: async () => { atelier.storage.remove("token"); await token(); } });
 atelier.command({ id: "open", title: "Open GitHub Notifications", run: () => atelier.openURL("https://github.com/notifications") });
 
-token();
+// Ask for the token once, the first time the plugin runs. After that only the
+// “Set GitHub Token” command asks, so cancelling doesn't bring the prompt back on every launch.
+if (!atelier.storage.get("asked")) {
+  atelier.storage.set("asked", "yes");
+  token();
+}

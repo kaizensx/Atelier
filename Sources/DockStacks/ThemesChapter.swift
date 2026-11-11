@@ -3,7 +3,7 @@ import DockCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Themes & Plugins: the owner's themes, import and export, "Create Theme from my Mac", and
+/// Mods › Library (what was Themes & Plugins): the owner's themes, import and export, "Create Theme from my Mac", and
 /// the plugin manager. Drop a `.ateliertheme` or `.atelierplugin` anywhere on the panel.
 struct ThemesChapter: View {
     @ObservedObject var model: ManagerModel
@@ -15,10 +15,6 @@ struct ThemesChapter: View {
     @State private var installedPlugin: InstalledPlugin?
 
     var body: some View {
-        Text("A theme restyles everything Atelier can reach, from one file you can share. Plugins add widgets, Dock tiles, commands and corner actions in JavaScript.")
-            .font(DS.body).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, DS.Space.xs)
-
         LooksStatusBar(model: model)
 
         SectionHeader("Make and share", symbol: "wand.and.sparkles",

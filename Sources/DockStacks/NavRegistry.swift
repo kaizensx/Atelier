@@ -106,11 +106,9 @@ enum NavRegistry {
         NavItem(.looks, "Looks", symbol: "sparkles", in: .mac, keywords: ["preset", "style", "one click", "schedule", "day", "night"]) {
             LooksGalleryChapter(model: $0)
         },
-        NavItem(.themes, "Themes & Plugins", symbol: "paintpalette", in: .mac, keywords: ["theme", "plugin", "import", "export", "json"]) {
-            ThemesChapter(model: $0)
-        },
         NavItem(Chapter("mods"), "Mods", symbol: "shippingbox", in: .mac,
-                keywords: ["catalog", "marketplace", "community", "gallery", "browse", "download", "install", "plugins", "themes", "updates", "windhawk", "native"]) {
+                keywords: ["catalog", "marketplace", "community", "gallery", "browse", "download", "install", "plugins", "themes", "updates", "windhawk", "native",
+                           "theme", "plugin", "import", "export", "json", "library", "create theme", "themes & plugins"]) {
             ModsChapter(model: $0)
         },
         // Desktop
@@ -298,7 +296,7 @@ enum NavRegistry {
 
     /// Places that were folded into others, by the place that holds them now.
     private static let aliases: [Chapter: Chapter] = [
-        .owndock: .dock, .unique: .effects, .lab: .home, .vitals: .widgets, .display: .appearance,
+        .owndock: .dock, .unique: .effects, .lab: .home, .vitals: .widgets, .display: .appearance, .themes: Chapter("mods"),
     ]
 
     private static let byChapter: [Chapter: NavItem] = Dictionary(items.map { ($0.chapter, $0) }, uniquingKeysWith: { first, _ in first })

@@ -12,7 +12,7 @@ engine, off the main thread, with nothing but what you allow. → [PLUGINS.md](P
 
 ## Try it
 
-1. Open Atelier and go to **Themes & Plugins**.
+1. Open Atelier and go to **Mods › Library**.
 2. Drag `examples/themes/sunset-neon.ateliertheme` onto the chapter. Rest the pointer on its
    card to preview it on the stage; click to apply; **Revert** to go back.
 3. Drag `examples/plugins/pomodoro.atelierplugin` onto the chapter, allow notifications, and
@@ -36,7 +36,7 @@ Zip a `.ateliertheme`, host it over https, and share
 `atelier://theme?url=https://example.com/My%20Theme.ateliertheme.zip`. Atelier asks before
 downloading, validates the theme and installs it without applying it.
 
-Plugins are shared as folders or zips; install them from Themes & Plugins. Read a plugin's
+Plugins are shared as folders or zips; install them from Mods › Library, or share them through the Mods catalog. Read a plugin's
 `main.js` before you switch it on, the same way you would read a script from the internet:
 the sandbox limits what it can reach, and the permissions sheet tells you what it asks for.
 

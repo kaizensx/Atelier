@@ -54,7 +54,7 @@ to the whole Mac; **Revert** undoes the run.
 | Looks gallery | Apply, Revert, Make your own. Icon styles (Clear, Tinted) apply on macOS 26 and later only. | None |
 | Change with the Day *(Beyond macOS)* | Each Look takes over as its hour arrives. | None |
 
-### Themes & Plugins
+### Mods › Library (themes and plugins)
 
 A theme restyles everything Atelier can reach from one `.ateliertheme` file. Plugins add widgets,
 Dock tiles, commands and corner actions in JavaScript, each in its own sandboxed engine.

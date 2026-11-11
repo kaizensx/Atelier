@@ -2,7 +2,7 @@
   "format": 1,
   "id": "com.example.github-notifications",
   "name": "GitHub Notifications",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Atelier Examples",
   "description": "Your unread GitHub notifications as a widget and a Dock badge. Needs a personal access token with the notifications scope.",
   "icon": "bell.badge",
