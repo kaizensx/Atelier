@@ -13,7 +13,9 @@ jobs:
         run: |
           sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
           swift --version
-      - name: Build (arm64 and x86_64)
-        run: swift build --arch arm64 --arch x86_64
+      # Native build only: the hosted runners' Swift 6.3 compiler crashes on the two-architecture
+      # (xcbuild) path. Universal release builds are made on the maintainer's Mac by build.sh.
+      - name: Build
+        run: swift build
       - name: Test
         run: swift test
