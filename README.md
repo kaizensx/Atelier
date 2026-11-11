@@ -235,8 +235,8 @@ Atelier updates itself from GitHub Releases. Open **Settings › Updates**.
 
 ## Build from source
 
-Requirements: macOS 14 or later, and Xcode with the Swift 6.2 toolchain and the Metal compiler
-(`swift-tools-version: 6.2`).
+Requirements: to build, Xcode 27 or later (Swift 6.4) and its Metal compiler. The app it builds runs
+on macOS 14 or later. The logic and tests (`DockCore`) also build with Xcode 26.
 
 ```sh
 git clone https://github.com/kaizensx/Atelier.git

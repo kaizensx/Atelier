@@ -12,7 +12,7 @@ swift test                 # unit tests (DockCore)
 ./build.sh                 # an app bundle, for running it yourself
 ```
 
-Requirements: the macOS and Xcode versions named in `Package.swift`. Swift 6 strict
+Requirements: Xcode 27 or later (Swift 6.4) to build the app; `DockCore` and its tests also build with Xcode 26. Swift 6 strict
 concurrency is on; new code must build without warnings in the files you touch.
 
 ## Layout
