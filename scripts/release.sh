@@ -79,7 +79,9 @@ publish() {     # $1 = version, $2 = prerelease flag
   [[ -f "$out/TESTED_BUILD" ]] || die "$v was not built and installed for testing: run scripts/release.sh test first"
   [[ "$(cat "$out/COMMIT")" == "$(git rev-parse HEAD)" ]] || die "the code changed since $v was tested: test again"
   git diff --quiet && git diff --cached --quiet || die "uncommitted changes: commit them, then test again"
-  read -q "?Publish Atelier $v to GitHub${2:+ as a pre-release}? [y/N] " || { print; exit 1; }; print
+  if [[ "${CONFIRM:-}" != yes ]]; then
+    read -q "?Publish Atelier $v to GitHub${2:+ as a pre-release}? [y/N] " || { print; exit 1; }; print
+  fi
   git tag -a "$tag" -m "Atelier $v" 2>/dev/null || true
   git push origin HEAD "$tag"
   gh release create "$tag" --repo "$REPO" ${2:+--prerelease} --title "Atelier $v" --notes-file "$out/NOTES.md" \
