@@ -445,6 +445,7 @@ struct OwnDockChapter: View {
 /// lens follows the pointer with the real physics.
 struct OwnDockSwitchCard: View {
     @ObservedObject private var dock = OwnDock.shared
+    @ObservedObject private var permissions = DockPermissions.shared
     @State private var launches = 0
     private let hue = DockHubHue.tint
 
@@ -480,6 +481,15 @@ struct OwnDockSwitchCard: View {
                 if dock.replaceSystem, MinimizeRedirect.shared.enabledPreference,
                    let note = DockCompat.minimizeNote(major: MacPlatform.major) {
                     AvailabilityNote(availability: .limited(note))
+                }
+                // Without these, minimised windows fly to the hidden macOS Dock instead.
+                if dock.replaceSystem, MinimizeRedirect.shared.enabledPreference, !permissions.trusted {
+                    DockPermissionNote(kind: .accessibility,
+                                       sentence: "Minimise into this Dock needs Accessibility. Until then windows go to the hidden macOS Dock.")
+                }
+                if dock.replaceSystem, MinimizeRedirect.shared.enabledPreference, permissions.trusted, !permissions.screen {
+                    DockPermissionNote(kind: .screen,
+                                       sentence: "With Screen Recording a picture of the window flies into this Dock. Without it the window itself shrinks into it.")
                 }
                 HStack(spacing: DS.Space.m) {
                     DockPillButton(title: "Try the Launch", symbol: "play.fill") { launches &+= 1 }
@@ -677,13 +687,12 @@ struct OwnDockPlaceCard: View {
     var body: some View {
         RowGroup {
             DockSliderRow(title: "Icons", value: $dock.tile, range: 32...96, text: points(dock.tile))
-            SettingRow(title: "Position", density: .compact) {
+            // Four positions do not fit beside a title in the panel: the title goes above.
+            DockHubWideRow("Position") {
                 Segments(selection: $dock.edge, options: OwnDockEdge.allCases.map { ($0, $0.title) }) { edge in
                     .dock("edge." + edge.title, "Position", detail: edge.title) { $0.edge = edge }
                 }
-                .frame(width: DockHubLayout.segmentsWidth)
             }
-            .dockHubRow()
             if screens.count > 1 { displays }
             DockSliderRow(title: "Distance from Edge", value: $dock.appearance.gap, range: 0...32,
                           text: points(dock.appearance.gap))
@@ -695,11 +704,9 @@ struct OwnDockPlaceCard: View {
             if dock.autoHide {
                 DockSliderRow(title: "Show After", value: $dock.hub.revealDelay, range: 0...1.5, text: seconds(dock.hub.revealDelay))
                 DockSliderRow(title: "Hide After", value: $dock.hub.hideDelay, range: 0...2, text: seconds(dock.hub.hideDelay))
-                SettingRow(title: "Slide Speed", density: .compact) {
+                DockHubWideRow("Slide Speed") {
                     Segments(selection: $dock.hub.hideSpeed, options: DockHideSpeed.allCases.map { ($0, $0.title) })
-                        .frame(width: DockHubLayout.segmentsWidth)
                 }
-                .dockHubRow()
             }
             SettingRow(title: "On Every Desktop", detail: "Stays put when you switch Spaces.", density: .compact) {
                 LuxSwitch(isOn: $dock.hub.allSpaces, label: "On Every Desktop", tint: hue)
@@ -718,19 +725,15 @@ struct OwnDockPlaceCard: View {
     }
 
     @ViewBuilder private var displays: some View {
-        SettingRow(title: "Display",
-                   detail: dock.display == .pointer ? "Moves to a display when the pointer presses its edge."
-                                                    : "Each display can keep its own edge.",
-                   density: .compact) {
+        DockHubWideRow("Display", detail: dock.display == .pointer ? "Moves to a display when the pointer presses its edge."
+                                                                   : "Each display can keep its own edge.") {
             Segments(selection: $dock.display, options: OwnDockDisplay.allCases.map { ($0, $0.title) })
-                .frame(width: DockHubLayout.segmentsWidth)
         }
-        .dockHubRow()
         if dock.display == .chosen {
+            // Display names are long ("Built-in Retina Display"): a menu, not segments.
             SettingRow(title: "Show On", density: .compact) {
-                Segments(selection: Binding(get: { dock.screenName ?? screens[0] }, set: { dock.screenName = $0 }),
-                         options: screens.map { ($0, $0) })
-                    .frame(width: DockHubLayout.segmentsWidth)
+                DockMenuPill(selection: Binding(get: { dock.screenName ?? screens[0] }, set: { dock.screenName = $0 }),
+                             options: screens.map { ($0, $0) })
             }
             .dockHubRow()
         }
@@ -750,7 +753,7 @@ struct OwnDockPlaceCard: View {
 
 struct OwnDockBehaviourCard: View {
     @ObservedObject private var dock = OwnDock.shared
-    @State private var trusted = false
+    @ObservedObject private var permissions = DockPermissions.shared
     private let hue = DockHubHue.tint
 
     var body: some View {
@@ -776,7 +779,7 @@ struct OwnDockBehaviourCard: View {
             .dockHubRow()
             .help("Seen by watching the macOS Dock's own tile, so a single short bounce can be missed.")
             .stagePreview(.demo("dock.attention", "Attention Bounce", isOn: dock.appearance.attention, region: StageRegion.ownDock(OwnDock.shared.edge), Demos.attentionBounce))
-            if !trusted, dock.appearance.badges || dock.appearance.attention {
+            if !permissions.trusted, dock.appearance.badges || dock.appearance.attention {
                 DockNeedsAccess().dockHubRow()
             }
             SettingRow(title: "Click to Hide", detail: "Clicking the app in front hides it.", density: .compact) {
@@ -791,15 +794,91 @@ struct OwnDockBehaviourCard: View {
             .help("Scrolling on an app's icon brings its windows forward one by one.")
             .stagePreview(.demo("dock.scroll", "Scroll for Windows", isOn: dock.appearance.scrollWindows, region: nil, Demos.scrollWindows))
         }
-        .onAppear { trusted = AXIsProcessTrusted() }
+        .watchingDockAccess()
     }
 }
 
+/// Accessibility and Screen Recording for Atelier, as the Dock chapter shows them. While either
+/// is missing and a card that needs it is on screen, both are read again every two seconds, so a
+/// grant in System Settings shows (and the feature works) without a relaunch.
+@MainActor
+final class DockAccessWatch: ObservableObject {
+    static let shared = DockAccessWatch()
+    @Published private(set) var trusted = AXIsProcessTrusted()
+    @Published private(set) var recording = CGPreflightScreenCaptureAccess()
+    private var timer: Timer?
+    private var users = 0
+
+    private init() {}
+
+    func hold() {
+        users += 1
+        check()
+        schedule()
+    }
+
+    func release() {
+        users = max(users - 1, 0)
+        if users == 0 { stopTimer() }
+    }
+
+    func check() {
+        let nowTrusted = AXIsProcessTrusted(), nowRecording = CGPreflightScreenCaptureAccess()
+        if nowTrusted != trusted { trusted = nowTrusted }
+        if nowRecording != recording { recording = nowRecording }
+        if trusted, recording { stopTimer() }
+    }
+
+    /// Shows the system's prompt, then System Settings at Accessibility.
+    func grantAccessibility() {
+        _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+            NSWorkspace.shared.open(url)
+        }
+        schedule()
+    }
+
+    func grantRecording() {
+        _ = CGRequestScreenCaptureAccess()
+        check()
+        schedule()
+    }
+
+    private func schedule() {
+        guard timer == nil, users > 0, !(trusted && recording) else { return }
+        let tick = Timer(timeInterval: 2, repeats: true) { _ in
+            MainActor.assumeIsolated { DockAccessWatch.shared.check() }
+        }
+        tick.tolerance = 0.4
+        RunLoop.main.add(tick, forMode: .common)
+        timer = tick
+    }
+
+    private func stopTimer() {
+        timer?.invalidate()
+        timer = nil
+    }
+}
+
+/// Keeps `DockAccessWatch` reading while this view is on screen.
+private struct DockAccessWatching: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .onAppear { DockAccessWatch.shared.hold() }
+            .onDisappear { DockAccessWatch.shared.release() }
+    }
+}
+
+extension View {
+    func watchingDockAccess() -> some View { modifier(DockAccessWatching()) }
+}
+
+/// "Needs Accessibility" with a way to grant it. Gone the moment Atelier is trusted.
 struct DockNeedsAccess: View {
+    @ObservedObject private var access = DockAccessWatch.shared
+
     var body: some View {
-        Text("Needs Accessibility access for Atelier, in System Settings, Privacy & Security.")
-            .font(DS.caption).foregroundStyle(Color(red: 1, green: 0.7, blue: 0.45))
-            .fixedSize(horizontal: false, vertical: true)
+        DockPermissionNote(kind: .accessibility, sentence: "Needs Accessibility for Atelier, in System Settings, Privacy & Security.")
     }
 }
 

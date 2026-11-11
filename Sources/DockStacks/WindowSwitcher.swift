@@ -195,9 +195,17 @@ final class WindowSwitcher: ObservableObject {
 
     func resume() { if enabled { apply() } }
 
+    /// Accessibility just arrived: a tap made before it went away is made again, and one that
+    /// was waiting for it starts.
+    func rearm() {
+        guard enabled else { return }
+        removeTap()
+        apply()
+    }
+
     private func apply() {
         if enabled {
-            guard switchTap == nil, AXIsProcessTrusted() else { return }
+            guard switchTap == nil, AXIsProcessTrusted() else { objectWillChange.send(); return }
             let mask = CGEventMask(1 << CGEventType.keyDown.rawValue | 1 << CGEventType.keyUp.rawValue
                                    | 1 << CGEventType.flagsChanged.rawValue)
             guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
@@ -207,18 +215,23 @@ final class WindowSwitcher: ObservableObject {
             CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
             self.source = source
             CGEvent.tapEnable(tap: tap, enable: true)
-        } else if let tap = switchTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
-            CFMachPortInvalidate(tap)
-            switchTap = nil
-            source = nil
-            cancel()
-            swallowedUps.removeAll()
-            snapshot = nil
-            model.icons.removeAll()
+        } else {
+            removeTap()
         }
         objectWillChange.send()
+    }
+
+    private func removeTap() {
+        guard let tap = switchTap else { return }
+        CGEvent.tapEnable(tap: tap, enable: false)
+        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+        CFMachPortInvalidate(tap)
+        switchTap = nil
+        source = nil
+        cancel()
+        swallowedUps.removeAll()
+        snapshot = nil
+        model.icons.removeAll()
     }
 
     // MARK: The chord
@@ -672,6 +685,7 @@ struct WindowSwitcherCard: View {
             LivePlate { size, since in WindowSwitcherPlate(size: size, since: since) }
         } controls: {
             VStack(alignment: .leading, spacing: DS.Space.m) {
+                NeedsAccessRow(reason: "To see the shortcut and read window titles.")
                 VStack(alignment: .leading, spacing: 6) {
                     Segments(selection: $switcher.shortcut,
                              options: SwitcherShortcut.allCases.map { ($0, $0.label) })
@@ -684,9 +698,6 @@ struct WindowSwitcherCard: View {
                         Text(spacesNote).font(DS.caption).foregroundStyle(DS.Ink.tertiary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                }
-                if !AXIsProcessTrusted() {
-                    Text("Needs Accessibility, to see the shortcut and read window titles.").font(DS.caption).foregroundStyle(DS.Ink.tertiary)
                 }
             }
         }

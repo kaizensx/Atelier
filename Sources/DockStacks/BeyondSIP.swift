@@ -94,9 +94,10 @@ enum BridgeAction: Int, CaseIterable, Identifiable {
         case .pip: "bridge.pip.key"
         }
     }
-    /// ⌃⌥P, ⌃⌥S, ⌃⌥I.
+    /// ⌃⌥⌘P, ⌃⌥⌘S, ⌃⌥⌘I. Not ⌃⌥ alone: the Window Engine's hot keys use ⌃⌥S for Shuffle and
+    /// ⌃⌥I for the top-right quarter. A shortcut the owner recorded is kept as it is.
     var defaultCombo: KeyCombo {
-        let mods = controlKey | optionKey
+        let mods = controlKey | optionKey | cmdKey
         switch self {
         case .pin: return KeyCombo(keyCode: kVK_ANSI_P, modifiers: mods)
         case .sticky: return KeyCombo(keyCode: kVK_ANSI_S, modifiers: mods)
@@ -148,6 +149,9 @@ final class BeyondSIP: ObservableObject {
     private var statusWatch: AnyCancellable?
     private var activation: NSObjectProtocol?
     private var references: [EventHotKeyRef] = []
+    /// What is registered now, so `reconcile()`, which runs on every poll, changes nothing
+    /// when nothing changed instead of unregistering and registering every key each second.
+    private var registered: [BridgeAction: KeyCombo] = [:]
     private var handler: EventHandlerRef?
     private var started = false
     private var keysSuspended = false
@@ -560,12 +564,18 @@ final class BeyondSIP: ObservableObject {
     }
 
     private func registerKeys() {
+        var wanted: [BridgeAction: KeyCombo] = [:]
+        if started, ready, !keysSuspended {
+            for action in BridgeAction.allCases where enabled(action) { wanted[action] = combo(for: action) }
+        }
+        guard wanted != registered else { return }
+        registered = wanted
         references.forEach { UnregisterEventHotKey($0) }
         references = []
         var refused: Set<BridgeAction> = []
-        if started, ready, !keysSuspended {
-            for action in BridgeAction.allCases where enabled(action) {
-                guard let combo = combo(for: action) else { continue }
+        if !wanted.isEmpty {
+            for action in BridgeAction.allCases {
+                guard let combo = wanted[action] else { continue }
                 installHandler()
                 var reference: EventHotKeyRef?
                 let id = EventHotKeyID(signature: bridgeHotKeySignature, id: UInt32(action.rawValue))

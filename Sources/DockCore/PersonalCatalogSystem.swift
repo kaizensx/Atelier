@@ -18,6 +18,17 @@ extension PersonalCatalog {
 
     private static let unverified = "; effect not verified"
 
+    /// The distributed notification macOS's own settings post after changing a key, so running
+    /// apps re-read it at once instead of on their next launch. Nil for keys with none.
+    public static func changeNotification(for setting: PersonalSetting) -> String? {
+        guard setting.domain == "NSGlobalDomain" else { return nil }
+        switch setting.key {
+        // Every AppKit app hides or shows its menu bar on this, as Control Center settings does.
+        case "_HIHideMenuBar", "AppleMenuBarVisibleInFullscreen": return "AppleInterfaceMenuBarHidingChangedNotification"
+        default: return nil
+        }
+    }
+
     /// With no override, clocks follow the region: what the "j" skeleton turns into for it.
     static var localeUses24Hours: Bool {
         !(DateFormatter.dateFormat(fromTemplate: "j", options: 0, locale: .current) ?? "h a").contains("a")
@@ -113,14 +124,15 @@ extension PersonalCatalog {
 
         PersonalSetting(.controlCenter, "Menu Bar", domain: "NSGlobalDomain", key: "_HIHideMenuBar", kind: .bool,
                         control: sysToggle(), title: "Hide the Menu Bar",
-                        detail: "It slides down when the pointer reaches the top.", effect: .relaunchApps, fallback: .bool(false),
-                        evidence: "AppKit, HIToolbox and SkyLight __cstring _HIHideMenuBar" + unverified,
-                        preview: "The menu bar sliding away",
-                        caution: "Apps already open keep their menu bar until reopened, or until you log out."),
+                        detail: "It slides down when the pointer reaches the top.", effect: .immediate, fallback: .bool(false),
+                        evidence: "AppKit, HIToolbox and SkyLight __cstring _HIHideMenuBar; AppKit __cstring "
+                            + "AppleInterfaceMenuBarHidingChangedNotification, posted after a change as Control Center settings does",
+                        preview: "The menu bar sliding away"),
         PersonalSetting(.controlCenter, "Menu Bar", domain: "NSGlobalDomain", key: "AppleMenuBarVisibleInFullscreen", kind: .bool,
                         control: sysToggle(), title: "Menu Bar in Full Screen",
-                        detail: "Keep the menu bar visible over full-screen apps.", effect: .relaunchApps, fallback: .bool(false),
-                        evidence: "AppKit __cstring AppleMenuBarVisibleInFullscreen; Control Center settings writes it" + unverified,
+                        detail: "Keep the menu bar visible over full-screen apps.", effect: .immediate, fallback: .bool(false),
+                        evidence: "AppKit __cstring AppleMenuBarVisibleInFullscreen; Control Center settings writes it"
+                            + "; AppleInterfaceMenuBarHidingChangedNotification posted after a change",
                         preview: "A full-screen window with the menu bar kept"),
         PersonalSetting(.controlCenter, "Menu Bar", domain: "NSGlobalDomain", key: "userMenuExtraStyle", kind: .int,
                         control: .choice([.init(.int(0), "Full Name"), .init(.int(1), "Account Name"), .init(.int(2), "Icon")]),

@@ -30,8 +30,6 @@ struct DisplayMemoryCard: View {
         } controls: {
             controls
         }
-        .disabled(!trusted)
-        .opacity(trusted ? 1 : 0.5)
         .onAppear { if memory.currentKey == nil { memory.resume() } }
     }
 
@@ -44,6 +42,7 @@ struct DisplayMemoryCard: View {
 
     @ViewBuilder private var controls: some View {
         VStack(alignment: .leading, spacing: DS.Space.m) {
+            NeedsAccessRow(reason: "To read and move windows when displays change.", previewTrusted: trusted ? nil : false)
             if let status = memory.status {
                 Text(status).font(DS.caption).foregroundStyle(DS.Ink.secondary)
                     .fixedSize(horizontal: false, vertical: true)

@@ -520,9 +520,9 @@ struct DockHubItemsCard: View {
                     .frame(width: DockHubLayout.labelWidth - DS.Space.l, alignment: .leading)
                 VStack(alignment: .leading, spacing: 6) {
                     Segments(selection: $dock.hub.sectionStyle, options: DockSectionStyle.allCases.map { ($0, $0.title) })
-                    Text(dock.hub.sectionStyle == .label ? "A line, and the section's name in small type over its tiles."
+                    Text((dock.hub.sectionStyle == .label ? "A line, and the section's name in small type over its tiles."
                          : dock.hub.sectionStyle == .gap ? "Just a little room. Names show while you arrange."
-                         : "Names show over each section while you arrange.")
+                         : "Names show over each section while you arrange.") + " The dock's own separators use it too.")
                         .font(DS.caption).foregroundStyle(DS.Ink.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -543,7 +543,7 @@ struct DockHubItemsCard: View {
 struct DockHubBarContentsCard: View {
     @ObservedObject private var dock = OwnDock.shared
     @ObservedObject private var live = OwnDock.shared.live
-    @State private var trusted = false
+    @ObservedObject private var access = DockAccessWatch.shared
     @State private var allOpen = false
     /// Bumped when apps open or quit, which the dock does not publish.
     @State private var apps = 0
@@ -586,7 +586,7 @@ struct DockHubBarContentsCard: View {
                 groups(extras)
             }
         }
-        .onAppear { trusted = AXIsProcessTrusted() }
+        .watchingDockAccess()
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didLaunchApplicationNotification)) { _ in apps &+= 1 }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didTerminateApplicationNotification)) { _ in apps &+= 1 }
     }
@@ -626,8 +626,8 @@ struct DockHubBarContentsCard: View {
         }
         autoHeader("Minimised Windows", detail: "Each with its title and its app's icon.", on: $dock.appearance.minimized)
         if dock.appearance.minimized {
-            if !trusted { DockNeedsAccess() }
-            if extras.windows.isEmpty, trusted { quiet("No windows are minimised.") }
+            DockNeedsAccess()
+            if extras.windows.isEmpty, access.trusted { quiet("No windows are minimised.") }
             ForEach(extras.windows) { slot in
                 autoRow(slot, caption: "Minimised") {
                     DockPillButton(title: "Restore", symbol: "arrow.up.left.and.arrow.down.right") { dock.activateSlot(slot.id) }
@@ -635,7 +635,7 @@ struct DockHubBarContentsCard: View {
             }
         }
         autoHeader("End of the Bar", detail: nil, on: nil)
-        systemRow("Now Vitals", detail: "Memory, disk and battery as rings.", symbol: "gauge.with.dots.needle.33percent",
+        systemRow("Now Vitals", detail: "Live readings of your Mac. Set it up below.", symbol: "gauge.with.dots.needle.33percent",
                   on: $dock.showVitals)
         systemRow("Trash", detail: "Always last. Drop files on it to trash them.", symbol: "trash",
                   on: Binding(get: { dock.showsTrash }, set: { dock.appearance.showTrash = $0 }))
@@ -988,8 +988,7 @@ struct DockCommitField: View {
 
 struct DockHubHoverCard: View {
     @ObservedObject private var dock = OwnDock.shared
-    @State private var allowed = false
-    @State private var trusted = false
+    @ObservedObject private var permissions = DockPermissions.shared
     private let hue = DockHubHue.tint
 
     var body: some View {
@@ -1010,29 +1009,15 @@ struct DockHubHoverCard: View {
             .help("Atelier takes one picture per window when the pointer rests on the tile, never a recording, keeps it in memory for a few seconds, and saves nothing. It uses Screen Recording, so macOS may show its recording indicator for a moment.")
             .disabled(dock.appearance.hover != .peek)
             .opacity(dock.appearance.hover == .peek ? 1 : 0.45)
-            if dock.hub.windowPreviews, !allowed {
-                HStack(spacing: 10) {
-                    Text("Needs Screen Recording for Atelier. Until then Live Peek lists window titles.")
-                        .font(DS.caption).foregroundStyle(Color(red: 1, green: 0.7, blue: 0.45))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer()
-                    DockPillButton(title: "Allow…") {
-                        _ = CGRequestScreenCaptureAccess()
-                        allowed = CGPreflightScreenCaptureAccess()
-                    }
-                }
-                .dockHubRow()
-            }
-            if dock.hub.windowPreviews, !trusted {
-                Text("Without Accessibility, clicking a picture opens the app but cannot pick the window, and minimised windows are not listed.")
-                    .font(DS.caption).foregroundStyle(DS.Ink.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+            // Kept current while the page is open: a grant shows here, and in the dock, at once.
+            if dock.hub.windowPreviews, !permissions.screen {
+                DockPermissionNote(kind: .screen, sentence: "Window pictures need Screen Recording. Until then Live Peek shows each window's icon and title.")
                     .dockHubRow()
             }
-        }
-        .onAppear {
-            allowed = CGPreflightScreenCaptureAccess()
-            trusted = AXIsProcessTrusted()
+            if dock.hub.windowPreviews, !permissions.trusted {
+                DockPermissionNote(kind: .accessibility, sentence: "Window titles, minimised windows and picking a window need Accessibility.")
+                    .dockHubRow()
+            }
         }
     }
 }
@@ -1047,19 +1032,19 @@ struct DockHubShortcutsCard: View {
 
 
 /// The tiles the dock makes itself rather than keeps: the Trash, Vitals and minimised windows.
-/// Each can be shown or hidden and given its own icon; Vitals chooses its rings.
+/// Each can be given its own icon; Vitals sets its readings, style, pace and click.
 struct DockOwnTilesCard: View {
     @ObservedObject private var dock = OwnDock.shared
 
-    private var region: CGRect { StageRegion.dock(dock.edge == .bottom ? "bottom" : dock.edge == .left ? "left" : "right") }
+    private var region: CGRect { StageRegion.ownDock(dock.edge) }
 
     var body: some View {
         // Showing or hiding these lives in the item list above; here they get their look.
         RowGroup {
             tileRow("Trash", detail: "At the far end, like the macOS Dock.", symbol: "trash", id: "trash")
-            tileRow("Vitals", detail: dock.showVitals ? "Rings for your Mac's state." : "Turn on Now Vitals above to see it.",
+            tileRow("Vitals", detail: dock.showVitals ? "Replaces the live face with a picture." : "Turn on Now Vitals above to see it.",
                     symbol: "gauge.with.dots.needle.67percent", id: "vitals")
-            if dock.showVitals { vitalsPicker.dockHubRow() }
+            if dock.showVitals, !dock.hasOwnIcon("vitals") { DockVitalsSettingsView() }
         }
     }
 
@@ -1071,43 +1056,5 @@ struct DockOwnTilesCard: View {
         }
         .dockHubRow()
         .stagePreview(.focus("dock.own." + title, title, region: region))
-    }
-
-    /// Up to four rings, outermost first, in the order they were picked.
-    private var vitalsPicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Up to four rings, outermost first").font(DS.caption).foregroundStyle(DS.Ink.secondary)
-            FlowRow {
-                ForEach(VitalMetric.allCases.filter { $0 != .network && !$0.isSensor }) { metric in
-                    let index = dock.vitalMetrics.firstIndex(of: metric)
-                    Button {
-                        withAnimation(DS.Motion.settle) {
-                            if let index { dock.vitalMetrics.remove(at: index) }
-                            else if dock.vitalMetrics.count < 4 { dock.vitalMetrics.append(metric) }
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            if let index {
-                                Text("\(index + 1)").font(.system(size: 10, weight: .bold)).monospacedDigit()
-                                    .frame(width: 16, height: 16).background(DockHubHue.tint, in: .circle).foregroundStyle(.black.opacity(0.85))
-                            } else {
-                                Image(systemName: metric.symbol).font(.system(size: 11, weight: .semibold))
-                            }
-                            Text(metric.title).font(.system(size: 12, weight: .medium))
-                        }
-                        .foregroundStyle(index == nil ? DS.Ink.secondary : DS.Ink.primary)
-                        .padding(.horizontal, 10).frame(height: 28)
-                        .background(index == nil ? DS.Ink.fill : DS.Ink.fillStrong, in: .capsule)
-                    }
-                    .buttonStyle(Pressable(scale: 0.95))
-                    // Four rings at most: a fifth waits for one to be taken off, and says so.
-                    .disabled(index == nil && dock.vitalMetrics.count >= 4)
-                    .opacity(index == nil && dock.vitalMetrics.count >= 4 ? 0.45 : 1)
-                    .help(index == nil && dock.vitalMetrics.count >= 4 ? "Four rings at most. Take one off first." : "")
-                    .accessibilityLabel(metric.title)
-                    .accessibilityValue(index.map { "Ring \($0 + 1)" } ?? "Off")
-                }
-            }
-        }
     }
 }

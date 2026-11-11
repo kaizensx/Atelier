@@ -565,9 +565,15 @@ struct IslandHUD: View {
             .opacity(visible ? 1 : 0)
             .blur(radius: visible ? 0 : 4)
             .scaleEffect(visible ? 1 : 0.8, anchor: .top)
+            // Only the contents are held inside the island while it grows and retracts. Clipping
+            // the whole view cut the island's shadow off at the frame, a hard-edged dark box
+            // around it on the screen and on the stage.
+            .mask(alignment: .top) {
+                IslandShape(ear: Self.ear, radius: visible ? 20 : 10)
+                    .frame(width: width + 2 * Self.ear, height: height)
+            }
         }
         .frame(width: width + 2 * Self.ear, height: height, alignment: .top)
-        .clipped()
         .opacity(visible ? 1 : 0.001)
     }
 }
@@ -818,21 +824,29 @@ struct HUDStagePreview: View {
 
     var body: some View {
         let style = style ?? hud.style
-        // The replica is drawn at stage size; the HUD is drawn at real points and scaled to match.
-        let scale = size.width / 1512 * 1.25
+        // The replica is the first screen drawn at stage size, so the HUD is drawn at that
+        // screen's real points and scaled by the same factor. The Island stays true to scale so
+        // it grows out of the replica's own notch (a fixed 14-inch notch at 1.25× sat over it,
+        // wider and taller); the pill and the square are drawn a little larger, to be legible.
+        let screen = NSScreen.screens.first
+        let screenWidth = max(Double(screen?.frame.width ?? 1512), 1)
+        let scale = size.width / screenWidth * (style == .island ? 1 : 1.25)
+        // The replica draws a camera housing only when its screen has one; otherwise the Island
+        // gets a stand-in of a 14-inch MacBook Pro's to grow from.
+        let replicaNotch = MacStage.notch != nil
+        let notch = screen.map(AtelierHUD.notch(of:)) ?? CGSize(width: 185, height: 32)
         TimelineView(.periodic(from: .now, by: 0.22)) { context in
             let tick = Int(context.date.timeIntervalSinceReferenceDate / 0.22) % 22
             // Up five steps, a pause, back down, a pause, then gone for a beat so the entrance shows too.
             let steps = [0, 1, 2, 3, 4, 5, 5, 5, 4, 3, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0][tick]
             let visible = tick < 15
             let level = 7.0 / 16 + Double(steps) / 16
-            let notch = CGSize(width: 185, height: 32)
             HUDBody(style: style, kind: kind, level: level, muted: false, visible: visible, notch: notch)
                 .animation(.spring(response: 0.38, dampingFraction: 0.72), value: visible)
-                .frame(width: 400, height: style == .classic ? 260 : notch.height + 80, alignment: .top)
+                .frame(width: notch.width + 2 * IslandHUD.wing + 2 * IslandHUD.ear + 40,
+                       height: style == .classic ? 260 : notch.height + 80, alignment: .top)
                 .background(alignment: .top) {
-                    // The replica has no camera housing; draw one so the Island has somewhere to grow from.
-                    if style == .island {
+                    if style == .island && !replicaNotch {
                         UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10).fill(.black)
                             .frame(width: notch.width, height: notch.height)
                     }
@@ -840,7 +854,8 @@ struct HUDStagePreview: View {
                 .scaleEffect(scale, anchor: style == .classic ? .center : .top)
                 .frame(width: size.width, height: size.height,
                        alignment: style == .classic ? .center : .top)
-                .offset(y: style == .classic ? size.height * 0.2 : (style == .pill ? size.width * 0.018 : 0))
+                // The pill hangs under the replica's menu bar, as the real one does under the real one.
+                .offset(y: style == .classic ? size.height * 0.2 : (style == .pill ? size.width * MacStage.menuBarFraction : 0))
         }
         .allowsHitTesting(false)
     }

@@ -334,7 +334,6 @@ private struct WindowBox: @unchecked Sendable {
 /// The Maximised Windows part of Position and Behaviour.
 struct DockReserveSettings: View {
     @ObservedObject private var dock = OwnDock.shared
-    @State private var trusted = false
     @State private var apps: [(bundle: String, name: String)] = []
 
     var body: some View {
@@ -348,17 +347,17 @@ struct DockReserveSettings: View {
                 .fixedSize(horizontal: false, vertical: true)
             if dock.reserve.mode == .reserve {
                 if dock.autoHide {
-                    SettingRow(title: "Also While Auto-hidden", detail: "Keep the room even while the dock is out of sight.") {
-                        LuxSwitch(isOn: $dock.reserve.whileHidden, label: "Also While Auto-hidden")
+                    SettingRow(title: "Also While Auto-hidden", detail: "Keep the room even while the dock is out of sight.",
+                               density: .compact) {
+                        LuxSwitch(isOn: $dock.reserve.whileHidden, label: "Also While Auto-hidden", tint: DockHubHue.tint)
                     }
                 }
                 DockSliderRow(title: "Margin", value: $dock.reserve.margin, range: 0...24,
                               text: "\(Int(dock.reserve.margin.rounded())) pt")
                 exceptionsList
-                if !trusted { DockNeedsAccess() }
+                DockNeedsAccess()
             }
         }
-        .onAppear { trusted = AXIsProcessTrusted() }
         .task {
             // After the first frame: the card opens without listing apps.
             await Task.yield()

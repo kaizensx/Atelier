@@ -166,9 +166,11 @@ struct ConstellationCounter: View {
             if features.isEmpty {
                 Text("Nothing bent yet.")
                     .font(.system(size: 15, weight: .semibold)).foregroundStyle(DS.Ink.primary)
+                // XDR Boost is only the place to start on a Mac that has an XDR display.
+                let xdr = StudioThisMac.hasXDRDisplay
                 Button { model.go(.appearance) } label: {
                     HStack(spacing: 4) {
-                        Text("Start with the brightest one")
+                        Text(xdr ? "Start with the brightest one" : "Start with Candlelight")
                         Image(systemName: "arrow.right").font(.system(size: 10, weight: .bold))
                     }
                     .font(.system(size: 12, weight: .medium))
@@ -177,7 +179,7 @@ struct ConstellationCounter: View {
                     .contentShape(.rect)
                 }
                 .buttonStyle(Pressable())
-                .accessibilityHint("Opens XDR Boost")
+                .accessibilityHint(xdr ? "Opens XDR Boost" : "Opens Candlelight")
             } else {
                 Text("\(features.count)")
                     .font(DS.Typo.readout)

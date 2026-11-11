@@ -78,12 +78,14 @@ final class DesktopPlus: ObservableObject {
     private var keyGeneration = 0
     private var hiderToggle: NSStatusItem?
     private var hiderSeparator: NSStatusItem?
-    /// macOS 27 only: the longest divider this menu bar still lays out, measured on first collapse.
-    private var hiderReach: Double?
     private var assertion: IOPMAssertionID = 0
     private var caffeinateTimer: Timer?
     private var toolPanel: NSPanel?
     private var toolKeyMonitor: Any?
+    /// Closes a full-screen tool when it loses the keyboard, so it can never sit over the
+    /// screen eating clicks after Escape has stopped reaching it.
+    private var toolResignObserver: NSObjectProtocol?
+    private var sampling = false
     private var swatchPanel: NSPanel?
     private var swatchGeneration = 0
 
@@ -116,8 +118,8 @@ final class DesktopPlus: ObservableObject {
 
     /// Safe to call again on a screen change: panels are rebuilt, observers are not doubled.
     func start() {
-        // A display change moves the menu bar's room, so macOS 27 measures the divider again.
-        hiderReach = nil
+        // A display change moves the menu bar's room, so a collapsed divider is fitted again.
+        if menuBarCollapsed { setCollapsed(true) }
         applyEdgeGlow(); applyVignette(); applyGrain(); applyNight(); applyGrid()
         guard !started else { return }
         started = true
@@ -129,7 +131,12 @@ final class DesktopPlus: ObservableObject {
     }
 
     private func quitting() {
-        if cleanRestoreOnQuit && store.bool(forKey: "desktopPlus.cleanApplied") { Self.restoreDesktopIcons(prior: store.string(forKey: "desktopPlus.cleanPrior")) ; store.set(false, forKey: "desktopPlus.cleanApplied") }
+        if cleanRestoreOnQuit && store.bool(forKey: "desktopPlus.cleanApplied") {
+            // Synchronous: the process is about to go.
+            Self.restoreDesktopIcons(prior: store.string(forKey: "desktopPlus.cleanPrior"), method: appliedMethod)
+            store.set(false, forKey: "desktopPlus.cleanApplied")
+            store.removeObject(forKey: "desktopPlus.cleanMethod")
+        }
         releaseCaffeinate()
     }
 
@@ -345,64 +352,107 @@ final class DesktopPlus: ObservableObject {
 
     // MARK: Clean desktop
 
-    /// Finder's own switch, `CreateDesktop`. What was there before is kept so it can go back exactly.
+    /// How Clean Desktop hides the icons, kept with what was there before so it goes back exactly.
+    private enum CleanMethod: String {
+        /// macOS 14 on: Desktop & Dock's "Show Items: On Desktop" off. The icons come back whenever
+        /// you go to the desktop (clicking the wallpaper, Show Desktop, F11), and Finder keeps running
+        /// its desktop. WindowManager observes the key, so nothing restarts.
+        case windowManager
+        /// Up to macOS 13: Finder's `CreateDesktop`. It removes Finder's desktop altogether, so
+        /// it is never used where the gentler switch exists.
+        case finder
+
+        static var preferred: CleanMethod { MacPlatform.major >= 14 ? .windowManager : .finder }
+        var key: String { self == .windowManager ? "StandardHideDesktopIcons" : "CreateDesktop" }
+        var domain: String { self == .windowManager ? "com.apple.WindowManager" : "com.apple.finder" }
+        var hidden: String { self == .windowManager ? "true" : "false" }
+        var restarts: String? { self == .finder ? "Finder" : nil }
+    }
+
+    /// The method the applied state used. Before it was recorded, Clean Desktop always used Finder's.
+    private var appliedMethod: CleanMethod {
+        store.string(forKey: "desktopPlus.cleanMethod").flatMap(CleanMethod.init(rawValue:)) ?? .finder
+    }
+
     private func applyCleanDesktop() {
         let applied = store.bool(forKey: "desktopPlus.cleanApplied")
         if cleanDesktop && !applied {
-            let prior = Prefs.current("CreateDesktop", domain: "com.apple.finder")
+            let method = CleanMethod.preferred
+            let prior = Prefs.current(method.key, domain: method.domain)
             store.set(prior, forKey: "desktopPlus.cleanPrior")
+            store.set(method.rawValue, forKey: "desktopPlus.cleanMethod")
             store.set(true, forKey: "desktopPlus.cleanApplied")
             Task.detached {
                 do {
-                    try Prefs.write("CreateDesktop", type: "bool", value: "false", domain: "com.apple.finder")
-                    Prefs.restart("Finder")
+                    try Prefs.write(method.key, type: "bool", value: method.hidden, domain: method.domain)
+                    if let process = method.restarts { Prefs.restart(process) }
                 } catch {
                     await MainActor.run { DesktopPlus.shared.notice = "Couldn’t hide desktop icons: \(error.localizedDescription)" }
                 }
             }
         } else if !cleanDesktop && applied {
-            store.set(false, forKey: "desktopPlus.cleanApplied")
-            let prior = store.string(forKey: "desktopPlus.cleanPrior")
-            Task.detached { Self.restoreDesktopIcons(prior: prior) }
+            restoreCleanDesktop()
         }
     }
 
-    /// After a crash, or a quit that was set to restore: put Finder back, then re-apply if wanted.
+    /// After a crash, or a quit that was set to restore: put the icons back, then re-apply if wanted.
+    /// An older Atelier hid them with Finder's `CreateDesktop`, which leaves no desktop to go to:
+    /// that is undone and, where the gentler switch exists, applied again with it.
     private func recoverCleanDesktop() {
         let applied = store.bool(forKey: "desktopPlus.cleanApplied")
-        if applied && !cleanDesktop {
-            store.set(false, forKey: "desktopPlus.cleanApplied")
-            let prior = store.string(forKey: "desktopPlus.cleanPrior")
-            Task.detached { Self.restoreDesktopIcons(prior: prior) }
+        if applied && (!cleanDesktop || appliedMethod != CleanMethod.preferred) {
+            restoreCleanDesktop()
+            if cleanDesktop { applyCleanDesktop() }
         } else if cleanDesktop && !applied {
             applyCleanDesktop()
         }
     }
 
-    nonisolated private static func restoreDesktopIcons(prior: String?) {
-        if let prior { try? Prefs.write("CreateDesktop", type: "bool", value: prior == "false" || prior == "0" ? "false" : "true", domain: "com.apple.finder") }
-        else { try? Prefs.delete("CreateDesktop", domain: "com.apple.finder") }
-        Prefs.restart("Finder")
+    private func restoreCleanDesktop() {
+        let method = appliedMethod
+        let prior = store.string(forKey: "desktopPlus.cleanPrior")
+        store.set(false, forKey: "desktopPlus.cleanApplied")
+        store.removeObject(forKey: "desktopPlus.cleanMethod")
+        Task.detached { Self.restoreDesktopIcons(prior: prior, method: method) }
+    }
+
+    nonisolated private static func restoreDesktopIcons(prior: String?, method: CleanMethod) {
+        if let prior {
+            let off = prior == "false" || prior == "0"
+            try? Prefs.write(method.key, type: "bool", value: off ? "false" : "true", domain: method.domain)
+        } else {
+            try? Prefs.delete(method.key, domain: method.domain)
+        }
+        if let process = method.restarts { Prefs.restart(process) }
     }
 
     // MARK: Menu bar hider
 
-    /// Two status items, public API only. Items you Command-drag to the left of the divider
-    /// are pushed off the bar while it is collapsed. Apple's own Control Centre items may refuse to move.
+    private static let hiderToggleName = "atelier.hider.toggle"
+    private static let hiderDividerName = "atelier.hider.divider"
+
+    /// Two status items, public API only. Everything left of the divider is pushed off the bar
+    /// while it is collapsed. The pair first lands beside Control Centre, so every other icon
+    /// starts out tucked; Command-drag an icon right of the divider to keep it showing.
     private func applyHider() {
         for item in [hiderToggle, hiderSeparator].compactMap({ $0 }) { NSStatusBar.system.removeStatusItem(item) }
         hiderToggle = nil
         hiderSeparator = nil
-        hiderReach = nil
         menuBarCollapsed = false
         guard menuBarHider else { return }
+        // A new status item lands at the far left, with nothing left of the divider to hide.
+        // Seed a place by Control Centre once; macOS keeps it up to date when either is moved.
+        for (name, slot) in [(Self.hiderToggleName, DesktopCompat.hiderToggleSlot), (Self.hiderDividerName, DesktopCompat.hiderDividerSlot)] {
+            let key = "NSStatusItem Preferred Position " + name
+            if store.object(forKey: key) == nil { store.set(slot, forKey: key) }
+        }
         let toggle = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        toggle.autosaveName = "atelier.hider.toggle"
+        toggle.autosaveName = Self.hiderToggleName
         toggle.button?.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "Collapse menu bar items")
         toggle.button?.target = self
         toggle.button?.action = #selector(toggleHider)
         let separator = NSStatusBar.system.statusItem(withLength: 10)
-        separator.autosaveName = "atelier.hider.divider"
+        separator.autosaveName = Self.hiderDividerName
         separator.button?.image = NSImage(systemSymbolName: "line.diagonal", accessibilityDescription: "Divider")
         separator.button?.appearsDisabled = true
         hiderToggle = toggle
@@ -422,31 +472,16 @@ final class DesktopPlus: ObservableObject {
                                              accessibilityDescription: collapsed ? "Show menu bar items" : "Collapse menu bar items")
     }
 
-    /// How long the divider grows to push the items left of it off the bar. Up to macOS 26 the
-    /// longest a status item may be does it. macOS 27 drops an item too long to fit from the bar
-    /// instead, and a dropped divider hides nothing, so there the longest length that still lays
-    /// out is measured against the live bar and kept until the displays change.
+    /// How long the divider grows. macOS 27 drops a divider wider than half its display, and a
+    /// dropped divider hides nothing, so the length follows the display the menu bar is on.
     private func collapseLength(_ separator: NSStatusItem) -> Double {
-        guard DesktopCompat.hiderNeedsMeasuring(major: MacPlatform.major) else { return DesktopCompat.statusItemMaximum }
-        if let hiderReach { return hiderReach }
-        let widest = NSScreen.screens.map(\.frame.width).max() ?? 1440
-        let ceiling = DesktopCompat.hiderCeiling(widestScreen: widest)
-        guard let window = separator.button?.window else { return ceiling }
-        separator.length = 10
-        let arrow = hiderToggle?.button?.window?.frame.midX
-        // The divider grows away from the arrow, so its arrow-facing edge holds still while laid out.
-        func edge() -> Double {
-            let frame = window.frame
-            if let arrow, frame.midX > arrow { return frame.minX }
-            return frame.maxX
-        }
-        let baseline = edge()
-        let reach = DesktopCompat.measureCollapse(ceiling: ceiling, baseline: baseline) { length in
-            separator.length = length
-            return edge()
-        }
-        hiderReach = reach
-        return reach
+        let window = separator.button?.window
+        let screen = window?.screen ?? NSScreen.screens.first
+        // The window is wider than the item by its insets; measured at rest, 16 pt on macOS 27.
+        let padding = window.map { Double($0.frame.width) - separator.length } ?? 16
+        let width = screen.map { Double($0.frame.width) } ?? 1440
+        return DesktopCompat.hiderLength(major: MacPlatform.major, screenWidth: width,
+                                         padding: separator.length == 10 ? padding : 16)
     }
 
     // MARK: Caffeinate
@@ -495,16 +530,27 @@ final class DesktopPlus: ObservableObject {
         panel.makeKeyAndOrderFront(nil)
         panel.orderFrontRegardless()
         toolPanel = panel
-        toolKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard event.keyCode == UInt16(kVK_Escape) else { return event }
+        // Escape leaves, and so does a right-click: a way out that needs no keyboard focus.
+        toolKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .rightMouseDown]) { event in
+            guard event.type == .rightMouseDown || event.keyCode == UInt16(kVK_Escape) else { return event }
             MainActor.assumeIsolated { DesktopPlus.shared.closeTool() }
             return nil as NSEvent?
+        }
+        toolResignObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel,
+                                                                    queue: .main) { _ in
+            // Switching apps (⌘-Tab, a click on another screen) takes the keyboard away.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                let plus = DesktopPlus.shared
+                if let panel = plus.toolPanel, !panel.isKeyWindow { plus.closeTool() }
+            }
         }
     }
 
     func closeTool() {
         if let toolKeyMonitor { NSEvent.removeMonitor(toolKeyMonitor) }
         toolKeyMonitor = nil
+        if let toolResignObserver { NotificationCenter.default.removeObserver(toolResignObserver) }
+        toolResignObserver = nil
         toolPanel?.orderOut(nil)
         toolPanel = nil
         annotating = false
@@ -525,7 +571,11 @@ final class DesktopPlus: ObservableObject {
 
     /// The system loupe. It needs no capture permission and returns one colour.
     func pickColour() {
+        // One loupe at a time; a second press while it is up does nothing.
+        guard !sampling else { return }
+        sampling = true
         NSColorSampler().show { picked in
+            MainActor.assumeIsolated { DesktopPlus.shared.sampling = false }
             guard let picked, let rgb = picked.usingColorSpace(.sRGB) else { return }
             let hex = String(format: "#%02X%02X%02X", Int((rgb.redComponent * 255).rounded()),
                              Int((rgb.greenComponent * 255).rounded()), Int((rgb.blueComponent * 255).rounded()))
@@ -596,11 +646,8 @@ enum DesktopAvailability {
             : .limited("Needs Accessibility: allow Atelier in System Settings, Privacy & Security, Accessibility.")
     }
 
-    static var menuBarHider: FeatureAvailability {
-        DesktopCompat.hiderNeedsMeasuring(major: MacPlatform.major)
-            ? .limited("macOS 27 tucks only what fits its menu bar: the reach is measured on first use, and the icon nearest the divider may stay.")
-            : .available
-    }
+    /// Public status item API only: nothing to grant. macOS 27's shorter divider is fitted to the display.
+    static var menuBarHider: FeatureAvailability { .available }
 
     /// Desktop Macs have no battery to pause on.
     static var pauseOnBattery: FeatureAvailability {
@@ -855,10 +902,15 @@ struct RulerCanvas: View {
                     Rectangle().strokeBorder(ink, lineWidth: 1).frame(width: box.width, height: box.height).offset(x: box.minX, y: box.minY)
                     label("\(Int(box.width)) × \(Int(box.height)) pt").position(x: box.midX, y: box.maxY + 18)
                 }
-                Text("Drag to measure · ⌘C copies · Esc to leave")
-                    .font(.system(size: 12, weight: .medium)).foregroundStyle(.white)
-                    .padding(.horizontal, 14).frame(height: 32).atelierGlass(.regular, in: .capsule)
-                    .frame(maxWidth: .infinity).padding(.top, 54)
+                HStack(spacing: 10) {
+                    Text("Drag to measure · ⌘C copies · Esc or right-click to leave")
+                        .font(.system(size: 12, weight: .medium))
+                    Button { DesktopPlus.shared.closeTool() } label: { Text("Done  ⎋").font(.system(size: 12, weight: .semibold)) }
+                        .buttonStyle(Pressable())
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14).frame(height: 32).atelierGlass(.regular, in: .capsule)
+                .frame(maxWidth: .infinity).padding(.top, 54)
             }
             .contentShape(Rectangle())
             .onContinuousHover { phase in

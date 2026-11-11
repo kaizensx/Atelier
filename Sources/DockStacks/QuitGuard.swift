@@ -20,7 +20,17 @@ private nonisolated(unsafe) var holding = false
 /// Stamped on the ⌘Q Atelier passes on, so the tap does not catch it again.
 private let quitMark: Int64 = 0x41545151
 
-private let qKey: Int64 = 12
+/// The keycode of the Q being held, on whatever layout: its key-up and repeats are matched by
+/// it, and the ⌘Q passed on after a full hold uses it, so the app reads the same key.
+private nonisolated(unsafe) var heldKey: Int64 = QuitHoldDecision.ansiQ
+
+/// The characters a key event types, as the layout in use gives them.
+private func characters(of event: CGEvent) -> String {
+    var length = 0
+    var chars = [UniChar](repeating: 0, count: 4)
+    event.keyboardGetUnicodeString(maxStringLength: chars.count, actualStringLength: &length, unicodeString: &chars)
+    return String(utf16CodeUnits: chars, count: min(max(length, 0), chars.count))
+}
 
 private func quitCallback(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent,
                           _ info: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
@@ -30,8 +40,9 @@ private func quitCallback(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event
     }
     guard event.getIntegerValueField(.eventSourceUserData) != quitMark else { return Unmanaged.passUnretained(event) }
     let flags = event.flags
+    let code = event.getIntegerValueField(.keyboardEventKeycode)
     switch type {
-    case .keyDown where event.getIntegerValueField(.keyboardEventKeycode) == qKey:
+    case .keyDown where (holding && code == heldKey) || QuitHoldDecision.isQuitKey(characters: characters(of: event), keyCode: code):
         let others: CGEventFlags = [.maskShift, .maskAlternate, .maskControl]
         let decision = QuitHoldDecision.keyDown(command: flags.contains(.maskCommand), otherModifiers: !flags.intersection(others).isEmpty,
                                                 isRepeat: event.getIntegerValueField(.keyboardEventAutorepeat) != 0, holding: holding)
@@ -41,13 +52,15 @@ private func quitCallback(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event
         case .begin:
             // The tap's source is on the main run loop, so this is the main thread. A fresh press
             // while a hold seemed to be on means its key-up was lost: that hold is dropped first.
+            // `begin` only decides; the ring is drawn on the next turn, so the tap answers at
+            // once and macOS never times it out and lets this ⌘Q through.
             let guarded = MainActor.assumeIsolated { () -> Bool in
                 if holding { QuitGuard.shared.abandon() }
-                return QuitGuard.shared.begin()
+                return QuitGuard.shared.begin(keyCode: code)
             }
             return guarded ? nil : Unmanaged.passUnretained(event)
         }
-    case .keyUp where event.getIntegerValueField(.keyboardEventKeycode) == qKey && holding:
+    case .keyUp where holding && code == heldKey:
         MainActor.assumeIsolated { QuitGuard.shared.release() }
         return nil
     case .flagsChanged where holding && !flags.contains(.maskCommand):
@@ -89,6 +102,14 @@ final class QuitGuard: ObservableObject {
         if enabled { apply() }
     }
 
+    /// Accessibility just arrived: a tap made before it went away is made again, and one that
+    /// was waiting for it starts. The switch was usable all along; this is when it takes hold.
+    func rearm() {
+        guard enabled else { return }
+        removeTap()
+        apply()
+    }
+
     /// Drops a hold whose key-up never came.
     fileprivate func abandon() {
         spent = false
@@ -97,7 +118,7 @@ final class QuitGuard: ObservableObject {
 
     private func apply() {
         if enabled {
-            guard guardTap == nil, AXIsProcessTrusted() else { return }
+            guard guardTap == nil, AXIsProcessTrusted() else { objectWillChange.send(); return }
             let mask = CGEventMask(1 << CGEventType.keyDown.rawValue | 1 << CGEventType.keyUp.rawValue
                                    | 1 << CGEventType.flagsChanged.rawValue)
             guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
@@ -107,28 +128,42 @@ final class QuitGuard: ObservableObject {
             CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
             self.source = source
             CGEvent.tapEnable(tap: tap, enable: true)
-        } else if let tap = guardTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
-            CFMachPortInvalidate(tap)
-            guardTap = nil
-            source = nil
-            cancel()
+        } else {
+            removeTap()
         }
         objectWillChange.send()
     }
 
+    private func removeTap() {
+        guard let tap = guardTap else { return }
+        CGEvent.tapEnable(tap: tap, enable: false)
+        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+        CFMachPortInvalidate(tap)
+        guardTap = nil
+        source = nil
+        cancel()
+    }
+
     /// A fresh ⌘Q. Returns false when it should go straight through: the Finder, which has
     /// no Quit, or no app in front.
-    fileprivate func begin() -> Bool {
+    fileprivate func begin(keyCode: Int64) -> Bool {
         guard let app = NSWorkspace.shared.frontmostApplication, app.bundleIdentifier != "com.apple.finder" else { return false }
         holding = true
+        heldKey = keyCode
         spent = false
         target = app
         stopped += 1
-        show(app)
-        timer = Timer.scheduledTimer(withTimeInterval: hold, repeats: false) { _ in
+        // Common modes: the hold still completes while a menu is open.
+        let timer = Timer(timeInterval: hold, repeats: false) { _ in
             MainActor.assumeIsolated { QuitGuard.shared.complete() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                guard holding, QuitGuard.shared.target == app else { return }
+                QuitGuard.shared.show(app)
+            }
         }
         return true
     }
@@ -160,7 +195,7 @@ final class QuitGuard: ObservableObject {
         // The same ⌘Q the app would have had, so it asks about unsaved work as usual.
         let source = CGEventSource(stateID: .hidSystemState)
         for down in [true, false] {
-            guard let event = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(qKey), keyDown: down) else { continue }
+            guard let event = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(heldKey), keyDown: down) else { continue }
             event.flags = .maskCommand
             event.setIntegerValueField(.eventSourceUserData, value: quitMark)
             event.postToPid(app.processIdentifier)
@@ -249,6 +284,7 @@ struct QuitRing: View {
 
 struct QuitGuardCard: View {
     @ObservedObject private var quit = QuitGuard.shared
+    @ObservedObject private var access = AccessWatch.shared
 
     var body: some View {
         HeroCard("Hold ⌘Q to Quit", pitch: "A slip of ⌘Q does nothing. Keep it down until the ring fills.",
@@ -263,11 +299,11 @@ struct QuitGuardCard: View {
             LivePlate { size, since in QuitPlate(size: size, hold: quit.hold, since: since) }
         } controls: {
             VStack(alignment: .leading, spacing: DS.Space.m) {
-                AvailabilityNote(availability: InputTrust.availability)
+                NeedsAccessRow(reason: "To hold ⌘Q back before the app sees it.")
                 HeroSlider(title: "Hold for", value: $quit.hold, range: 0.4...2, hue: DS.Spectrum.surfaces) {
                     String(format: "%.1f s", $0)
                 }
-                if AXIsProcessTrusted() {
+                if access.trusted {
                     Text("The Finder is left alone. In password fields macOS keeps keystrokes private, so ⌘Q quits there at once.")
                         .font(DS.caption).foregroundStyle(DS.Ink.tertiary).fixedSize(horizontal: false, vertical: true)
                 }

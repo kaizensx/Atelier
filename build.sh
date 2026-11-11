@@ -78,6 +78,10 @@ xcrun -sdk macosx metal -mmacosx-version-min=14.0 Shaders/Living.metal -o "$APP/
 cp Shaders/Living.metal "$APP/Contents/Resources/"
 # The icon: rendered from branding/src/icon.swift (the 8K master), committed as AppIcon.icns.
 cp branding/icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# Example themes and plugins, copied into the owner's folders on first run.
+rm -rf "$APP/Contents/Resources/Examples"
+mkdir -p "$APP/Contents/Resources/Examples"
+cp -R examples/themes examples/plugins "$APP/Contents/Resources/Examples/"
 # A stable identity keeps Screen Recording and Accessibility grants across rebuilds.
 # Ad-hoc signing changes the code hash, so macOS forgets them every time.
 # Releases are signed with "Atelier Release", a certificate that carries no personal details;

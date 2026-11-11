@@ -19,6 +19,9 @@ final class WindowPin: ObservableObject {
     @Published var opacity: Double { didSet { store.set(opacity, forKey: "tools.pinOpacity"); sessions.forEach { $0.panel.alphaValue = opacity } } }
     @Published private(set) var count = 0
     @Published private(set) var message: String?
+    /// From the press to the first frame. A second press meanwhile is ignored, so a double
+    /// press never opens two pins of one window.
+    @Published private(set) var starting = false
 
     private var sessions: [PinSession] = []
     static let limit = 3
@@ -29,6 +32,13 @@ final class WindowPin: ObservableObject {
     }
 
     func pinFrontWindow() {
+        guard !starting else { return }
+        let access = ScreenCaptureAccess.shared
+        guard access.refresh() else {
+            message = "Needs Screen Recording. Grant it, then pin again."
+            access.request()
+            return
+        }
         guard sessions.count < Self.limit else { message = "Up to \(Self.limit) pins at once."; return }
         guard let app = WindowEngine.shared.toolsTargetApp, let target = Self.frontWindow(of: app.processIdentifier) else {
             message = "There is no window to pin."
@@ -37,6 +47,7 @@ final class WindowPin: ObservableObject {
         guard !sessions.contains(where: { $0.windowID == target.id }) else { message = "That window is already pinned."; return }
         message = nil
         let rate = fps
+        starting = true
         Task { await self.start(windowID: target.id, frame: target.bounds, pid: app.processIdentifier, fps: rate) }
     }
 
@@ -65,8 +76,9 @@ final class WindowPin: ObservableObject {
     }
 
     private func start(windowID: CGWindowID, frame: CGRect, pid: pid_t, fps: Int) async {
+        defer { starting = false }
         do {
-            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            let content = try await ToolsCapture.content()
             guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
                 message = "That window can’t be captured."
                 return
@@ -88,7 +100,8 @@ final class WindowPin: ObservableObject {
             sessions.append(session)
             count = sessions.count
         } catch {
-            message = "Pinning needs Screen Recording access for Atelier. \(error.localizedDescription)"
+            ScreenCaptureAccess.shared.refresh()
+            message = "Could not pin that window: \(error.localizedDescription)"
         }
     }
 

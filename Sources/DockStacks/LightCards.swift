@@ -247,34 +247,68 @@ struct BoostPreview: View {
 // MARK: Below Black
 
 /// Below Black, which took over from Extra Dim: same settings, same place in search.
+///
+/// It follows the backlight: nothing above a quarter brightness, then deeper with each step
+/// down, its full depth at the lowest step. The card says where the backlight is and what Below
+/// Black is doing there right now, so a switch that is on at full brightness never looks broken.
 struct ExtraDimCard: View {
     @ObservedObject private var light = LightEngine.shared
+
+    private var percentStart: Int { Int((LightMath.belowBlackStart * 100).rounded()) }
+
+    /// One line on what is happening now, in the units the eye judges.
+    private var status: String {
+        let taken = Int((light.dimLightTakenNow * 100).rounded())
+        guard let level = light.dimBrightness else {
+            return "Working now: \(taken)% less light on every display."
+        }
+        let at = Int((level * 100).rounded())
+        if light.dimEngagement <= 0.001 {
+            return "Brightness is \(at)%. Turn it down below \(percentStart)% and Below Black takes over."
+        }
+        if light.dimEngagement >= 0.999 {
+            return "Working now at the lowest step: \(taken)% less light than Apple's lowest."
+        }
+        return "Working now at \(at)% brightness: \(taken)% less light. Deepest at the lowest step."
+    }
 
     var body: some View {
         let availability = light.gammaAvailability
         HeroCard("Below Black",
-                 pitch: "Darker than the lowest brightness step, for a dark room at night. Screenshots stay as they are.",
+                 pitch: "Takes the screen darker than Apple's lowest brightness: it starts below \(percentStart)% and is deepest at the lowest step.",
                  isOn: $light.dimOn.displayCompatGated(availability), hue: DS.Spectrum.light,
-                 readout: "−\(Int((light.dimAmount * 100).rounded()))%",
-                 readoutCaption: "Below Apple's lowest",
+                 readout: "−\(Int((light.dimLightTaken * 100).rounded()))%",
+                 readoutCaption: "Light at the lowest step",
                  preview: .overlay("display.extraDim", "Below Black", isOn: light.dimOn) { size in BelowBlackPreview(size: size) }) {
-            BelowBlackPlate(scale: light.dimScale, on: light.dimOn).displayCompatNote(availability)
+            BelowBlackPlate(scale: light.dimScale, on: light.dimOn, brightness: light.dimBrightness,
+                            engagement: light.dimOn ? light.dimEngagement : 0)
+                .displayCompatNote(availability)
         } controls: {
-            HStack(spacing: 12) {
-                Text("Darker").font(DS.caption).foregroundStyle(DS.Ink.secondary).frame(width: 52, alignment: .leading)
-                LuxSlider(value: $light.dimAmount, range: 0.1...0.8, label: "Below Black amount", tint: DS.Spectrum.light)
-                Text("Keeps \(Int((light.dimScale * 100).rounded()))%").font(DS.Typo.value)
-                    .foregroundStyle(DS.Ink.secondary).frame(width: 82, alignment: .trailing)
+            VStack(alignment: .leading, spacing: DS.Space.m) {
+                HStack(spacing: 12) {
+                    Text("Darker").font(DS.caption).foregroundStyle(DS.Ink.secondary).frame(width: 52, alignment: .leading)
+                    LuxSlider(value: $light.dimAmount, range: 0.1...0.8, label: "Below Black amount", tint: DS.Spectrum.light)
+                    Text("Keeps \(Int(((1 - light.dimLightTaken) * 100).rounded()))%").font(DS.Typo.value)
+                        .foregroundStyle(DS.Ink.secondary).frame(width: 82, alignment: .trailing)
+                }
+                Text(status).font(DS.caption).monospacedDigit()
+                    .foregroundStyle(light.dimEngagement > 0.001 ? DS.Spectrum.light : DS.Ink.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 }
 
 /// Apple's brightness steps as a staircase of light, and past its lowest step the stairs
-/// Below Black adds, going on down. Under the pointer a level marker walks down the stairs.
+/// Below Black adds, going on down. A dot marks where the screen is now; under the pointer it
+/// walks down the stairs instead.
 private struct BelowBlackPlate: View {
     let scale: Double
     let on: Bool
+    /// The backlight now, 0…1, when it can be read.
+    let brightness: Double?
+    /// How much of Below Black applies now, 0…1.
+    let engagement: Double
 
     var body: some View {
         HeroLife { live in
@@ -300,10 +334,18 @@ private struct BelowBlackPlate: View {
             let k = Double(extra - i) / Double(extra)
             return lowest * (1 - (1 - scale) * k)
         }
-        // The marker loops from the brightest step down to the darkest and holds there.
+        // Under the pointer the marker loops from the brightest step down to the darkest and
+        // holds there; at rest it shows where the screen is now (when Below Black is on).
         let cycle = 3.2
         let p = live ? t.truncatingRemainder(dividingBy: cycle) / cycle : 1
-        let marker = Int((Double(count - 1) * (1 - min(p / 0.75, 1))).rounded())
+        let walking = Int((Double(count - 1) * (1 - min(p / 0.75, 1))).rounded())
+        let now: Int? = {
+            guard on else { return nil }
+            if engagement > 0.001 { return extra - 1 - Int((Double(extra - 1) * engagement).rounded()) }
+            guard let brightness else { return nil }
+            return extra + Int((Double(apple - 1) * min(max(brightness, 0), 1)).rounded())
+        }()
+        let marker = live ? walking : now
 
         for i in 0..<count {
             let x = left + Double(i) * (barW + gap)
@@ -315,9 +357,9 @@ private struct BelowBlackPlate: View {
             let bar = Path(roundedRect: rect, cornerRadius: min(3, barW / 2))
             g.fill(bar, with: .color(Color(white: lum)))
             if ours {
-                g.stroke(bar, with: .color(DS.Spectrum.light.opacity(on ? 0.75 : 0.4)), lineWidth: 0.75)
+                g.stroke(bar, with: .color(DS.Spectrum.light.opacity(on ? 0.4 + 0.5 * engagement : 0.4)), lineWidth: 0.75)
             }
-            if live && i == marker {
+            if i == marker {
                 g.fill(Path(ellipseIn: CGRect(x: x + barW / 2 - 3, y: base - h - 10, width: 6, height: 6)),
                        with: .color(DS.Spectrum.light))
             }
@@ -332,17 +374,20 @@ private struct BelowBlackPlate: View {
     }
 }
 
-/// The whole stage darkened by the same share, the way the panel itself would be.
+/// The whole stage darkened by the share of light Below Black takes at its full depth, the way
+/// the panel itself would be at the lowest step.
 struct BelowBlackPreview: View {
     @ObservedObject private var light = LightEngine.shared
     let size: CGSize
 
     var body: some View {
-        // With the real screen already dimmed, the stage would darken twice; show it once.
+        // What the real screen is already doing is not drawn a second time: only the part of
+        // the full depth the backlight has not called for yet.
+        let shown = light.dimLightTaken - light.dimLightTakenNow
         ZStack {
-            Rectangle().fill(.black).opacity(light.dimOn ? 0 : light.dimAmount)
-                .animation(DS.Motion.settle, value: light.dimAmount)
-            LightChip(symbol: "moon.stars.fill", text: "Keeps \(Int((light.dimScale * 100).rounded()))% of the lowest brightness")
+            Rectangle().fill(.black).opacity(max(shown, 0))
+                .animation(DS.Motion.settle, value: shown)
+            LightChip(symbol: "moon.stars.fill", text: "At the lowest step, keeps \(Int(((1 - light.dimLightTaken) * 100).rounded()))% of Apple's lowest")
         }
         .frame(width: size.width, height: size.height)
         .allowsHitTesting(false)

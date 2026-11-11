@@ -459,9 +459,8 @@ struct DockSlot: Identifiable, Equatable, Sendable {
 
     var weight: Double {
         switch kind {
-        case .divider: 0.36
         case .spacer: 0.5
-        case .section: sectionStyle.weight
+        case .divider, .section: sectionStyle.weight
         default: scale
         }
     }
@@ -799,17 +798,15 @@ struct DockField: Sendable {
         }
         Self.spring(&peekShow, &peekShowV, to: peekTarget ? 1 : 0, stiffness: 320, damping: motion ? 0.8 : 1, dt: dt)
 
-        // The lift of each tile is tied to its neighbours, so a launch sends a wave along the bar.
-        var previousLift: Double?
+        // Each tile hops on its own spring. It used to be tied to its neighbours, which sent a
+        // wave along the bar: a launch or a request for attention looked like several apps
+        // bouncing. Only the app that opens or asks moves now, as in the macOS Dock.
         for index in slots.indices {
             let slot = slots[index]
             guard var body = bodies[slot.id] else { continue }
             let z = 0.24, k = 120.0
-            let left = previousLift ?? body.lift
-            let right = index + 1 < slots.count ? bodies[slots[index + 1].id]?.lift ?? body.lift : body.lift
-            body.liftV += (-k * body.lift - 2 * z * k.squareRoot() * body.liftV + 70 * (left + right - 2 * body.lift)) * dt
+            body.liftV += (-k * body.lift - 2 * z * k.squareRoot() * body.liftV) * dt
             body.lift += body.liftV * dt
-            previousLift = body.lift
             if motion, (bounce && slot.launching) || slot.attention {
                 body.nextPulse -= dt
                 if body.nextPulse <= 0 {

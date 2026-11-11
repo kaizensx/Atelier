@@ -37,8 +37,11 @@ struct Chapter: RawRepresentable, Hashable, Identifiable, Sendable {
     @MainActor var routed: Chapter { NavRegistry.resolve(self) }
 
     /// Where the camera lands: zoom, and the focus point in stage units (0...1).
-    var camera: (zoom: Double, focus: UnitPoint) {
+    @MainActor var camera: (zoom: Double, focus: UnitPoint) {
         switch self {
+        // A dock on a side or the top edge would sit under the sidebar or the panel at the
+        // dock's usual zoom: the camera stays at rest so the whole dock shows (StageDockSide).
+        case .dock where StageDockSide.shared.side, .stacks where StageDockSide.shared.side: (1.0, .center)
         // Never smaller than the viewport: the stage is what is being changed, so it stays big.
         case .home: (1.0, .center)
         case .looks: (1.04, .center)
@@ -1667,6 +1670,7 @@ enum TweakStage {
         "autohide-time-modifier": DemoSpec(period: 2.4, still: 0.8, off: "Hides in about 0.5 s", on: "About 0.1 s", note: unmeasured) { on, t in
             DockEdgeScene(t: t, reveal: false, delay: 0, duration: on ? 0.1 : 0.5)
         },
+        "launchanim": DemoSpec(period: 2.8, still: 0.9, off: "The icon bounces while it opens", on: "It opens without a bounce") { on, t in BounceScene(t: t, bounces: !on) },
         "no-bouncing": DemoSpec(period: 2.8, still: 0.9, off: "The icon bounces", on: "The icon stays still") { on, t in BounceScene(t: t, bounces: !on) },
         "scroll-to-open": DemoSpec(period: 3, still: 2, off: "Scrolling does nothing", on: "Scrolling fans it open") { on, t in ScrollOpenScene(t: t, on: on) },
         "show-recent-count": DemoSpec(period: 2, still: 1, off: "The system's own count", on: "Exactly three",

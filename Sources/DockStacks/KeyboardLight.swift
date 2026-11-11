@@ -46,6 +46,11 @@ final class KeyboardLight: ObservableObject {
         if available, store.object(forKey: "kbd.originalIdle") == nil {
             store.set(idle, forKey: "kbd.originalIdle")
         }
+        // Likewise auto-brightness: Restore puts back what this Mac had, on or off, instead of
+        // forcing it on. A Mac that first ran an older Atelier records what it has now.
+        if available, store.object(forKey: "kbd.originalAuto") == nil {
+            store.set(auto, forKey: "kbd.originalAuto")
+        }
     }
 
     func resume() {
@@ -96,15 +101,18 @@ final class KeyboardLight: ObservableObject {
         auto = on
     }
 
-    /// Auto-brightness on, idle dimming back, and the idle time this Mac had before Atelier.
+    /// Auto-brightness as this Mac had it before Atelier.
+    private var originalAuto: Bool { store.object(forKey: "kbd.originalAuto") as? Bool ?? true }
+
+    /// Auto-brightness and the idle time as this Mac had them before Atelier, idle dimming back.
     func restoreDefaults() {
-        setAuto(true)
+        setAuto(originalAuto)
         setIdle(store.object(forKey: "kbd.originalIdle") as? Double ?? 300)
         refresh()
     }
 
     var isDefault: Bool {
-        auto && !neverDim && idle == (store.object(forKey: "kbd.originalIdle") as? Double ?? 300)
+        auto == originalAuto && !neverDim && idle == (store.object(forKey: "kbd.originalIdle") as? Double ?? 300)
     }
 }
 

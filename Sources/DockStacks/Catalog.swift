@@ -45,7 +45,8 @@ enum TweakCatalog {
         dock(.dock, "slow-motion-allowed", "bool", "true", "Slow Motion", "Hold Shift while minimising to slow it down."),
         dock(.dock, "autohide-delay", "float", "0", "Instant Dock", "No delay when the Dock reveals."),
         dock(.dock, "autohide-time-modifier", "float", "0.2", "Fast Hide", "Shortens the hide animation."),
-        dock(.dock, "no-bouncing", "bool", "true", "No Bouncing", "Apps stop bouncing in the Dock."),
+        dock(.dock, "launchanim", "bool", "false", "No Opening Bounce", "Apps open without bouncing in the Dock."),
+        dock(.dock, "no-bouncing", "bool", "true", "No Attention Bounce", "Apps stop bouncing to ask for you."),
         dock(.dock, "show-process-indicators", "bool", "false", "No Dots", "Hides the open app indicators.", .proved),
         dock(.dock, "scroll-to-open", "bool", "true", "Scroll to Open", "Scrolling on an item opens it."),
         dock(.dock, "show-recent-count", "int", "3", "Three Recents", "Limits recent apps to three."),
@@ -69,7 +70,7 @@ enum TweakCatalog {
               title: "Faster Window Manager", detail: "Speeds up Stage Manager transitions."),
         global(.windows, "AppleEdgeResizeExteriorSize", "float", "10", "Easy Edge Resize", "A wider grab zone around window edges."),
         global(.windows, "AppleEdgeResizeCornerSize", "float", "20", "Easy Corner Resize", "A bigger grab zone at window corners."),
-        global(.windows, "NSWindowShouldDragOnGesture", "bool", "true", "Drag from Anywhere", "Hold Control and Command, then drag a window from anywhere."),
+        global(.windows, "NSWindowShouldDragOnGesture", "bool", "true", "Drag from Anywhere", "Superseded by Move & Resize Anywhere in Windows, on the same keys. Turn this off."),
         global(.windows, "NSWindowResizeTime", "float", "0.05", "Instant Sheets", "Sheets and resizes finish faster."),
         global(.windows, "NSAutomaticWindowAnimationsEnabled", "bool", "false", "No Window Animations", "Removes open and close animations."),
         global(.windows, "AppleSpacesSwitchOnActivate", "bool", "false", "Stay in This Space", "Switching apps no longer jumps Spaces."),
@@ -117,7 +118,14 @@ enum TweakCatalog {
     /// Keys that moved to the Animations chapter. One home each, never two.
     private static let animationKeys: Set<String> = ["NSAutomaticWindowAnimationsEnabled", "NSWindowResizeTime", "NSScrollAnimationEnabled", "NSUseAnimatedFocusRing", "NSToolbarTitleViewRolloverDelay", "QLPanelAnimationDuration", "DisableAllAnimations"]
 
-    static let all: [Tweak] = listed.map { tweak in
+    /// Move & Resize Anywhere (Windows) owns the ⌃⌘ drag. macOS's own version stays listed only
+    /// while it is set, so whoever turned it on can turn it off; it is never offered anew.
+    private static let retiredUnlessSet: Set<String> = ["NSWindowShouldDragOnGesture"]
+
+    static let all: [Tweak] = listed.filter { tweak in
+        guard retiredUnlessSet.contains(tweak.key) else { return true }
+        return CFPreferencesCopyAppValue(tweak.key as CFString, kCFPreferencesAnyApplication) as? Bool == true
+    }.map { tweak in
         var tweak = tweak
         if animationKeys.contains(tweak.key) { tweak.personal = .animations }
         return tweak

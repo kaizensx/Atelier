@@ -325,16 +325,12 @@ struct DockEffectsCard: View {
             DockHubWideRow("Dropping a File") {
                 Segments(selection: $dock.design.drop, options: DockDropEffect.allCases.map { ($0, $0.title) })
             }
-            SettingRow(title: "Trash", density: .compact) {
+            DockHubWideRow("Trash") {
                 Segments(selection: $dock.design.trash, options: DockTrashEffect.allCases.map { ($0, $0.title) })
-                    .frame(width: DockHubLayout.segmentsWidth)
             }
-            .dockHubRow()
-            SettingRow(title: "Minimising", density: .compact) {
+            DockHubWideRow("Minimising") {
                 Segments(selection: $dock.design.minimize, options: DockMinimizeEffect.allCases.map { ($0, $0.title) })
-                    .frame(width: DockHubLayout.segmentsWidth)
             }
-            .dockHubRow()
             SettingRow(title: "Idle Breathing", detail: "The rim glows slowly in and out.", density: .compact) {
                 LuxSwitch(isOn: $dock.design.breathing, label: "Idle Breathing", tint: hue)
             }

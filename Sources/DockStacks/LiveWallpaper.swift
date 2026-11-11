@@ -954,6 +954,7 @@ final class LiveWallpaper: ObservableObject {
     func showOriginal() {
         if enabled { enabled = false }
         if StillBackground.shared.enabled { StillBackground.shared.enabled = false }
+        if WebWallpaper.shared.enabled { WebWallpaper.shared.enabled = false }
         Effects.shared.restoreOriginalWallpaper()
         objectWillChange.send()
     }
@@ -1259,32 +1260,99 @@ struct LivingPreview: NSViewRepresentable {
     }
 }
 
-/// A live thumbnail. It rests on one still frame and runs only under the pointer.
+/// Still frames for the gallery cards, rendered once per shader, look and hour and kept in
+/// memory and in Caches, so a card shows its picture at once, scrolled away and back or not.
+@MainActor
+enum LivingThumbnails {
+    /// Points; rendered at twice that.
+    static let size = CGSize(width: 220, height: 96)
+    private static var memory: [String: NSImage] = [:]
+
+    private static var folder: URL? {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("Atelier/LiveThumbnails", isDirectory: true)
+    }
+
+    /// Changes with the shader, its tuning, its palette's colours and the hour, so a stale picture is never shown.
+    static func key(_ shader: LivingShader) -> String {
+        let tuning = LiveWallpaper.shared.tuning(for: shader)
+        let hour = Int(tuning.cycle.heldHour ?? Double(Calendar.current.component(.hour, from: Date())))
+        var text = shader.rawValue + "|\(hour)|"
+        if let data = try? JSONEncoder().encode(tuning) { text += String(decoding: data, as: UTF8.self) }
+        if let stops = LiveWallpaper.shared.stops(for: tuning.palette) {
+            text += stops.map { "\($0.x),\($0.y),\($0.z)" }.joined(separator: ";")
+        }
+        // FNV-1a: a short, stable file name.
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in text.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100000001b3 }
+        return shader.rawValue + "-" + String(hash, radix: 16)
+    }
+
+    /// Already in memory: what a card shows on its very first frame.
+    static func cached(_ shader: LivingShader) -> NSImage? { memory[key(shader)] }
+
+    /// From memory, then disk, then rendered. Shaders that paint with the owner's wallpaper are
+    /// kept in memory only, since the picture under them can change.
+    static func load(_ shader: LivingShader) async -> NSImage? {
+        let key = key(shader)
+        if let image = memory[key] { return image }
+        let file = folder?.appendingPathComponent(key + ".png")
+        if !shader.usesWallpaper, let file, let data = try? Data(contentsOf: file), let image = NSImage(data: data) {
+            image.size = size
+            memory[key] = image
+            return image
+        }
+        guard let engine = LivingEngine.shared else { return nil }
+        await engine.warm(shader)
+        guard let still = engine.snapshot(shader, width: Int(size.width * 2), height: Int(size.height * 2),
+                                          hour: Double(Calendar.current.component(.hour, from: Date())),
+                                          tuning: LiveWallpaper.shared.tuning(for: shader)) else { return nil }
+        let image = NSImage(cgImage: still, size: size)
+        memory[key] = image
+        if !shader.usesWallpaper, let file, let folder,
+           let png = NSBitmapImageRep(cgImage: still).representation(using: .png, properties: [:]) {
+            Task.detached(priority: .utility) {
+                try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                try? png.write(to: file, options: .atomic)
+            }
+        }
+        return image
+    }
+}
+
+/// A gallery card. It always shows a still frame, and runs live only under the pointer.
 struct LivingCard: View {
     let shader: LivingShader
     let selected: Bool
-    /// Place in the gallery. Thumbnails start one after another, after the panel has landed:
-    /// ten Metal canvases and their shader builds at once would stall the panel's arrival.
+    /// Place in the gallery. Stills are rendered one after another, so ten shader builds at
+    /// once never stall the panel's arrival.
     var order = 0
     let select: () -> Void
     let hover: (Bool) -> Void
     @ObservedObject private var wallpaper = LiveWallpaper.shared
     @State private var hovering = false
-    @State private var awake = false
+    @State private var still: NSImage?
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: DS.Radius.plate, style: .continuous)
+        // A recycled card finds its picture in memory on the first frame, so it never blinks.
+        let picture = still ?? LivingThumbnails.cached(shader)
         Button(action: select) {
             ZStack(alignment: .bottomLeading) {
-                Group {
-                    if awake {
-                        LivingPreview(shader: shader, fps: 30, running: hovering)
+                ZStack {
+                    if let picture {
+                        Image(nsImage: picture).resizable().aspectRatio(contentMode: .fill)
                     } else {
                         Rectangle().fill(DS.Ink.fill)
+                    }
+                    if hovering {
+                        LivingPreview(shader: shader, fps: 30, running: true)
+                            .transition(.opacity)
                     }
                 }
                 .frame(height: 96)
                 .frame(maxWidth: .infinity)
+                .clipped()
                 .allowsHitTesting(false)
                 LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .center, endPoint: .bottom)
                     .allowsHitTesting(false)
@@ -1318,13 +1386,13 @@ struct LivingCard: View {
         .onHover { inside in
             hovering = inside && !ScrollActivity.scrolling
             hover(inside)
-            if inside { awake = true }
         }
-        .task {
-            let start = ContinuousClock.now
-            await LivingEngine.shared?.warm(shader)
-            try? await Task.sleep(until: start + .milliseconds(650 + 70 * order))
-            awake = true
+        // Keyed by the look, so a changed tuning or palette brings a fresh still.
+        .task(id: LivingThumbnails.key(shader)) {
+            if let ready = LivingThumbnails.cached(shader) { still = ready; return }
+            // Only the first pass staggers; later ones come from memory or disk.
+            try? await Task.sleep(for: .milliseconds(40 * order))
+            if let image = await LivingThumbnails.load(shader) { still = image }
         }
     }
 }
@@ -1658,9 +1726,11 @@ struct OriginalWallpaperCard: View {
     @ObservedObject private var live = LiveWallpaper.shared
     @ObservedObject private var still = StillBackground.shared
     @ObservedObject private var effects = Effects.shared
+    @ObservedObject private var web = WebWallpaper.shared
     @State private var thumbnail: NSImage?
 
     private var covering: String? {
+        if web.enabled { return "Website Wallpaper is showing above it." }
         if live.enabled { return "Live Wallpaper is showing above it." }
         if still.enabled { return "Still Background is showing above it." }
         if effects.living != nil { return "A generated wallpaper is set in its place. Yours is kept." }

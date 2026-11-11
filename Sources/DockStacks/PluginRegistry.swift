@@ -99,6 +99,8 @@ final class PluginRegistry: ObservableObject {
     func start() {
         guard !started else { return }
         started = true
+        // Off until the owner enables one: a plugin never runs without its permission sheet.
+        ThemeEngine.seedExamples(kind: "plugins", into: Self.folder, pathExtension: PluginManifest.bundleExtension)
         reload()
         let workspace = NSWorkspace.shared.notificationCenter
         observers.append(workspace.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { note in

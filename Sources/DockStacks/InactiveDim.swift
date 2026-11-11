@@ -138,6 +138,7 @@ struct InactiveDimCard: View {
             LivePlate { size, since in DimPreview(size: size, plate: true, since: since) }
         } controls: {
             VStack(alignment: .leading, spacing: DS.Space.m) {
+                NeedsAccessRow(reason: "To know which window is in front.", previewTrusted: trusted ? nil : false)
                 Segments(selection: $dim.tint, options: DimTint.allCases.map { ($0, $0.title) })
                 HeroSlider(title: "Shade", value: $dim.amount, range: 0.1...0.8, hue: DS.Spectrum.windows) {
                     "\(Int(($0 * 100).rounded()))%"
@@ -146,7 +147,6 @@ struct InactiveDimCard: View {
                     .font(DS.caption).foregroundStyle(DS.Ink.tertiary)
             }
         }
-        .disabled(!trusted)
     }
 }
 

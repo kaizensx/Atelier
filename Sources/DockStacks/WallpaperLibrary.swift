@@ -88,6 +88,8 @@ enum WallpaperLibrary {
 
     enum Failure: LocalizedError {
         case noKey, http(Int), empty
+        /// The photo downloaded, but the wallpaper was not changed; the reason is macOS's or the original's.
+        case refused(String)
         var errorDescription: String? {
             switch self {
             case .noKey: "Add your Unsplash Access Key below to search Unsplash."
@@ -95,6 +97,7 @@ enum WallpaperLibrary {
             case .http(403): "Unsplash's hourly limit is used up. Try again later."
             case .http(let code): "The server answered with error \(code)."
             case .empty: "No photos found."
+            case let .refused(reason): reason
             }
         }
     }
@@ -264,7 +267,9 @@ enum WallpaperLibrary {
             request.setValue("Client-ID \(key)", forHTTPHeaderField: "Authorization")
             _ = try? await URLSession.shared.data(for: request)
         }
-        guard Effects.shared.setPhotoWallpaper(file) else { throw Failure.empty }
+        guard Effects.shared.setPhotoWallpaper(file) else {
+            throw Failure.refused(Effects.shared.notice ?? "The wallpaper could not be changed.")
+        }
         UserDefaults.standard.set(try? JSONEncoder().encode(photo), forKey: "wallpaperLibrary.current")
         return file
     }

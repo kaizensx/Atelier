@@ -104,9 +104,17 @@ final class WindowGrab: ObservableObject {
 
     func resume() { if enabled { apply() } }
 
+    /// Accessibility just arrived: a tap made before it went away is made again, and one that
+    /// was waiting for it starts.
+    func rearm() {
+        guard enabled else { return }
+        removeTap()
+        apply()
+    }
+
     private func apply() {
         if enabled {
-            guard grabTap == nil, AXIsProcessTrusted() else { return }
+            guard grabTap == nil, AXIsProcessTrusted() else { objectWillChange.send(); return }
             let types: [CGEventType] = [.leftMouseDown, .leftMouseDragged, .leftMouseUp,
                                         .rightMouseDown, .rightMouseDragged, .rightMouseUp, .flagsChanged]
             let mask = types.reduce(CGEventMask(0)) { $0 | CGEventMask(1) << $1.rawValue }
@@ -117,18 +125,23 @@ final class WindowGrab: ObservableObject {
             CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
             self.source = source
             CGEvent.tapEnable(tap: tap, enable: true)
-        } else if let tap = grabTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
-            if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
-            CFMachPortInvalidate(tap)
-            grabTap = nil
-            source = nil
-            stopLink()
-            session = nil
-            passthrough = nil
-            grabBusy = false
+        } else {
+            removeTap()
         }
         objectWillChange.send()
+    }
+
+    private func removeTap() {
+        guard let tap = grabTap else { return }
+        CGEvent.tapEnable(tap: tap, enable: false)
+        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+        CFMachPortInvalidate(tap)
+        grabTap = nil
+        source = nil
+        stopLink()
+        session = nil
+        passthrough = nil
+        grabBusy = false
     }
 
     // MARK: Events
@@ -362,7 +375,8 @@ private final class GrabTicker: NSObject {
 
 struct WindowGrabCard: View {
     @ObservedObject private var grab = WindowGrab.shared
-    var trusted: Bool = AXIsProcessTrusted()
+    /// False only from offline renders; live, the row below follows the permission itself.
+    var trusted = true
 
     var body: some View {
         HeroCard("Move & Resize Anywhere",
@@ -375,6 +389,7 @@ struct WindowGrabCard: View {
             LivePlate { size, since in WindowGrabPlate(size: size, since: since) }
         } controls: {
             VStack(alignment: .leading, spacing: DS.Space.m) {
+                NeedsAccessRow(reason: "To grab the window under the pointer.", previewTrusted: trusted ? nil : false)
                 HStack(spacing: 12) {
                     Text("Keys").font(DS.caption).foregroundStyle(DS.Ink.secondary).frame(width: 60, alignment: .leading)
                     Segments(selection: $grab.chord, options: GrabGeometry.Chord.allCases.map { ($0, $0.symbols) })
@@ -388,8 +403,6 @@ struct WindowGrabCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .disabled(!trusted)
-        .opacity(trusted ? 1 : 0.5)
     }
 }
 

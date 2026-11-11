@@ -608,17 +608,20 @@ struct OwnDockSectionMark: View {
     let arranging: Bool
     /// The section's name is drawn over its tiles.
     var named = false
+    /// The design's mark colour: white on dark designs, near black on light ones.
+    var ink = Color.white
 
     var body: some View {
         let horizontal = edge.horizontal
         ZStack {
             switch tile.slot.sectionStyle {
             case .line, .label:
-                Capsule().fill(DS.Ink.fillStrong)
+                // Strong enough to read on glass over a bright desktop, as the macOS Dock's is.
+                Capsule().fill(ink.opacity(0.4))
                     .frame(width: horizontal ? 1 : tile.base * 0.66, height: horizontal ? tile.base * 0.66 : 1)
                     .position(tile.center)
             case .dot:
-                Circle().fill(.white.opacity(0.42)).frame(width: 5, height: 5).position(tile.center)
+                Circle().fill(ink.opacity(0.5)).frame(width: 5, height: 5).position(tile.center)
             case .gap:
                 if arranging {
                     Capsule().strokeBorder(accent.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
@@ -626,7 +629,7 @@ struct OwnDockSectionMark: View {
                         .position(tile.center)
                 }
             }
-            if arranging, !named { emptyLabel }
+            if arranging, !named, !tile.slot.title.isEmpty { emptyLabel }
         }
         .opacity(tile.alpha)
         .allowsHitTesting(false)

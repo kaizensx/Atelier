@@ -74,14 +74,14 @@ enum SkinPreset: String, CaseIterable, Identifiable {
 }
 
 enum SkinEdge: String, CaseIterable, Identifiable {
-    case none, hairline, shadow, dayLine
+    // The Day Line lives in one place, Effects' own (Menu Bar › Day Line), not as an edge too.
+    case none, hairline, shadow
     var id: String { rawValue }
     var title: String {
         switch self {
         case .none: "None"
         case .hairline: "Line"
         case .shadow: "Shadow"
-        case .dayLine: "Day Line"
         }
     }
 }
@@ -181,6 +181,12 @@ final class MenuBarSkin: ObservableObject {
         strength = store.object(forKey: "skinStrength") as? Double ?? 0.85
         floating = store.bool(forKey: "skinFloating")
         radius = store.object(forKey: "skinRadius") as? Double ?? 0
+        // An edge saved as the old Day Line becomes the Day Line itself.
+        if store.string(forKey: "skinEdge") == "dayLine" {
+            store.set(SkinEdge.none.rawValue, forKey: "skinEdge")
+            store.set(true, forKey: "dayLine")
+            DispatchQueue.main.async { Effects.shared.dayLine = true }
+        }
         edge = SkinEdge(rawValue: store.string(forKey: "skinEdge") ?? "") ?? .none
         notchBlend = store.bool(forKey: "skinNotchBlend")
         motion = store.object(forKey: "skinMotion") as? Bool ?? true
@@ -217,9 +223,9 @@ final class MenuBarSkin: ObservableObject {
     /// The front app's skin, then the night skin, then the display's own, then the main one.
     func skin(forDisplay uuid: String?) -> SkinPreset {
         let base = Effects.shared.skin
-        if let frontApp, let own = appSkins[frontApp] { return own }
         // Rules and schedules only change a skin that is on: Off always means off.
         guard base != .none else { return .none }
+        if let frontApp, let own = appSkins[frontApp] { return own }
         if scheduled, isNight(at: DayLight.hourNow) { return nightSkin }
         if let uuid, let own = displaySkins[uuid] { return own }
         return base
@@ -497,7 +503,6 @@ struct SkinArt: View {
         case .hairline:
             VStack { Spacer(); Rectangle().fill(skin.textIsLight ? Color.white.opacity(0.16) : Color.black.opacity(0.18)).frame(height: 0.5) }
         case .shadow: EmptyView()
-        case .dayLine: VStack { Spacer(); DayLine().frame(height: 2).opacity(0.9) }
         }
     }
 

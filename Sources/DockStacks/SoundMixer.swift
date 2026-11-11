@@ -152,6 +152,11 @@ final class MixerDSP: @unchecked Sendable {
         var peak: Float = 0
     }
 
+    /// Input buffers that belong to the output device itself (the AirPods microphone, an
+    /// interface's inputs). The aggregate lists its sub-device's input streams first and the
+    /// tap's last, so the tap starts after these. Written once before the IOProc starts.
+    var inputSkip = 0
+
     private let lock = UnsafeMutablePointer<os_unfair_lock>.allocate(capacity: 1)
     private let mailbox = UnsafeMutablePointer<Mailbox>.allocate(capacity: 1)
     private let mailboxCoefficients = UnsafeMutablePointer<Double>.allocate(capacity: 5 * sections)
@@ -231,7 +236,9 @@ final class MixerDSP: @unchecked Sendable {
         let inList = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
         var inL: UnsafePointer<Float>?, inR: UnsafePointer<Float>?
         var inStrideL = 1, inStrideR = 1, inFrames = Int.max
-        for buffer in inList {
+        // Only the tap's buffers: never the device's own microphone.
+        let skip = inList.count > inputSkip ? inputSkip : 0
+        for buffer in inList.dropFirst(skip) {
             guard let data = buffer.mData else { continue }
             let channels = Int(buffer.mNumberChannels)
             guard channels > 0 else { continue }
@@ -409,6 +416,9 @@ private final class MixerPipeline {
         apply(plan)
 
         let dsp = dsp
+        // The tap is one stream, listed after the sub-device's own inputs.
+        let inputStreams = CA.objects(aggregateID, kAudioDevicePropertyStreams, scope: kAudioObjectPropertyScopeInput).count
+        dsp.inputSkip = max(0, inputStreams - 1)
         status = AudioDeviceCreateIOProcIDWithBlock(&procID, aggregateID, nil) { _, input, _, output, _ in
             dsp.render(input, output)
         }
@@ -798,6 +808,14 @@ final class SoundMixer: ObservableObject {
         }
     }
 
+    /// Re-reads the permission while the "Needs Screen & System Audio Recording" note is up,
+    /// so a grant in System Settings starts the mixer without a relaunch.
+    func recheckPermission() {
+        let before = permission
+        checkPermission()
+        if before != permission { apply() }
+    }
+
     func openPrivacySettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture") {
             NSWorkspace.shared.open(url)
@@ -934,12 +952,13 @@ final class SoundMixer: ObservableObject {
 
     func rule(for app: String) -> MixerAppRule { settings.rule(for: app) }
 
-    /// Touching a control is a clear wish to use the mixer, so it turns it on.
-    private func edit(_ change: (inout SoundMixerSettings) -> Void) {
+    /// Touching a control is a clear wish to use the mixer, so it turns it on. Turning a
+    /// part off (`wakes: false`) is not: switching EQ off must never switch the mixer on.
+    private func edit(wakes: Bool = true, _ change: (inout SoundMixerSettings) -> Void) {
         var copy = settings
         change(&copy)
         settings = copy
-        if !enabled && Self.availability.isUsable { enabled = true }
+        if wakes, !enabled && Self.availability.isUsable { enabled = true }
     }
 
     func setVolume(_ volume: Double, for app: String) {
@@ -977,7 +996,7 @@ final class SoundMixer: ObservableObject {
 
     var eqEnabled: Bool {
         get { settings.eqEnabled }
-        set { edit { $0.eqEnabled = newValue } }
+        set { edit(wakes: newValue) { $0.eqEnabled = newValue } }
     }
 
     private func editProfile(_ change: (inout EQProfile) -> Void) {

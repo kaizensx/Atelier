@@ -274,7 +274,8 @@ enum HapticStrength: Int, CaseIterable, Identifiable, Sendable {
 }
 
 /// The trackpad as a speaker for touch. Other features call `Haptics.shared.tap()` when
-/// something lands: a window snapping, the switcher moving one step, a HUD notch.
+/// something lands: a trackpad gesture, a title-bar gesture, a radial menu pick. Every one
+/// goes through the owner's switch and strength; only the card's Feel It bypasses them.
 ///
 /// The actuator is driven directly because NSHapticFeedbackManager only plays for the active
 /// app, and Atelier is almost never in front when its snapping or switcher runs. Without an
@@ -319,14 +320,18 @@ final class Haptics: ObservableObject {
         openIfNeeded()
     }
 
-    /// One click, when the user has Haptic Feedback on. Pass a strength to override theirs.
-    func tap(_ strength: HapticStrength? = nil) {
+    /// One click, when the user has Haptic Feedback on, at the strength they chose. A caller's
+    /// strength is only a hint and never overrides theirs: the card's setting is the setting.
+    func tap(_ hint: HapticStrength? = nil) {
         guard enabled else { return }
-        play(strength ?? self.strength)
+        feel(strength)
     }
 
-    /// One click regardless of the switch: the card's Feel It button.
-    func play(_ strength: HapticStrength) {
+    /// Kept for callers written before `tap()`: it honours the switch and strength the same way.
+    func play(_ hint: HapticStrength) { tap(hint) }
+
+    /// One click regardless of the switch, at the given strength: the card's Feel It button.
+    func feel(_ strength: HapticStrength) {
         openIfNeeded()
         guard let api = MultitouchAPI.shared?.haptics, !actuators.isEmpty else {
             NSHapticFeedbackManager.defaultPerformer.perform(strength.pattern, performanceTime: .now)

@@ -560,8 +560,14 @@ final class OwnDockGestures: ObservableObject {
 
 // MARK: - Screen Recording, read cheaply
 
-/// `CGPreflightScreenCaptureAccess`, read at most every two seconds: the window card asks for
-/// every picture it draws, at display rate.
+/// Screen Recording, read at most every two seconds: the window card asks for every picture it
+/// draws, at display rate. Never cached for longer, so a grant made while Atelier runs is seen
+/// within two seconds, with no relaunch.
+///
+/// `CGPreflightScreenCaptureAccess` can go on answering false for the rest of the process's
+/// life after the owner turns Screen Recording on. The window server says it sooner: without
+/// the grant it leaves other apps' window names out of its list, with it they are there. Neither
+/// read ever asks the user for anything.
 @MainActor
 enum ScreenRecordingFlag {
     private static var value = false
@@ -570,10 +576,26 @@ enum ScreenRecordingFlag {
     static var allowed: Bool {
         let now = CACurrentMediaTime()
         if now - at > 2 {
-            value = CGPreflightScreenCaptureAccess()
+            value = CGPreflightScreenCaptureAccess() || otherWindowNamesVisible()
             at = now
         }
         return value
+    }
+
+    /// True when the window list names a window of another app, which it does only with Screen
+    /// Recording allowed. Normal windows only: the system's own processes are left out.
+    private static func otherWindowNamesVisible() -> Bool {
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
+        else { return false }
+        let me = ProcessInfo.processInfo.processIdentifier
+        let system: Set<String> = ["Window Server", "Dock", "SystemUIServer", "Control Center", "Notification Center"]
+        return list.contains { window in
+            guard (window[kCGWindowLayer as String] as? Int) == 0,
+                  let owner = window[kCGWindowOwnerPID as String] as? pid_t, owner != me,
+                  !system.contains(window[kCGWindowOwnerName as String] as? String ?? ""),
+                  let name = window[kCGWindowName as String] as? String else { return false }
+            return !name.isEmpty
+        }
     }
 }
 

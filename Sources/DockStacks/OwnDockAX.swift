@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import DockCore
 
 // Everything the Atelier Dock learns through Accessibility. All reads happen off the main
 // thread with short messaging timeouts, so a hung app can never stall the dock.
@@ -225,12 +226,11 @@ enum SystemDockAX {
         return reading
     }
 
-    /// Tiles more than 3 points off the line most tiles rest on.
+    /// Tiles lifted more than 3 points off the line most tiles rest on, away from the edge.
+    /// A reading with many tiles off the line is the Dock sliding (auto-hide shows it for an
+    /// attention request), not bounces: `OwnDockBounce` (DockCore) leaves it empty.
     nonisolated static func bouncing(_ bases: [(path: String, base: Double)], orientation: String) -> Set<String> {
-        guard bases.count >= 3 else { return [] }
-        let sorted = bases.map(\.base).sorted()
-        let rest = sorted[sorted.count / 2]
-        return Set(bases.filter { abs($0.base - rest) > 3 }.map(\.path))
+        OwnDockBounce.bouncing(bases, orientation: orientation)
     }
 }
 

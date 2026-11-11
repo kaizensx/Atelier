@@ -111,3 +111,77 @@ import Testing
     #expect(LightMath.ease(0) == 0 && LightMath.ease(1) == 1 && LightMath.ease(2) == 1)
     #expect(abs(LightMath.ease(0.5) - 0.5) < 1e-9)
 }
+
+// MARK: Below Black and Candlelight, with and without Boost's overlay
+
+@Test func belowBlackOffLeavesTheTableUntouched() {
+    // Not engaged (switch off, or brightness above the start): exactly the system's curve.
+    #expect(LightMath.belowBlackScale(amount: 0.8, engagement: 0) == 1)
+    let gains = LightMath.gains(boost: 1, dim: LightMath.belowBlackScale(amount: 0.5, engagement: 0), kelvin: LightMath.neutralKelvin)
+    #expect(gains == .identity)
+    let baseline: [Float] = (0..<256).map { Float($0) / 255 }
+    #expect(LightMath.scaled(baseline, by: gains.red) == baseline)
+}
+
+@Test func belowBlackOnlyWorksAtTheBottomOfTheBrightnessRange() {
+    // Above a quarter brightness: nothing, at any amount.
+    for b in [1.0, 0.75, 0.5, 0.3, LightMath.belowBlackStart] {
+        #expect(LightMath.belowBlackEngagement(brightness: b) == 0, "no effect at \(b)")
+    }
+    // The lowest step and below: all of it.
+    for b in [LightMath.belowBlackFull, 0.03, 0] {
+        #expect(LightMath.belowBlackEngagement(brightness: b) == 1, "full at \(b)")
+    }
+    // In between it deepens step by step, never backwards.
+    var previous = 0.0
+    for step in stride(from: 4, through: 1, by: -1) {
+        let e = LightMath.belowBlackEngagement(brightness: Double(step) / 16)
+        #expect(e >= previous)
+        previous = e
+    }
+    let mid = LightMath.belowBlackEngagement(brightness: 2.0 / 16)
+    #expect(mid > 0.2 && mid < 0.9)
+    // No built-in brightness to read: a plain dimmer, always on.
+    #expect(LightMath.belowBlackEngagement(brightness: nil) == 1)
+    // Engaged in full, the slider's amount is exactly what the table gets.
+    #expect(abs(LightMath.belowBlackScale(amount: 0.35, engagement: 1) - 0.65) < 1e-12)
+}
+
+@Test func lightKeptDecodesTheGammaScale() {
+    #expect(LightMath.lightKept(scale: 1) == 1)
+    #expect(LightMath.lightKept(scale: 0) == 0)
+    // 0.65 of the encoded value is about 39 % of the light.
+    #expect(abs(LightMath.lightKept(scale: 0.65) - 0.3878) < 0.001)
+}
+
+@Test func overlayTintIsBoostAloneWhenNothingElseIsOn() {
+    #expect(LightMath.overlayTint(dimScale: 1, kelvin: LightMath.neutralKelvin) == .identity)
+    // Dim alone: a grey multiply, the light the gamma scale would have kept.
+    let dim = LightMath.overlayTint(dimScale: 0.65, kelvin: LightMath.neutralKelvin)
+    #expect(dim.red == dim.green && dim.green == dim.blue)
+    #expect(abs(dim.red - LightMath.lightKept(scale: 0.65)) < 1e-12)
+}
+
+@Test func overlayTintGivesTheSameWarmWhiteAsTheGammaTable() {
+    // The P3 to sRGB matrix keeps white white.
+    let white = LightMath.sRGBLinear(fromP3: .identity)
+    #expect(abs(white.red - 1) < 1e-5 && abs(white.green - 1) < 1e-5 && abs(white.blue - 1) < 1e-5)
+    for kelvin in [2700.0, 2200, 1900] {
+        let tint = LightMath.overlayTint(dimScale: 1, kelvin: kelvin)
+        // Back to linear P3 (inverse matrix), it is the gamma gains decoded: the same white.
+        let p3 = (red: 0.8224621 * tint.red + 0.1775380 * tint.green,
+                  green: 0.0331941 * tint.red + 0.9668058 * tint.green,
+                  blue: 0.0170827 * tint.red + 0.0723974 * tint.green + 0.9105199 * tint.blue)
+        let g = LightMath.kelvinGains(kelvin)
+        #expect(abs(p3.red - pow(g.red, 2.2)) < 1e-4, "red at \(kelvin) K")
+        #expect(abs(p3.green - pow(g.green, 2.2)) < 1e-4, "green at \(kelvin) K")
+        // A candle's blue is a sliver of light that sRGB would need below zero to express; the
+        // multiply cannot go negative, so it is held at zero, a difference of under 1 % of white.
+        #expect(abs(p3.blue - pow(g.blue, 2.2)) < (tint.blue > 0 ? 1e-4 : 0.01), "blue at \(kelvin) K")
+        #expect(tint.green < 1 && tint.blue < tint.green, "warm at \(kelvin) K")
+        #expect(tint.blue >= 0)
+    }
+    // Dim and warmth together multiply.
+    let both = LightMath.overlayTint(dimScale: 0.5, kelvin: 2200), warm = LightMath.overlayTint(dimScale: 1, kelvin: 2200)
+    #expect(abs(both.green - warm.green * LightMath.lightKept(scale: 0.5)) < 1e-12)
+}

@@ -133,8 +133,13 @@ struct ThemesChapter: View {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
-        panel.allowedContentTypes = [.json, .folder]
-        panel.message = "Choose a .ateliertheme folder or an atelier-theme.json"
+        // Both bundles are packages (Info.plist), so a plain folder type would grey them out.
+        let bundles = [("net.dasantos.atelier.theme", ThemeSchema.bundleExtension),
+                       ("net.dasantos.atelier.plugin", PluginManifest.bundleExtension)].compactMap { id, ext in
+            UTType(id) ?? UTType(filenameExtension: ext, conformingTo: .package)
+        }
+        panel.allowedContentTypes = bundles + [.json, .folder]
+        panel.message = "Choose a .ateliertheme, an .atelierplugin or an atelier-theme.json"
         panel.prompt = "Import"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         install(url)

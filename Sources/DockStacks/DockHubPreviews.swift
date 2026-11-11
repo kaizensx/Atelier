@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import ScreenCaptureKit
 import SwiftUI
 
@@ -127,8 +128,17 @@ final class DockWindowShots {
     /// How long a picture stays good.
     private let keep = 4.0
 
-    /// Screen Recording is allowed. Cheap: it reads a flag, it never asks.
-    var allowed: Bool { CGPreflightScreenCaptureAccess() }
+    /// Screen Recording is allowed. Cheap: it reads a flag at most every two seconds, it never
+    /// asks, and it sees a grant made while Atelier runs (`ScreenRecordingFlag`).
+    var allowed: Bool {
+        guard ScreenRecordingFlag.allowed else { return false }
+        // ScreenCaptureKit refused a moment ago: the grant has not reached this process yet.
+        return refusedAt.map { CACurrentMediaTime() - $0 > 10 } ?? true
+    }
+
+    /// When ScreenCaptureKit last refused to list windows, so the card shows icons rather than
+    /// "Taking a picture…" until it is worth trying again.
+    private var refusedAt: Double?
 
     func cached(_ id: CGWindowID) -> NSImage? {
         guard let entry = images[id], Date().timeIntervalSince(entry.at) < keep else { return nil }
@@ -170,7 +180,7 @@ final class DockWindowShots {
     private func shareable(fresh: Bool) async -> SCShareableContent? {
         if !fresh, let content, Date().timeIntervalSince(content.at) < 2 { return content.value }
         let value = try? await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
-        if let value { content = (value, Date()) }
+        if let value { content = (value, Date()); refusedAt = nil } else { refusedAt = CACurrentMediaTime() }
         return value
     }
 }
@@ -235,7 +245,7 @@ struct DockThumbCard: View {
                         .clipShape(.rect(cornerRadius: 6, style: .continuous))
                         .shadow(color: .black.opacity(0.3), radius: 3, y: 1)
                         .opacity(thumb.minimized ? 0.72 : 1)
-                } else if !peek.path.isEmpty, !ScreenRecordingFlag.allowed {
+                } else if !peek.path.isEmpty, !DockWindowShots.shared.allowed {
                     // No picture can be taken without Screen Recording: the app's icon stands in.
                     VStack(spacing: 5) {
                         Image(nsImage: DockIcons.image(peek.path)).resizable().interpolation(.high)

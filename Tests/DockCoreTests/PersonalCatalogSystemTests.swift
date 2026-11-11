@@ -112,3 +112,16 @@ private func kindMatches(_ value: PersonalValue, _ kind: PersonalKind) -> Bool {
     default: false
     }
 }
+
+@Test func menuBarHidingTellsRunningAppsAtOnce() {
+    let keys = ["_HIHideMenuBar", "AppleMenuBarVisibleInFullscreen"]
+    for key in keys {
+        let found = PersonalCatalog.systemSettings.first { $0.key == key && $0.domain == "NSGlobalDomain" }
+        #expect(found != nil)
+        guard let found else { continue }
+        #expect(PersonalCatalog.changeNotification(for: found) == "AppleInterfaceMenuBarHidingChangedNotification")
+        #expect(found.effect == .immediate)
+    }
+    let other = PersonalCatalog.systemSettings.first { $0.key == "AppleICUForce24HourTime" }
+    #expect(other.map(PersonalCatalog.changeNotification(for:)) == .some(nil))
+}

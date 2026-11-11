@@ -85,6 +85,10 @@ final class PersonalModel: ObservableObject {
     private func finish(_ setting: PersonalSetting) {
         notice = nil
         revision += 1
+        if let name = PersonalCatalog.changeNotification(for: setting) {
+            DistributedNotificationCenter.default().postNotificationName(.init(name), object: nil, userInfo: nil,
+                                                                         deliverImmediately: true)
+        }
         if case let .restart(process) = setting.effect, Self.selfRelaunching.contains(process) { restart(process) }
     }
 
@@ -320,19 +324,10 @@ struct PersonalRow: View {
         case .folder:
             Chip("Choose…") { chooseFolder() }
         case .sound:
-            Menu {
-                ForEach(Self.sounds, id: \.self) { path in
-                    Button(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent) {
-                        NSSound(contentsOfFile: path, byReference: true)?.play()
-                        personal.set(.string(path), for: setting)
-                    }
-                }
-            } label: {
-                Text(personal.label(current ?? setting.fallback, for: setting).replacingOccurrences(of: " (macOS default)", with: ""))
-                    .font(.system(size: 12, weight: .medium)).padding(.horizontal, 12).frame(height: 30)
-                    .background(DS.Ink.fillStrong, in: .capsule)
+            AlertSoundMenu(label: personal.label(current ?? setting.fallback, for: setting).replacingOccurrences(of: " (macOS default)", with: "")) { path in
+                NSSound(contentsOfFile: path, byReference: true)?.play()
+                personal.set(.string(path), for: setting)
             }
-            .menuStyle(.button).buttonStyle(.plain).fixedSize()
         default: EmptyView()
         }
     }
@@ -378,14 +373,37 @@ struct PersonalRow: View {
         personal.set(.string(url.path), for: setting)
     }
 
-    static let sounds: [String] = {
-        let folders = ["/System/Library/Sounds", NSHomeDirectory() + "/Library/Sounds"]
-        return folders.flatMap { folder in
-            ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? [])
-                .filter { ["aiff", "aif", "wav", "caf"].contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) }
-                .sorted().map { folder + "/" + $0 }
-        }
+    /// macOS's own sounds never change, so they are read once.
+    static let systemSounds: [String] = {
+        let folder = "/System/Library/Sounds"
+        return ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? [])
+            .filter { ["aiff", "aif", "wav", "caf"].contains(URL(fileURLWithPath: $0).pathExtension.lowercased()) }
+            .sorted().map { folder + "/" + $0 }
     }()
+
+    /// The system's sounds, then yours from ~/Library/Sounds as Your Sounds lists them now.
+    @MainActor static var sounds: [String] { systemSounds + UserSounds.shared.files.map(\.path) }
+}
+
+/// The Alert Sound menu. It watches Your Sounds, so a sound added there is offered at once.
+private struct AlertSoundMenu: View {
+    let label: String
+    let choose: (String) -> Void
+    @ObservedObject private var user = UserSounds.shared
+
+    var body: some View {
+        Menu {
+            ForEach(PersonalRow.sounds, id: \.self) { path in
+                Button(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent) { choose(path) }
+            }
+        } label: {
+            Text(label)
+                .font(.system(size: 12, weight: .medium)).padding(.horizontal, 12).frame(height: 30)
+                .background(DS.Ink.fillStrong, in: .capsule)
+        }
+        .menuStyle(.button).buttonStyle(.plain).fixedSize()
+        .onAppear { user.reload() }
+    }
 }
 
 // MARK: - Desktop icons

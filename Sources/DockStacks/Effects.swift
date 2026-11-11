@@ -334,7 +334,7 @@ final class Effects: ObservableObject {
     func apply(_ look: Look) {
         self.look = look.name
         skin = look.skin
-        WidgetBoard.shared.desktopClock = look.clock != nil
+        // A Look with a clock adds or restyles one; a Look without leaves the owner's clocks alone.
         if let style = look.clock { WidgetBoard.shared.desktopClockStyle = style }
         dockGlow = look.glow
         living = look.hue
@@ -460,15 +460,22 @@ final class Effects: ObservableObject {
     /// back always exists. A wallpaper this app cannot read is one it could not put back, so it
     /// never replaces it.
     func keepOriginalWallpaper() -> Bool {
+        // While the owner's own wallpaper is showing (nothing of Atelier's is on the desktop), it
+        // is the one to come back to: written down afresh, since they may have changed it since.
+        let ownShowing = !store.bool(forKey: "livingActive")
         var displays = store.dictionary(forKey: "originalWallpapers") as? [String: String] ?? [:]
+        var options = store.dictionary(forKey: "originalWallpaperOptions") as? [String: [String: Any]] ?? [:]
         for screen in NSScreen.screens {
             guard let id = screen.displayID else { continue }
             let key = LiveWallpaper.uuid(of: id)
-            guard displays[key] == nil, let url = NSWorkspace.shared.desktopImageURL(for: screen),
+            guard displays[key] == nil || ownShowing, let url = NSWorkspace.shared.desktopImageURL(for: screen),
                   !url.path.hasPrefix(generatedFolder.path), FileManager.default.isReadableFile(atPath: url.path) else { continue }
             displays[key] = url.absoluteString
+            options[key] = Self.plistOptions(NSWorkspace.shared.desktopImageOptions(for: screen) ?? [:])
         }
         store.set(displays, forKey: "originalWallpapers")
+        store.set(options, forKey: "originalWallpaperOptions")
+        if ownShowing { store.removeObject(forKey: "originalWallpaper") }
         if let kept = store.url(forKey: "originalWallpaper"), FileManager.default.isReadableFile(atPath: kept.path) { return true }
         let url = Wallpaper.url()
         switch DesktopCompat.originalWallpaperProblem(foundFile: url != nil, readable: url.map { FileManager.default.isReadableFile(atPath: $0.path) } ?? false) {
@@ -486,6 +493,27 @@ final class Effects: ObservableObject {
         guard let url else { return false }
         store.set(url, forKey: "originalWallpaper")
         return true
+    }
+
+    /// Desktop picture options as property-list values: scaling, clipping, and the fill colour as sRGB.
+    private static func plistOptions(_ options: [NSWorkspace.DesktopImageOptionKey: Any]) -> [String: Any] {
+        var result: [String: Any] = [:]
+        if let scaling = options[.imageScaling] as? NSNumber { result["scaling"] = scaling.intValue }
+        if let clipping = options[.allowClipping] as? NSNumber { result["clipping"] = clipping.boolValue }
+        if let fill = (options[.fillColor] as? NSColor)?.usingColorSpace(.sRGB) {
+            result["fill"] = [fill.redComponent, fill.greenComponent, fill.blueComponent, fill.alphaComponent].map(Double.init)
+        }
+        return result
+    }
+
+    private static func workspaceOptions(_ saved: [String: Any]) -> [NSWorkspace.DesktopImageOptionKey: Any] {
+        var options: [NSWorkspace.DesktopImageOptionKey: Any] = [:]
+        if let scaling = saved["scaling"] as? Int { options[.imageScaling] = scaling }
+        if let clipping = saved["clipping"] as? Bool { options[.allowClipping] = clipping }
+        if let fill = saved["fill"] as? [Double], fill.count == 4 {
+            options[.fillColor] = NSColor(srgbRed: fill[0], green: fill[1], blue: fill[2], alpha: fill[3])
+        }
+        return options
     }
 
     /// A downloaded photo as the wallpaper on every display. The owner's own is written down
@@ -532,13 +560,17 @@ final class Effects: ObservableObject {
         guard store.bool(forKey: "livingActive") else { return }
         let displays = store.dictionary(forKey: "originalWallpapers") as? [String: String] ?? [:]
         let main = store.url(forKey: "originalWallpaper")
+        let kept = store.dictionary(forKey: "originalWallpaperOptions") as? [String: [String: Any]] ?? [:]
         var failed: String?
         for (index, screen) in NSScreen.screens.enumerated() {
             let own = screen.displayID.flatMap { displays[LiveWallpaper.uuid(of: $0)] }.flatMap(URL.init(string:))
             // The store's record is the reliable one for the main display; others use their own.
             let pick = index == 0 ? (main ?? own) : (own.flatMap { FileManager.default.isReadableFile(atPath: $0.path) ? $0 : nil } ?? main)
             guard let url = pick else { continue }
-            do { try NSWorkspace.shared.setDesktopImageURL(url, for: screen) } catch { failed = error.localizedDescription }
+            // Scaling, clipping and fill colour as they were, so a fitted picture is not filled.
+            let saved = screen.displayID.flatMap { kept[LiveWallpaper.uuid(of: $0)] } ?? [:]
+            do { try NSWorkspace.shared.setDesktopImageURL(url, for: screen, options: Self.workspaceOptions(saved)) }
+            catch { failed = error.localizedDescription }
         }
         if let failed {
             notice = "Couldn’t restore your wallpaper: \(failed)"

@@ -241,7 +241,7 @@ private struct TextGrabCard: View {
     var body: some View {
         ToolsHero(title: "Text Grab",
                   pitch: "Drag over any text on screen, even in a picture or a video. Read on this Mac with Vision, then copied.",
-                  action: .textGrab, actionTitle: grab.working ? "Reading…" : "Grab",
+                  action: .textGrab, actionTitle: grab.working ? "Cancel" : "Grab",
                   active: grab.working, hue: DS.Spectrum.sensors, run: { ToolAction.textGrab.perform() }) { live in
             ToolsGrabPlate(live: live, working: grab.working)
         } readout: {
@@ -251,7 +251,12 @@ private struct TextGrabCard: View {
                 ToolsReadout(value: Text("\(words)"), caption: words == 1 ? "Word last grab" : "Words last grab")
             }
         } controls: {
-            if let notice = grab.notice { ToolsNote(text: notice) }
+            ScreenRecordingNeeded(detail: "Text Grab reads the pixels you select. Allow Atelier in System Settings, Privacy & Security, Screen Recording; it works as soon as you do.")
+            if grab.working {
+                ToolsNote(text: "Drag over the text. Escape, or Cancel, stops.")
+            } else if let notice = grab.notice {
+                ToolsNote(text: notice)
+            }
         }
     }
 }
@@ -361,7 +366,11 @@ private struct QuickLookCard: View {
                     let panel = NSOpenPanel()
                     panel.allowsMultipleSelection = true
                     NSApp.activate(ignoringOtherApps: true)
-                    if panel.runModal() == .OK { QuickLookTool.preview(panel.urls) }
+                    panel.begin { response in
+                        guard response == .OK else { return }
+                        let urls = panel.urls
+                        MainActor.assumeIsolated { QuickLookTool.preview(urls) }
+                    }
                 }
                 DropTile(symbol: "eye", text: "Drop to preview", targeted: $targeted) { QuickLookTool.preview($0) }
             }
@@ -424,7 +433,7 @@ private struct RecorderCard: View {
     var body: some View {
         ToolsHero(title: "Screen Recorder",
                   pitch: "The main display to Movies at 60 fps, with clicks and keys shown. Atelier stays out of the picture.",
-                  action: .recordScreen, actionTitle: recorder.recording ? "Stop" : "Record",
+                  action: .recordScreen, actionTitle: recorder.busy ? (recorder.recording ? "Saving…" : "Starting…") : recorder.recording ? "Stop" : "Record",
                   active: recorder.recording, hue: DS.Spectrum.sensors, availability: availability,
                   run: { recorder.toggle() }) { live in
             ToolsRecordPlate(live: live, recording: recorder.recording, clicks: recorder.showClicks, keys: recorder.showKeys)
@@ -437,6 +446,9 @@ private struct RecorderCard: View {
                 ToolsReadout(value: Text("60"), caption: "fps · main display")
             }
         } controls: {
+            if !recorder.recording, availability.isUsable {
+                ScreenRecordingNeeded(detail: "Allow Atelier in System Settings, Privacy & Security, Screen Recording. Record works as soon as you do.")
+            }
             if !recorder.recording, availability.isUsable {
                 RowGroup {
                     SettingRow(title: "Clicks While Recording", detail: "A ring at each click, in the recording only.",

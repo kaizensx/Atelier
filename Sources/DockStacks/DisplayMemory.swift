@@ -267,7 +267,10 @@ final class DisplayMemory: ObservableObject {
             return LiveWindow(app: window.app.bundleIdentifier ?? "", title: window.title,
                               windowID: WindowGeometry.windowID(pid: pid, frame: frame, in: listed), pid: pid, frame: frame)
         }
-        let displays = config.displays.map { WindowGeometry.Display(frame: $0.frame, visible: $0.visible) }
+        // Rehomed into the room the Atelier Dock leaves, not under its bar.
+        let displays = config.displays.map {
+            WindowGeometry.Display(frame: $0.frame, visible: ScreenArea.usableAX(frame: $0.frame, fallback: $0.visible))
+        }
         let pairs = DisplayMemoryLogic.match(saved: setup.windows, live: keys)
         var moves: [(window: AXWindow, frame: CGRect)] = []
         var report = ["\(verification ? "verify" : "restore") \(setup.id) onto \(config.key) (\(config.summary)) at \(Date())"]

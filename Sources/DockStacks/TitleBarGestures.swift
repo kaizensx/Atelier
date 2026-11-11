@@ -222,7 +222,6 @@ final class TitleBarGestures: ObservableObject {
     private var recognizer = TitleBarRecognizer()
     private var watching = false
     private var touchSink: AnyCancellable?
-    private var trustTimer: Timer?
     private var source: CFRunLoopSource?
     private var link: CADisplayLink?
     private var fallbackTimer: Timer?
@@ -285,7 +284,10 @@ final class TitleBarGestures: ObservableObject {
 
     // MARK: Lifecycle
 
-    func resume() { if enabled { apply() } }
+    func resume() {
+        AccessWatch.shared.start()
+        if enabled { apply() }
+    }
 
     /// Leaves the system as it was: tap removed, stream released, preview gone. Nothing this
     /// feature does persists outside Atelier's own settings.
@@ -344,9 +346,19 @@ final class TitleBarGestures: ObservableObject {
 
     private func apply() {
         trusted = AXIsProcessTrusted()
-        if enabled {
-            // The stream first: it is what this feature listens to, and it runs without
-            // Accessibility, so the card's live view works before the grant.
+        if enabled && !trusted {
+            // Idle until the grant: no multitouch stream, no display link, no tap. AccessWatch
+            // reads the flag every two seconds and calls `refreshTrust()` when it lands.
+            stopTap()
+            stopLink()
+            touchSink = nil
+            if watching { TrackpadGestures.shared.watch(false); watching = false }
+            recognizer.reset()
+            target = nil
+            titleBarClaim = false
+            titleBarTailUntil = 0
+        } else if enabled {
+            // The stream first: it is what this feature listens to.
             if !watching, TrackpadGestures.shared.available {
                 TrackpadGestures.shared.watch(true)
                 watching = true
@@ -366,26 +378,10 @@ final class TitleBarGestures: ObservableObject {
                     }
                 }
             }
-            if trusted {
-                trustTimer?.invalidate()
-                trustTimer = nil
-                startTap()
-            } else if trustTimer == nil {
-                // Waiting for the grant: look once a second, the way the Window Engine does.
-                let timer = Timer(timeInterval: 1, repeats: true) { _ in
-                    MainActor.assumeIsolated {
-                        let shared = TitleBarGestures.shared
-                        if AXIsProcessTrusted() { shared.refreshTrust() }
-                    }
-                }
-                RunLoop.main.add(timer, forMode: .common)
-                trustTimer = timer
-            }
+            startTap()
         } else {
             stopTap()
             stopLink()
-            trustTimer?.invalidate()
-            trustTimer = nil
             touchSink = nil
             if watching { TrackpadGestures.shared.watch(false); watching = false }
             if let activationObserver { NSWorkspace.shared.notificationCenter.removeObserver(activationObserver) }
@@ -433,7 +429,7 @@ final class TitleBarGestures: ObservableObject {
 
     /// Runs at display rate (120 Hz on ProMotion) while a finger is down or the preview moves.
     fileprivate func startLink() {
-        guard enabled else { return }
+        guard enabled, trusted else { return }
         lastTick = CACurrentMediaTime()
         if let link { link.isPaused = false; return }
         if fallbackTimer != nil { return }
@@ -825,7 +821,7 @@ final class TitleBarGestures: ObservableObject {
             CFPreferencesCopyAppValue(WindowsCompatTiling.stageManagerKey as CFString, domain) as? Bool)
         let stripHidden = (CFPreferencesCopyAppValue("AutoHide" as CFString, domain) as? Bool) ?? false
         return NSScreen.screens.map { screen in
-            let visible = WindowGeometry.flipped(screen.visibleFrame, primaryHeight: height)
+            let visible = WindowGeometry.flipped(ScreenArea.usable(screen), primaryHeight: height)
             return TitleBarDisplay(frame: WindowGeometry.flipped(screen.frame, primaryHeight: height),
                                    visible: TitleBarGeometry.usable(visible, stageManager: stage, stripHidden: stripHidden))
         }

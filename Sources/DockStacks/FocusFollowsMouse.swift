@@ -221,7 +221,6 @@ final class FocusFollowsMouse: ObservableObject {
 
 struct FocusFollowsMouseCard: View {
     @ObservedObject private var ffm = FocusFollowsMouse.shared
-    private var trusted: Bool { AXIsProcessTrusted() }
 
     var body: some View {
         HeroCard("Focus Follows Mouse", pitch: "Rest the pointer on a window and it comes forward. No click.",
@@ -233,6 +232,7 @@ struct FocusFollowsMouseCard: View {
             LivePlate { size, since in FocusFollowsPlate(size: size, since: since) }
         } controls: {
             VStack(alignment: .leading, spacing: DS.Space.m) {
+                NeedsAccessRow(reason: "To raise the window under the pointer.")
                 HeroSlider(title: "Delay", value: $ffm.delay, range: 0.1...1.0, hue: DS.Spectrum.windows) {
                     String(format: "%.1f s", $0)
                 }
@@ -245,7 +245,6 @@ struct FocusFollowsMouseCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .disabled(!trusted)
     }
 }
 

@@ -555,8 +555,8 @@ public enum PersonalCatalog {
                control: .choice([.init(.int(50), "Instant"), .init(.int(400), "Quick"), .init(.int(1000), "Normal")]),
                "Tooltip Delay", "How long the pointer rests before a tooltip shows, in milliseconds.",
                preview: "A tooltip appearing over a button"),
-        dock(.animations, "Dock", "launchanim", "Opening Bounce", "Apps bounce while they open.",
-             fallback: .bool(true), preview: "A Dock icon bouncing"),
+        // Opening Bounce (launchanim) lives in the Dock chapter with the Dock's other bounces
+        // (DockStacks Catalog.swift), so it has one home.
         dock(.animations, "Dock", "mineffect", kind: .string,
              control: .choice([.init(.string("genie"), "Genie"), .init(.string("scale"), "Scale"), .init(.string("suck"), "Suck")]),
              "Minimise Effect", "\"Suck\" is hidden from Settings.", fallback: .string("genie"),

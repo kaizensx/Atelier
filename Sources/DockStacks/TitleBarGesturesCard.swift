@@ -11,7 +11,6 @@ import SwiftUI
 
 struct TitleBarGesturesCard: View {
     @ObservedObject private var model = TitleBarGestures.shared
-    @ObservedObject private var engine = WindowEngine.shared
     private let hue = DS.Spectrum.windows
 
     var body: some View {
@@ -24,7 +23,7 @@ struct TitleBarGesturesCard: View {
         } controls: {
             VStack(alignment: .leading, spacing: DS.Space.m) {
                 AvailabilityNote(availability: model.availability)
-                if !model.trusted { access }
+                NeedsAccessRow(reason: "To move other apps’ windows.")
                 group("Swipes", [.left, .right, .up, .down])
                 group("Corners", [.topLeft, .topRight, .bottomLeft, .bottomRight])
                     .disabled(!model.diagonals)
@@ -67,35 +66,16 @@ struct TitleBarGesturesCard: View {
         }
     }
 
-    private var access: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "hand.raised").font(.system(size: 13, weight: .semibold)).foregroundStyle(.orange.opacity(0.95))
-            Text("Moving other apps’ windows needs Accessibility access.")
-                .font(DS.caption).foregroundStyle(DS.Ink.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
-            Chip(engine.awaitingGrant ? "Open Settings" : "Grant Access") {
-                if engine.awaitingGrant { engine.openAccessibilitySettings() } else { engine.requestAccess() }
-                model.refreshTrust()
-            }
-        }
-        .padding(10)
-        .background(Color.orange.opacity(0.1), in: .rect(cornerRadius: DS.Radius.control, style: .continuous))
-    }
-
     private var footnote: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Only with the pointer on a title bar. Anywhere else two fingers scroll as always, and while a gesture is on its way the window’s content stays still.")
-            HStack(spacing: 10) {
-                if let last = model.lastFired {
-                    Label("\(last.gesture.title) → \(last.plan)", systemImage: last.gesture.symbol)
-                        .foregroundStyle(DS.Ink.secondary)
-                        .contentTransition(.opacity)
-                }
-                Spacer(minLength: 0)
-                Button("Restore Defaults") { model.resetBindings() }
-                    .buttonStyle(.plain).font(DS.caption).foregroundStyle(DS.Ink.secondary)
+            if let last = model.lastFired {
+                Label("\(last.gesture.title) → \(last.plan)", systemImage: last.gesture.symbol)
+                    .foregroundStyle(DS.Ink.secondary)
+                    .contentTransition(.opacity)
             }
+            Button("Restore Defaults") { model.resetBindings() }
+                .buttonStyle(.plain).font(DS.caption).foregroundStyle(DS.Ink.secondary)
             if let error = model.lastError { Text(error).foregroundStyle(.orange.opacity(0.9)) }
         }
         .font(DS.caption).foregroundStyle(DS.Ink.tertiary)
@@ -112,48 +92,84 @@ private struct TitleBarGestureRow: View {
     @ObservedObject private var model = TitleBarGestures.shared
     @State private var hover = false
 
+    /// Stacked: the gesture's name over its two menus, which wrap under each other when the
+    /// card is narrow. Side by side, the name and its explanation were squeezed to a few
+    /// letters a line between the glyph and two wide menus.
     var body: some View {
         let binding = model.binding(gesture)
         let fired = model.lastFired?.gesture == gesture ? model.lastFired?.at : nil
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
             TitleBarGestureGlyph(gesture: gesture, playing: hover, hue: hue, flash: fired)
                 .frame(width: 46, height: 32)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(gesture.title).font(DS.Typo.rowTitle).foregroundStyle(DS.Ink.primary)
-                Text(detail(binding)).font(DS.caption).foregroundStyle(DS.Ink.secondary)
-                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 8)
-            HStack(spacing: 6) {
-                TitleBarActionMenu(selection: binding.first, label: "\(gesture.title) action") { action in
-                    var changed = binding
-                    changed.first = action
-                    model.set(changed, for: gesture)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(gesture.rowTitle).font(DS.Typo.rowTitle).foregroundStyle(DS.Ink.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) { menus(binding) }
+                    VStack(alignment: .leading, spacing: 4) { menus(binding) }
                 }
-                TitleBarActionMenu(selection: binding.again, label: "\(gesture.title) again", compact: true, prefix: "Again") { action in
-                    var changed = binding
-                    changed.again = action
-                    model.set(changed, for: gesture)
-                }
-                .disabled(binding.first == .none)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
         .onHover { hover = $0 }
     }
 
-    private func detail(_ binding: TitleBarBinding) -> String {
-        guard binding.first != .none else { return "Does nothing." }
-        guard binding.again != .none else { return binding.first.title + "." }
-        return "\(binding.first.title), then \(binding.again.title.lowercased()) on a second \(gesture.isPinch ? "pinch" : "swipe")."
+    @ViewBuilder private func menus(_ binding: TitleBarBinding) -> some View {
+        TitleBarActionMenu(selection: binding.first, label: "\(gesture.title) action") { action in
+            var changed = binding
+            changed.first = action
+            model.set(changed, for: gesture)
+        }
+        if binding.first != .none {
+            TitleBarActionMenu(selection: binding.again, label: "\(gesture.title) again", prefix: "Again") { action in
+                var changed = binding
+                changed.again = action
+                model.set(changed, for: gesture)
+            }
+        }
+    }
+}
+
+private extension TitleBarGesture {
+    /// The row's name: the group header already says Swipes, Corners or Pinches.
+    var rowTitle: String {
+        switch self {
+        case .left: "Left"
+        case .right: "Right"
+        case .up: "Up"
+        case .down: "Down"
+        case .topLeft: "Up Left"
+        case .topRight: "Up Right"
+        case .bottomLeft: "Down Left"
+        case .bottomRight: "Down Right"
+        case .pinchIn: "Pinch In"
+        case .pinchOut: "Pinch Out"
+        }
+    }
+}
+
+private extension TitleBarAction {
+    /// The menu button's label, short enough for two buttons on a line. The menu itself
+    /// lists the full names.
+    var shortTitle: String {
+        switch self {
+        case .topLeft: "Top Left"
+        case .topRight: "Top Right"
+        case .bottomLeft: "Bottom Left"
+        case .bottomRight: "Bottom Right"
+        case .displayLeft: "Left Display"
+        case .displayRight: "Right Display"
+        case .close: "Close"
+        default: title
+        }
     }
 }
 
 private struct TitleBarActionMenu: View {
     let selection: TitleBarAction
     let label: String
-    var compact = false
     var prefix: String?
     let choose: (TitleBarAction) -> Void
 
@@ -168,7 +184,7 @@ private struct TitleBarActionMenu: View {
             HStack(spacing: 5) {
                 if let prefix { Text(prefix).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(DS.Ink.tertiary) }
                 Image(systemName: selection.symbol).font(.system(size: 11, weight: .semibold))
-                if !compact { Text(selection.title).font(.system(size: 12, weight: .medium)).lineLimit(1) }
+                Text(selection.shortTitle).font(.system(size: 12, weight: .medium)).lineLimit(1)
                 Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(DS.Ink.tertiary)
             }
             .foregroundStyle(selection == .none ? DS.Ink.secondary : DS.Ink.primary)
@@ -179,7 +195,7 @@ private struct TitleBarActionMenu: View {
         .buttonStyle(Pressable(scale: 0.97))
         .menuIndicator(.hidden)
         .fixedSize()
-        .help(compact ? "\(prefix ?? ""): \(selection.title)" : selection.title)
+        .help(prefix.map { "\($0): \(selection.title)" } ?? selection.title)
         .accessibilityLabel(label)
         .accessibilityValue(selection.title)
     }

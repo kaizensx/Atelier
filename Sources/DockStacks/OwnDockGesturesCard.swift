@@ -9,57 +9,54 @@ import SwiftUI
 
 struct OwnDockGesturesCard: View {
     @ObservedObject private var model = OwnDockGestures.shared
-    @ObservedObject private var dock = OwnDock.shared
+    /// Redraws the notes when Accessibility or Screen Recording is granted.
+    @ObservedObject private var access = DockAccessWatch.shared
     private let hue = DS.Spectrum.surfaces
 
     var body: some View {
         HeroCard("Dock Gestures",
                  pitch: "Swipe and pinch on the Atelier Dock's icons. Close or minimise windows right from Live Peek.",
-                 isOn: $model.enabled, hue: hue,
-                 readout: model.settings.up.title, readoutCaption: "swipe up") {
+                 isOn: $model.enabled, hue: hue) {
             OwnDockGesturesPlate(hue: hue, up: model.settings.up, down: model.settings.down)
         } controls: {
             VStack(alignment: .leading, spacing: DS.Space.m) {
-                ForEach(Array(model.notes.enumerated()), id: \.offset) { _, note in
+                // Accessibility gets its own line with a Grant button; it goes the moment it is granted.
+                DockNeedsAccess()
+                ForEach(Array(model.notes.filter { $0.note?.hasPrefix("Needs Accessibility") != true }.enumerated()), id: \.offset) { _, note in
                     AvailabilityNote(availability: note)
                 }
-                SectionHeader("Gestures on app icons", symbol: "hand.draw",
+                SectionHeader("Gestures on App Icons", symbol: "hand.draw",
                               detail: "Only over a running app's icon; everywhere else scrolling is untouched.", hue: hue)
+                // Menus, not segments: three choices with a title and a line of detail do not fit
+                // side by side in the panel without squeezing the words into a narrow column.
                 RowGroup {
-                    SettingRow(title: "Swipe up", detail: "Two fingers up on an icon.", symbol: "arrow.up", density: .compact) {
-                        Segments(selection: $model.settings.up,
-                                 options: OwnDockGestureSettings.upChoices.map { ($0, $0 == .none ? "Off" : $0 == .expose ? "Exposé" : "Restore") })
-                            .frame(width: 230)
+                    SettingRow(title: "Swipe Up", detail: "Two fingers up on an icon.", symbol: "arrow.up", density: .compact) {
+                        DockMenuPill(selection: $model.settings.up,
+                                     options: OwnDockGestureSettings.upChoices.map { ($0, $0 == .none ? "Off" : $0.title) })
                     }
-                    SettingRow(title: "Swipe down", detail: "Two fingers down on an icon.", symbol: "arrow.down", density: .compact) {
-                        Segments(selection: $model.settings.down,
-                                 options: OwnDockGestureSettings.downChoices.map { ($0, $0 == .none ? "Off" : $0 == .minimize ? "Minimise" : "Hide") })
-                            .frame(width: 230)
+                    .dockHubRow()
+                    SettingRow(title: "Swipe Down", detail: "Two fingers down on an icon.", symbol: "arrow.down", density: .compact) {
+                        DockMenuPill(selection: $model.settings.down,
+                                     options: OwnDockGestureSettings.downChoices.map { ($0, $0 == .none ? "Off" : $0.title) })
                     }
-                    SettingRow(title: "Pinch to quit", detail: "Pinch in, then again within two seconds, to quit the app.",
+                    .dockHubRow()
+                    SettingRow(title: "Pinch to Quit", detail: "Pinch in, then again within two seconds.",
                                symbol: "hand.pinch", density: .compact) {
-                        LuxSwitch(isOn: $model.settings.pinch, label: "Pinch to quit", tint: hue)
+                        LuxSwitch(isOn: $model.settings.pinch, label: "Pinch to Quit", tint: hue)
                     }
-                    SettingRow(title: "Scroll for Windows",
-                               detail: model.settings.swipes ? "Scroll sideways, or turn the mouse wheel, to step through an app's windows."
-                                   : "Scroll on an icon to step through its windows.",
-                               symbol: "rectangle.stack", density: .compact) {
-                        LuxSwitch(isOn: $dock.appearance.scrollWindows, label: "Scroll for Windows", tint: hue)
-                    }
+                    .dockHubRow()
                 }
+                // Scroll for Windows is under Behaviour and Window Previews under Hover, in the
+                // Dock chapter above: one switch each, in one place.
                 SectionHeader("Live Peek", symbol: "rectangle.on.rectangle",
-                              detail: "Rest the pointer on a running app to see its windows, minimised ones too.", hue: hue)
+                              detail: "Rest the pointer on a running app to see its windows, minimised ones too. Window Previews are under Hover.",
+                              hue: hue)
                 RowGroup {
-                    SettingRow(title: "Window previews",
-                               detail: DockWindowShots.shared.allowed ? "A picture of each window; click one to bring it forward."
-                                   : "Each window's icon and title; click one to bring it forward.",
-                               symbol: "macwindow.on.rectangle", density: .compact) {
-                        LuxSwitch(isOn: $dock.hub.windowPreviews, label: "Window previews", tint: hue)
-                    }
-                    SettingRow(title: "Close and minimise buttons", detail: "On the window under the pointer.",
+                    SettingRow(title: "Close and Minimise Buttons", detail: "On the window under the pointer.",
                                symbol: "xmark.circle", density: .compact) {
-                        LuxSwitch(isOn: $model.buttons, label: "Close and minimise buttons", tint: hue)
+                        LuxSwitch(isOn: $model.buttons, label: "Close and Minimise Buttons", tint: hue)
                     }
+                    .dockHubRow()
                 }
             }
         }

@@ -187,4 +187,16 @@ public enum QuitHoldDecision: Equatable, Sendable {
         if holding && isRepeat { return .swallowRepeat }
         return .begin
     }
+
+    /// The ANSI keycode of Q, used only when an event carries no characters.
+    public static let ansiQ: Int64 = 12
+
+    /// Whether a key event is the Q of ⌘Q on the layout in use. Menus match key equivalents by
+    /// character, not by key position, so on AZERTY the Q is keycode 0 and on Dvorak keycode 12
+    /// is an apostrophe: the characters the event carries decide, and the keycode only when it
+    /// carries none (a synthetic event).
+    public static func isQuitKey(characters: String, keyCode: Int64) -> Bool {
+        if characters.isEmpty { return keyCode == ansiQ }
+        return characters.lowercased() == "q"
+    }
 }

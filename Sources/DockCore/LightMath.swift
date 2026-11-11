@@ -75,6 +75,36 @@ public enum LightMath {
         1 - clamp(amount, 0.1, 0.8)
     }
 
+    /// The share of light a gamma scale lets through. The table scales encoded values, and the
+    /// panel turns encoded values into light by about the power 2.2, so a scale of 0.65 leaves
+    /// 39 % of the light, not 65 %. Cards say this number, never the raw scale.
+    public static func lightKept(scale: Double) -> Double {
+        pow(clamp(scale, 0, 1), 2.2)
+    }
+
+    /// Below Black starts under this brightness (DisplayServices' 0…1, four of Apple's sixteen
+    /// steps)...
+    public static let belowBlackStart = 0.25
+    /// ...and has its full depth at the lowest step and below.
+    public static let belowBlackFull = 1.0 / 16
+
+    /// How much of Below Black applies at a backlight brightness: none above `belowBlackStart`,
+    /// all of it at `belowBlackFull` and below, an even glide between, so each press of the
+    /// brightness-down key past a quarter takes the screen further down instead of one jump at
+    /// the bottom. Unknown brightness (no built-in panel answers) applies it all: then it is a
+    /// plain dimmer.
+    public static func belowBlackEngagement(brightness: Double?) -> Double {
+        guard let brightness else { return 1 }
+        let t = clamp((belowBlackStart - brightness) / (belowBlackStart - belowBlackFull), 0, 1)
+        return ease(t)
+    }
+
+    /// The gamma scale Below Black asks for: `dimScale` blended in by the engagement and by how
+    /// far its switch has faded in. Zero engagement is exactly 1, so off means untouched.
+    public static func belowBlackScale(amount: Double, engagement: Double) -> Double {
+        1 - (1 - dimScale(amount: amount)) * clamp(engagement, 0, 1)
+    }
+
     // MARK: Warmth
 
     /// Mired, the reciprocal of colour temperature. Equal steps in mired look like equal steps
@@ -146,6 +176,31 @@ public enum LightMath {
     public static func blendedKelvin(_ kelvin: Double, mix: Double) -> Double {
         let from = mired(neutralKelvin), to = mired(clamp(kelvin, candleKelvin, neutralKelvin))
         return LightMath.kelvin(mired: from + clamp(mix, 0, 1) * (to - from))
+    }
+
+    // MARK: Riding Boost's overlay
+
+    /// Linear Display P3 to linear sRGB (D65 both), for colours the overlay is drawn in.
+    static func sRGBLinear(fromP3 c: Gains) -> Gains {
+        Gains(red: 1.2249401 * c.red - 0.2249404 * c.green,
+              green: -0.0420569 * c.red + 1.0420571 * c.green,
+              blue: -0.0196376 * c.red - 0.0786361 * c.green + 1.0982735 * c.blue)
+    }
+
+    /// Below Black and Candlelight as a multiplier for Boost's overlay, in the overlay's own
+    /// extended linear sRGB. While Boost's layer is up the gamma table cannot carry them: the
+    /// multiply lifts white past 1, and Apple silicon XDR keeps the table off those EDR pixels
+    /// (GCPBypassesEDRPixels), so dimming and warmth vanished exactly where they show most. The
+    /// layer multiplies light, not encoded values, so the gamma gains are decoded first (^2.2)
+    /// and warmth goes from the panel's P3 to sRGB. Neutral and undimmed is exactly 1, so the
+    /// overlay is Boost alone; white comes out as the same warm white the table would give.
+    public static func overlayTint(dimScale: Double, kelvin: Double) -> Gains {
+        let light = lightKept(scale: dimScale)
+        guard kelvin < neutralKelvin - 0.5 else { return .uniform(light) }
+        let g = kelvinGains(kelvin)
+        let linearP3 = Gains(red: pow(g.red, 2.2), green: pow(g.green, 2.2), blue: pow(g.blue, 2.2))
+        let srgb = sRGBLinear(fromP3: linearP3)
+        return Gains(red: max(srgb.red, 0) * light, green: max(srgb.green, 0) * light, blue: max(srgb.blue, 0) * light)
     }
 
     // MARK: Composition

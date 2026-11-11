@@ -11,7 +11,8 @@ import SwiftUI
 
 struct EdgeStashCard: View {
     @ObservedObject private var stash = EdgeStash.shared
-    var trusted: Bool = AXIsProcessTrusted()
+    /// False only from offline renders; live, the row below follows the permission itself.
+    var trusted = true
     private let hue = DS.Spectrum.windows
 
     var body: some View {
@@ -22,6 +23,7 @@ struct EdgeStashCard: View {
             LivePlate { size, since in EdgeStashPlate(size: size, since: since, hue: hue) }
         } controls: {
             VStack(alignment: .leading, spacing: DS.Space.m) {
+                NeedsAccessRow(reason: "To move the window you fling.", previewTrusted: trusted ? nil : false)
                 HStack(spacing: 12) {
                     Text("Hold").font(DS.caption).foregroundStyle(DS.Ink.secondary).frame(width: 60, alignment: .leading)
                     Segments(selection: $stash.key, options: EdgeStashKey.allCases.map { ($0, $0.symbol) })
@@ -56,8 +58,6 @@ struct EdgeStashCard: View {
                 }
             }
         }
-        .disabled(!trusted)
-        .opacity(trusted ? 1 : 0.5)
     }
 
     private var stashedList: some View {

@@ -43,7 +43,7 @@ import Testing
 
 // MARK: Menu Bar Hider
 
-@Test func onlyMacOS27NeedsTheDividerMeasured() {
+@Test func onlyMacOS27NeedsTheDividerFitted() {
     #expect(!DesktopCompat.hiderNeedsMeasuring(major: 14))
     #expect(!DesktopCompat.hiderNeedsMeasuring(major: 15))
     #expect(!DesktopCompat.hiderNeedsMeasuring(major: 26))
@@ -51,33 +51,27 @@ import Testing
     #expect(DesktopCompat.hiderNeedsMeasuring(major: 28))
 }
 
-@Test func theDividerCeilingStaysInsideMacOSLimit() {
-    #expect(DesktopCompat.hiderCeiling(widestScreen: 1512) == 3024)
-    #expect(DesktopCompat.hiderCeiling(widestScreen: 6016) == 10_000)
-    #expect(DesktopCompat.hiderCeiling(widestScreen: 100) == 500)
+@Test func beforeMacOS27TheDividerTakesTheMaximum() {
+    #expect(DesktopCompat.hiderLength(major: 26, screenWidth: 1728, padding: 16) == 10_000)
+    #expect(DesktopCompat.hiderLength(major: 15, screenWidth: 1512, padding: 16) == 10_000)
 }
 
-@Test func measuringFindsTheCutoffAndKeepsAMargin() {
-    // A simulated macOS 27 bar: lengths up to 1031 are laid out, longer ones are dropped and jump.
-    let baseline = 1200.0, cutoff = 1031.0
-    var probes = 0
-    let measured = DesktopCompat.measureCollapse(ceiling: 3024, baseline: baseline) { length in
-        probes += 1
-        return length <= cutoff ? baseline : baseline - length
-    }
-    #expect(measured <= cutoff - 50)
-    #expect(measured >= cutoff - 70)
-    #expect(probes < 16)
+@Test func macOS27TheDividerStaysInsideHalfTheDisplay() {
+    // Measured on a 1728 pt display: 620...840 hid every icon, 850 was dropped.
+    let length = DesktopCompat.hiderLength(major: 27, screenWidth: 1728, padding: 16)
+    #expect(length >= 620 && length <= 840)
+    #expect(length + 16 < 1728 / 2)
+    #expect(DesktopCompat.hiderLength(major: 27, screenWidth: 3008, padding: 16) == 1464)
 }
 
-@Test func aBarThatTakesTheWholeCeilingNeedsNoMargin() {
-    let measured = DesktopCompat.measureCollapse(ceiling: 3024, baseline: 900) { _ in 900 }
-    #expect(measured == 3024)
+@Test func aTinyDisplayStillGetsAUsableDivider() {
+    #expect(DesktopCompat.hiderLength(major: 27, screenWidth: 40, padding: 16) == 10)
+    #expect(DesktopCompat.hiderLength(major: 27, screenWidth: 1728, padding: -5) == 840)
 }
 
-@Test func aBarThatDropsEverythingFallsBackToRest() {
-    let measured = DesktopCompat.measureCollapse(ceiling: 3024, baseline: 900) { length in length <= 10 ? 900 : 900 - length }
-    #expect(measured == 10)
+@Test func theArrowSeedsRightOfTheDivider() {
+    #expect(DesktopCompat.hiderToggleSlot > 0)
+    #expect(DesktopCompat.hiderToggleSlot < DesktopCompat.hiderDividerSlot)
 }
 
 // MARK: Generated wallpapers

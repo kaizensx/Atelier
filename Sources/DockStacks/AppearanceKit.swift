@@ -267,34 +267,15 @@ struct LightAppsCard: View {
 // nothing is borrowed. Key events come from the same global monitor Show Keystrokes uses;
 // password fields never reach it, because macOS hides secure input from every app.
 
-enum TypingPack: String, CaseIterable, Identifiable {
-    case thock, click, typewriter, bubble
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .thock: "Thock"
-        case .click: "Click"
-        case .typewriter: "Typewriter"
-        case .bubble: "Bubble"
-        }
-    }
-    /// Body pitch, decay and how much noise against tone.
-    var voice: (pitch: Double, decay: Double, noise: Double, length: Double) {
-        switch self {
-        case .thock: (180, 38, 0.55, 0.07)
-        case .click: (2600, 120, 0.8, 0.025)
-        case .typewriter: (900, 55, 0.9, 0.06)
-        case .bubble: (520, 30, 0.1, 0.08)
-        }
-    }
-}
+/// The packs themselves, and how each is synthesised, live in DockCore (TypingSynth).
+typealias TypingPack = TypingVoice
 
 @MainActor
 final class TypingSounds: ObservableObject {
     static let shared = TypingSounds()
 
     @Published var enabled: Bool { didSet { store.set(enabled, forKey: "typing.enabled"); apply() } }
-    @Published var pack: TypingPack { didSet { store.set(pack.rawValue, forKey: "typing.pack"); buffers = [:] } }
+    @Published var pack: TypingPack { didSet { store.set(pack.rawValue, forKey: "typing.pack"); load() } }
     @Published var volume: Double { didSet { store.set(volume, forKey: "typing.volume"); engine.mainMixerNode.outputVolume = Float(volume) } }
     /// Key presses heard since launch, for tests.
     private(set) var played = 0
@@ -303,9 +284,16 @@ final class TypingSounds: ObservableObject {
     private let engine = AVAudioEngine()
     private var players: [AVAudioPlayerNode] = []
     private var next = 0
-    private var buffers: [Int: AVAudioPCMBuffer] = [:]
+    /// Pre-rendered buffers for `bankPack`: `[TypingKeyClass.rawValue][variant]`.
+    private var bank: [[AVAudioPCMBuffer]] = []
+    private var bankPack: TypingPack?
+    private var rendering: TypingPack?
+    private var lastVariant = [Int](repeating: -1, count: TypingKeyClass.allCases.count)
     private var monitors: [Any] = []
-    private let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
+    private var heldModifiers: UInt = 0
+    private var idle: DispatchWorkItem?
+    private var previewing: [DispatchWorkItem] = []
+    private let format = AVAudioFormat(standardFormatWithSampleRate: TypingSynth.sampleRate, channels: 1)!
 
     private init() {
         let d = UserDefaults.standard
@@ -319,9 +307,28 @@ final class TypingSounds: ObservableObject {
     private func apply() {
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
-        guard enabled else { engine.stop(); return }
+        guard enabled else { sleep(); return }
+        prepare()
+        // Modifiers arrive as flagsChanged, not keyDown; both are watched.
+        let mask: NSEvent.EventTypeMask = [.keyDown, .flagsChanged]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: mask, handler: { event in
+            let type = event.type, code = Int(event.keyCode), flags = event.modifierFlags.rawValue
+            let repeated = type == .keyDown && event.isARepeat
+            MainActor.assumeIsolated { TypingSounds.shared.event(type, code: code, flags: flags, repeated: repeated) }
+        }) { monitors.append(global) }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: mask, handler: { event in
+            let type = event.type, code = Int(event.keyCode), flags = event.modifierFlags.rawValue
+            let repeated = type == .keyDown && event.isARepeat
+            MainActor.assumeIsolated { TypingSounds.shared.event(type, code: code, flags: flags, repeated: repeated) }
+            return event
+        }) { monitors.append(local) }
+    }
+
+    /// Players, the bank and a running engine, ready for the first key.
+    private func prepare() {
         if players.isEmpty {
-            for _ in 0..<6 {
+            // Eight voices: fast typing overlaps a few presses, never more than that.
+            for _ in 0..<8 {
                 let player = AVAudioPlayerNode()
                 engine.attach(player)
                 engine.connect(player, to: engine.mainMixerNode, format: format)
@@ -329,52 +336,108 @@ final class TypingSounds: ObservableObject {
             }
         }
         engine.mainMixerNode.outputVolume = Float(volume)
-        try? engine.start()
-        if let global = NSEvent.addGlobalMonitorForEvents(matching: .keyDown, handler: { event in
-            let code = Int(event.keyCode), repeated = event.isARepeat
-            MainActor.assumeIsolated { TypingSounds.shared.key(code, repeated: repeated) }
-        }) { monitors.append(global) }
-        if let local = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { event in
-            MainActor.assumeIsolated { TypingSounds.shared.key(Int(event.keyCode), repeated: event.isARepeat) }
-            return event
-        }) { monitors.append(local) }
+        if bankPack != pack { load() }
+        wake()
     }
 
-    /// One key's sound: the space bar and return sit lower and longer, like a real board.
+    /// Renders the pack off the main thread; until it lands, the previous pack keeps playing.
+    private func load() {
+        let wanted = pack
+        guard bankPack != wanted, rendering != wanted else { return }
+        rendering = wanted
+        Task.detached(priority: .userInitiated) {
+            let samples = TypingSynth.renderPack(wanted)
+            await MainActor.run { TypingSounds.shared.install(samples, for: wanted) }
+        }
+    }
+
+    private func install(_ samples: [[[Float]]], for voice: TypingPack) {
+        if rendering == voice { rendering = nil }
+        guard voice == pack else { load(); return }
+        bank = samples.map { variants in
+            variants.map { data in
+                let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(data.count))!
+                buffer.frameLength = AVAudioFrameCount(data.count)
+                data.withUnsafeBufferPointer { buffer.floatChannelData![0].update(from: $0.baseAddress!, count: data.count) }
+                return buffer
+            }
+        }
+        bankPack = voice
+        lastVariant = lastVariant.map { _ in -1 }
+    }
+
+    private func event(_ type: NSEvent.EventType, code: Int, flags: UInt, repeated: Bool) {
+        if type == .flagsChanged { modifier(code, flags: flags) } else { key(code, repeated: repeated) }
+    }
+
+    /// One key's sound: space, return, backspace and the rest each have their own.
     func key(_ code: Int, repeated: Bool = false) {
         guard enabled, !repeated else { return }
-        let size = code == 49 ? 2 : (code == 36 || code == 51) ? 1 : 0
-        let variant = size == 0 ? code % 4 : 4 + size
-        let buffer = buffers[variant] ?? make(variant: variant, size: size)
-        buffers[variant] = buffer
+        play(TypingKeyClass.of(keyCode: code))
+    }
+
+    /// A modifier sounds when it goes down, not when it comes up.
+    private func modifier(_ code: Int, flags: UInt) {
+        defer { heldModifiers = flags }
+        guard enabled else { return }
+        if code == 57 { play(.modifier); return }   // Caps Lock toggles: every change is a press.
+        guard let mask = TypingKeyClass.modifierMask(keyCode: code) else { return }
+        // Down means its bit is set and something new appeared (the left and right keys differ
+        // only in device bits, so the second Shift of a pair still counts).
+        if flags & mask != 0, flags & ~heldModifiers != 0 { play(.modifier) }
+    }
+
+    private func play(_ kind: TypingKeyClass) {
+        guard !players.isEmpty, bank.count == TypingKeyClass.allCases.count else { return }
+        let variants = bank[kind.rawValue]
+        // Never the same variant twice in a row: a machine-gun repeat is what gives synthesis away.
+        var variant = Int.random(in: 0..<variants.count)
+        if variant == lastVariant[kind.rawValue] { variant = (variant + 1) % variants.count }
+        lastVariant[kind.rawValue] = variant
+        wake()
         let player = players[next % players.count]
         next += 1
-        if !engine.isRunning { try? engine.start() }
-        player.scheduleBuffer(buffer, at: nil, options: .interrupts)
-        player.play()
+        player.volume = Float.random(in: 0.82...1)
+        player.scheduleBuffer(variants[variant], at: nil, options: .interrupts)
+        if !player.isPlaying { player.play() }
         played += 1
     }
 
-    private func make(variant: Int, size: Int) -> AVAudioPCMBuffer {
-        var voice = pack.voice
-        voice.pitch *= [1, 0.96, 1.04, 0.92, 1, 0.8, 0.62][min(variant, 6)]
-        voice.length *= size == 0 ? 1 : 1.5
-        let frames = AVAudioFrameCount(format.sampleRate * voice.length)
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
-        buffer.frameLength = frames
-        let out = buffer.floatChannelData![0]
-        var seed: UInt32 = UInt32(variant * 7919 + 17)
-        var low = 0.0
-        for i in 0..<Int(frames) {
-            let t = Double(i) / format.sampleRate
-            seed = seed &* 1_664_525 &+ 1_013_904_223
-            let noise = Double(seed >> 9) / Double(1 << 23) * 2 - 1
-            low += (noise - low) * min(voice.pitch / 4000, 0.9)
-            let tone = sin(2 * .pi * voice.pitch * t) * (pack == .bubble ? 1 - t / voice.length * 0.6 : 1)
-            let envelope = exp(-t * voice.decay) * min(t * 4000, 1)
-            out[i] = Float((tone * (1 - voice.noise) + low * voice.noise * 2.4) * envelope * 0.6)
+    /// The engine runs while keys are coming and pauses after a quiet spell, so an idle Mac
+    /// does not keep an audio render thread awake for nothing.
+    private func wake() {
+        if !engine.isRunning { try? engine.start() }
+        idle?.cancel()
+        let work = DispatchWorkItem { MainActor.assumeIsolated { TypingSounds.shared.engine.pause() } }
+        idle = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: work)
+    }
+
+    private func sleep() {
+        idle?.cancel()
+        idle = nil
+        players.forEach { $0.stop() }
+        engine.stop()
+    }
+
+    /// Types a short phrase in the current pack, whether or not Typing Sounds is on.
+    func preview() {
+        previewing.forEach { $0.cancel() }
+        previewing = []
+        prepare()
+        let phrase: [(Double, TypingKeyClass)] = [(0, .modifier), (0.09, .key), (0.2, .key), (0.29, .key), (0.42, .space), (0.55, .key),
+                                                  (0.64, .key), (0.76, .backspace), (0.92, .key), (1.02, .key), (1.16, .returnKey)]
+        for (at, kind) in phrase {
+            let work = DispatchWorkItem { MainActor.assumeIsolated { TypingSounds.shared.previewKey(kind) } }
+            previewing.append(work)
+            // The first press waits for the pack, rendered off the main thread in a few milliseconds.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06 + at, execute: work)
         }
-        return buffer
+    }
+
+    private func previewKey(_ kind: TypingKeyClass) {
+        play(kind)
+        if !enabled { wake() }
     }
 }
 
@@ -387,25 +450,22 @@ struct TypingSoundsCard: View {
         // app with Accessibility; without it the sounds play in Atelier's own windows only.
         let availability: FeatureAvailability = AXIsProcessTrusted() ? .available
             : .limited("Needs Accessibility to hear typing in other apps")
-        HeroCard("Typing Sounds", pitch: "A soft key sound as you type, made by Atelier, not recorded. Password fields stay silent.",
+        HeroCard("Typing Sounds", pitch: "A key sound as you type, synthesised by Atelier, not recorded. Password fields stay silent.",
                  isOn: $typing.enabled, hue: hue,
                  readout: typing.pack.title, readoutCaption: "\(Int((typing.volume * 100).rounded()))% volume",
                  preview: .demo("sounds.typing", "Typing Sounds", isOn: typing.enabled, region: StageRegion.whole, Demos.typingSounds)) {
             TypingPlate(pack: typing.pack, hue: hue).displayCompatNote(availability)
         } controls: {
             VStack(alignment: .leading, spacing: 12) {
-                Segments(selection: $typing.pack, options: TypingPack.allCases.map { ($0, $0.title) })
+                ChipPicker(selection: Binding(get: { typing.pack }, set: { typing.pack = $0; typing.preview() }),
+                           options: TypingPack.ordered.map { ($0, $0.title) }, minimum: 92)
+                Text(typing.pack.detail).font(DS.caption).foregroundStyle(DS.Ink.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 12) {
                     Text("Volume").font(DS.caption).foregroundStyle(DS.Ink.secondary)
                     LuxSlider(value: $typing.volume, range: 0...1, label: "Typing volume", tint: hue)
-                    Chip("Try") {
-                        let was = typing.enabled
-                        if !was { typing.enabled = true }
-                        for (i, code) in [0, 1, 2, 49, 3, 36].enumerated() {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 0.12) { typing.key(code) }
-                        }
-                        if !was { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { typing.enabled = false } }
-                    }
+                    Chip("Preview") { typing.preview() }
+                        .help("Types a short phrase in this pack, with a space, a backspace and Return.")
                 }
             }
         }
@@ -429,7 +489,8 @@ private struct TypingPlate: View {
                 // An uneven rhythm reads as typing; an even one reads as a metronome.
                 let hits: [(at: Double, key: Int)] = [(0.0, 2), (0.16, 4), (0.27, 0), (0.48, 5), (0.6, 1), (0.85, 3), (0.97, 6)]
                 let t = elapsed.map { $0.truncatingRemainder(dividingBy: 1.6) }
-                let ring = pack.voice
+                // The plate draws from the pack's body pitch and how long it rings.
+                let ring = (pitch: min(pack.pitch, 2400), decay: 4.6 / pack.ring, length: pack.ring)
                 // Lower bodies ring wider and slower.
                 let reach = 26 + 3000 / ring.pitch * 2.2, life = min(max(ring.length * 6, 0.22), 0.5)
                 for (index, label) in keys.enumerated() {
@@ -505,7 +566,22 @@ final class UserSounds: ObservableObject {
         reload()
     }
 
+    /// The sound macOS plays for alerts now, from the global domain System Settings writes.
+    static var alertSoundPath: String? {
+        (CFPreferencesCopyAppValue("com.apple.sound.beep.sound" as CFString, kCFPreferencesAnyApplication) as? String)
+            .map { ($0 as NSString).expandingTildeInPath }
+    }
+
+    func isAlertSound(_ url: URL) -> Bool {
+        Self.alertSoundPath.map { URL(fileURLWithPath: $0).standardizedFileURL.path == url.standardizedFileURL.path } ?? false
+    }
+
     func remove(_ url: URL) {
+        // Trashing the file the alert points to would leave macOS beeping nothing.
+        guard !isAlertSound(url) else {
+            notice = "That is your alert sound. Choose another Alert Sound first, then remove it."
+            return
+        }
         NSWorkspace.shared.recycle([url]) { _, _ in
             DispatchQueue.main.async { UserSounds.shared.reload() }
         }
@@ -527,7 +603,12 @@ struct UserSoundsCard: View {
                         Text(url.deletingPathExtension().lastPathComponent).font(.system(size: 12.5, weight: .medium))
                         Spacer()
                         Chip("Play") { NSSound(contentsOf: url, byReference: true)?.play() }
-                        Chip("Remove") { sounds.remove(url) }
+                        if sounds.isAlertSound(url) {
+                            Text("Alert sound").font(DS.caption).foregroundStyle(DS.Ink.tertiary)
+                                .help("Choose another Alert Sound before removing this one.")
+                        } else {
+                            Chip("Remove") { sounds.remove(url) }
+                        }
                     }
                 }
             }

@@ -523,7 +523,7 @@ struct HapticsCard: View {
     private let hue = DS.Spectrum.sound
 
     var body: some View {
-        HeroCard("Haptics", pitch: "A soft click from the trackpad itself when a window snaps or a gesture lands.",
+        HeroCard("Haptics", pitch: "A soft click from the trackpad itself when a trackpad gesture, a title-bar gesture or a radial menu pick lands.",
                  isOn: $haptics.enabled, hue: hue,
                  readout: haptics.strength.title, readoutCaption: "click",
                  preview: .overlay("input.haptics", "Haptic Feedback", isOn: haptics.enabled) { size in
@@ -536,7 +536,7 @@ struct HapticsCard: View {
                 HStack(spacing: 10) {
                     Segments(selection: $haptics.strength, options: HapticStrength.allCases.map { ($0, $0.title) })
                     Button {
-                        haptics.play(haptics.strength)
+                        haptics.feel(haptics.strength)
                         pulses += 1
                     } label: {
                         Label("Feel It", systemImage: "hand.tap")
@@ -623,7 +623,7 @@ struct HapticStagePreview: View {
 
     var body: some View {
         let padWidth = size.width * 0.24
-        let moments = ["Window snapped", "Switcher step", "Gesture"]
+        let moments = ["Trackpad gesture", "Title-bar gesture", "Radial menu"]
         TimelineView(.animation(minimumInterval: 1 / 120)) { context in
             let time = context.date.timeIntervalSinceReferenceDate
             let beat = time.truncatingRemainder(dividingBy: 0.9) / 0.9

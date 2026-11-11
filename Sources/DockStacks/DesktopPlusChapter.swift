@@ -106,6 +106,8 @@ private let effectsHue = DS.Spectrum.surfaces
 struct DesktopPlusEffectsChapter: View {
     @ObservedObject private var effects = Effects.shared
     @ObservedObject private var plus = DesktopPlus.shared
+    /// The tint's live amount is published here, not on DesktopPlus: watched, the On/Waiting label keeps up.
+    @ObservedObject private var look = DesktopPlus.shared.look
 
     var body: some View {
         Text("Things macOS does not do. Overlays are click-through, cost nothing while off, and go when you quit.")
@@ -152,7 +154,7 @@ struct DesktopPlusEffectsChapter: View {
             } controls: {
                 HStack(spacing: DS.Space.m) {
                     Chip(plus.menuBarCollapsed ? "Show Items" : "Tuck Away") { plus.setCollapsed(!plus.menuBarCollapsed) }
-                    Text("⌘-drag icons left of the divider, then click the arrow.")
+                    Text("Icons left of the divider tuck away. ⌘-drag one to its right to keep it showing.")
                         .font(DS.caption).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
                         .help("Public API only. Some system items may not move, and space beside the notch is limited.")
                 }
@@ -203,7 +205,7 @@ struct DesktopPlusEffectsChapter: View {
                         Text("to").font(DS.caption).foregroundStyle(DS.Ink.secondary)
                         timePicker($plus.nightEnd, label: "End")
                         Spacer()
-                        Text(plus.nightNow > 0.01 ? "On now" : "Waiting").font(DS.caption).foregroundStyle(DS.Ink.secondary)
+                        Text(look.night > 0.01 ? "On now" : "Waiting").font(DS.caption).foregroundStyle(DS.Ink.secondary)
                     }
                     HStack(spacing: 10) {
                         Text("Warmth").font(DS.caption).foregroundStyle(DS.Ink.secondary).frame(width: 52, alignment: .leading)
@@ -272,8 +274,11 @@ struct DesktopPlusEffectsChapter: View {
     @ViewBuilder private var desktop: some View {
         DPSection(title: "Desktop", symbol: "menubar.dock.rectangle")
         RowGroup {
-            EffectsRow(title: "Clean Desktop", detail: "Hides desktop icons with Finder’s own setting.", symbol: "eye.slash",
-                       apply: ApplyHint(kind: .restart, sentence: "Finder restarts once each way."), isOn: $plus.cleanDesktop) {
+            EffectsRow(title: "Clean Desktop", detail: MacPlatform.major >= 14
+                           ? "Hides desktop icons until you show the desktop (F11 or the gesture)."
+                           : "Hides desktop icons with Finder’s own setting.", symbol: "eye.slash",
+                       apply: MacPlatform.major >= 14 ? nil : ApplyHint(kind: .restart, sentence: "Finder restarts once each way."),
+                       isOn: $plus.cleanDesktop) {
                 SettingRow(title: "Put icons back when Atelier quits", density: .compact) {
                     LuxSwitch(isOn: $plus.cleanRestoreOnQuit, label: "Put icons back when Atelier quits", tint: effectsHue)
                 }

@@ -30,8 +30,10 @@ struct ToolsCards: View {
 
     // MARK: Shortcuts
 
-    private var shortcutsCard: some View {
+    @ViewBuilder private var shortcutsCard: some View {
         VStack(alignment: .leading, spacing: DS.Space.s) {
+            NeedsAccessRow(reason: "Shortcuts, custom layouts and app rules move windows with it.",
+                           previewTrusted: trusted ? nil : false)
             RowGroup {
                 ForEach([ToolAction.center, .resizePercent, .cycleWindows, .nextZone]) { action in
                     SettingRow(title: action.title, symbol: action.symbol, density: .compact) {
@@ -54,8 +56,6 @@ struct ToolsCards: View {
                     .padding(.horizontal, DS.Space.xs)
             }
         }
-        .disabled(!trusted)
-        .opacity(trusted ? 1 : 0.5)
     }
 
     // MARK: Layouts
@@ -84,8 +84,6 @@ struct ToolsCards: View {
                 })
             }
         }
-        .disabled(!trusted)
-        .opacity(trusted ? 1 : 0.5)
     }
 
     private func delete(_ layout: CustomLayout) {
@@ -144,8 +142,9 @@ struct ToolsCards: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .help("Streams one window with ScreenCaptureKit into a floating panel.")
                     ShortcutRecorder(action: .pinWindow)
-                    Chip("Pin") { pin.pinFrontWindow() }
+                    Chip(pin.starting ? "Pinning…" : "Pin") { pin.pinFrontWindow() }
                 }
+                ScreenRecordingNeeded(detail: "A pin is a live capture of the window. Allow Atelier in System Settings, Privacy & Security, Screen Recording; Pin works as soon as you do.")
                 RowGroup {
                     SettingRow(title: "Frame Rate", symbol: "speedometer", density: .compact) {
                         Segments(selection: $pin.fps, options: [(30, "30"), (60, "60"), (120, "120")]).frame(width: 180)
@@ -481,8 +480,6 @@ struct AppRulesCard: View {
             }
             .frame(minHeight: 44)
         }
-        .disabled(!trusted)
-        .opacity(trusted ? 1 : 0.5)
     }
 
     private func add() {

@@ -581,6 +581,8 @@ final class WindowEngine: ObservableObject {
     func start() {
         guard !started else { return }
         started = true
+        // Launch-time, unconditional: every window feature waits on this one watcher.
+        AccessWatch.shared.start()
         activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { note in
@@ -606,7 +608,14 @@ final class WindowEngine: ObservableObject {
         let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
         trusted = AXIsProcessTrustedWithOptions(options)
         awaitingGrant = !trusted
+        AccessWatch.shared.noteAsked()
         reconfigure()
+    }
+
+    /// An action pressed without access: say so, and refresh, as the grant may just have landed.
+    private func needsAccess() {
+        refreshTrust()
+        if !trusted { status = "Window tools need Accessibility access." }
     }
 
     func openAccessibilitySettings() {
@@ -668,7 +677,9 @@ final class WindowEngine: ObservableObject {
         let customDrag = Tools.shared.shiftDragZones
         let held = wasDown && (snapEnabled || glowEnabled || customDrag)
         let wanted: Double
-        if !trusted { wanted = awaitingGrant || chapterVisible ? 1 : 0 }
+        // Without access nothing here polls: AccessWatch reads the flag every two seconds and
+        // calls `refreshTrust()` when the grant lands, declined prompt or not.
+        if !trusted { wanted = 0 }
         else if !glides.isEmpty || held || glowMoving { wanted = 60 }
         else if snapEnabled || customDrag { wanted = 20 }
         else if glowEnabled { wanted = 12 }
@@ -709,7 +720,7 @@ final class WindowEngine: ObservableObject {
         let height = primaryHeight
         return NSScreen.screens.map {
             .init(frame: WindowGeometry.flipped($0.frame, primaryHeight: height),
-                  visible: WindowGeometry.flipped($0.visibleFrame, primaryHeight: height))
+                  visible: WindowGeometry.flipped(ScreenArea.usable($0), primaryHeight: height))
         }
     }
 
@@ -792,7 +803,7 @@ final class WindowEngine: ObservableObject {
     // MARK: Layouts
 
     func apply(_ layout: WindowGeometry.Layout) {
-        guard trusted else { return }
+        guard trusted else { needsAccess(); return }
         guard let app = targetApp, let window = AXDesk.focusedWindow(of: app), let frame = window.frame else {
             status = "There is no window to move."
             return
@@ -811,7 +822,7 @@ final class WindowEngine: ObservableObject {
     // MARK: Shuffle
 
     func shuffle() {
-        guard trusted else { return }
+        guard trusted else { needsAccess(); return }
         let all = displays()
         let cursor = cursorPoint()
         guard let index = WindowGeometry.displayIndex(at: cursor, in: all) else { return }
@@ -851,7 +862,7 @@ final class WindowEngine: ObservableObject {
     // MARK: Workspaces
 
     func saveWorkspace(named name: String) {
-        guard trusted else { return }
+        guard trusted else { needsAccess(); return }
         let windows = AXDesk.allWindows().compactMap { window -> WindowSnapshot? in
             guard let frame = window.frame, let id = window.app.bundleIdentifier else { return nil }
             return WindowSnapshot(app: id, appName: window.app.localizedName ?? id, title: window.title, frame: frame)
@@ -866,7 +877,7 @@ final class WindowEngine: ObservableObject {
     }
 
     func restore(_ workspace: WindowWorkspace) {
-        guard trusted else { return }
+        guard trusted else { needsAccess(); return }
         let live = AXDesk.allWindows().filter(\.isMovable)
         let pairs = WindowGeometry.match(saved: workspace.windows.map { ($0.app, $0.title) },
                                          live: live.map { ($0.app.bundleIdentifier ?? "", $0.title) })
@@ -1530,7 +1541,7 @@ struct WindowEngineChapter: View {
         Card {
             VStack(alignment: .leading, spacing: 12) {
                 DisplayTitle(text: "One permission", size: 22)
-                Text("Moving another app's windows needs Accessibility access. Until then, the controls below stay off and the rest of Atelier works as usual.")
+                Text("Moving other apps' windows needs Accessibility access. Turn on what you want now: it starts by itself once access is granted, no relaunch needed.")
                     .font(DS.caption).foregroundStyle(DS.Ink.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
@@ -1560,6 +1571,7 @@ struct WindowEngineChapter: View {
         Card {
             VStack(alignment: .leading, spacing: 12) {
                 Eyebrow(text: "Layouts")
+                NeedsAccessRow(reason: "To move the front window.", previewTrusted: previewTrusted)
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 8) {
                     ForEach(LayoutTile.order) { layout in
                         LayoutTile(layout: layout, gap: engine.gap, hue: hue, selected: layout == lastLayout) { inside in
@@ -1573,8 +1585,6 @@ struct WindowEngineChapter: View {
                 layoutCaption
             }
         }
-        .disabled(!trusted)
-        .opacity(trusted ? 1 : 0.5)
     }
 
     /// One line under the grid names the layout once, with its hot key. Instant, no animation:
@@ -1615,7 +1625,10 @@ struct WindowEngineChapter: View {
                     LuxSwitch(isOn: $engine.snapEnabled, label: "Snap Zones", tint: hue)
                 }
                 .stagePreview(.demo("engine.snap", "Snap Zones", isOn: engine.snapEnabled, region: StageRegion.window, Demos.snapZones))
-                if engine.snapEnabled { AvailabilityNote(availability: engine.snapAvailability) }
+                if engine.snapEnabled {
+                    NeedsAccessRow(reason: "To see the window you drag.", previewTrusted: previewTrusted)
+                    AvailabilityNote(availability: engine.snapAvailability)
+                }
                 HStack(spacing: 12) {
                     Text("Gap").font(DS.caption).foregroundStyle(DS.Ink.secondary)
                     LuxSlider(value: $engine.gap, range: 0...24, label: "Gap", tint: hue)
@@ -1624,8 +1637,6 @@ struct WindowEngineChapter: View {
                 }
             }
         }
-        .disabled(!trusted)
-        .opacity(trusted ? 1 : 0.5)
     }
 
     private var hotKeysCard: some View {
@@ -1635,6 +1646,7 @@ struct WindowEngineChapter: View {
                     LuxSwitch(isOn: $engine.hotKeysEnabled, label: "Hot Keys", tint: hue)
                 }
                 .stagePreview(.demo("engine.keys", "Hot Keys", isOn: engine.hotKeysEnabled, region: StageRegion.window, Demos.hotKeys))
+                if engine.hotKeysEnabled { NeedsAccessRow(reason: "The keys start working once it is granted.", previewTrusted: previewTrusted) }
                 VStack(alignment: .leading, spacing: 5) {
                     KeyHint(keys: "Arrows", action: "Halves")
                     KeyHint(keys: "D  F  G", action: "Thirds")
@@ -1650,32 +1662,32 @@ struct WindowEngineChapter: View {
                 }
             }
         }
-        .disabled(!trusted)
-        .opacity(trusted ? 1 : 0.5)
     }
 
     private var shuffleCard: some View {
         Card {
-            SettingRow(title: "Window Shuffle", detail: "Every window on this display flows into a grid. Press again to rotate them.") {
-                HStack(spacing: 8) {
-                    if engine.canUndo {
-                        EngineButton(title: "Undo", prominent: false) { engine.undo() }
-                            .transition(.opacity)
+            VStack(alignment: .leading, spacing: 10) {
+                SettingRow(title: "Window Shuffle", detail: "Every window on this display flows into a grid. Press again to rotate them.") {
+                    HStack(spacing: 8) {
+                        if engine.canUndo {
+                            EngineButton(title: "Undo", prominent: false) { engine.undo() }
+                                .transition(.opacity)
+                        }
+                        EngineButton(title: "Shuffle", prominent: true) { engine.shuffle() }
                     }
-                    EngineButton(title: "Shuffle", prominent: true) { engine.shuffle() }
+                    .animation(DS.Motion.settle, value: engine.canUndo)
                 }
-                .animation(DS.Motion.settle, value: engine.canUndo)
+                .stagePreview(.demo("engine.shuffle", "Window Shuffle", isOn: false, region: StageRegion.window, Demos.shuffle))
+                NeedsAccessRow(previewTrusted: previewTrusted)
             }
-            .stagePreview(.demo("engine.shuffle", "Window Shuffle", isOn: false, region: StageRegion.window, Demos.shuffle))
         }
-        .disabled(!trusted)
-        .opacity(trusted ? 1 : 0.5)
     }
 
     private var workspacesCard: some View {
         Card {
             VStack(alignment: .leading, spacing: 12) {
                 Eyebrow(text: "Workspaces")
+                NeedsAccessRow(reason: "To read and move windows.", previewTrusted: previewTrusted)
                 HStack(spacing: 8) {
                     TextField("Name this arrangement", text: $newName)
                         .textFieldStyle(.plain)
@@ -1714,8 +1726,6 @@ struct WindowEngineChapter: View {
                 }
             }
         }
-        .disabled(!trusted)
-        .opacity(trusted ? 1 : 0.5)
     }
 
     private var trimmedName: String { newName.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -1734,12 +1744,11 @@ struct WindowEngineChapter: View {
                 }
                 .stagePreview(.demo("engine.glow", "Stage Glow", isOn: engine.glowEnabled, region: StageRegion.window, Demos.stageGlow))
                 if engine.glowEnabled {
+                    NeedsAccessRow(reason: "To find the focused window.", previewTrusted: previewTrusted)
                     LuxSlider(value: $engine.glowIntensity, range: 0.2...1, label: "Glow", tint: hue)
                 }
             }
         }
-        .disabled(!trusted)
-        .opacity(trusted ? 1 : 0.5)
     }
 }
 
@@ -1937,8 +1946,8 @@ struct BordersCard: View {
                 HeroSlider(title: "Width", value: $borders.width, range: 1...12, hue: DS.Spectrum.windows) { "\(Int($0.rounded())) pt" }
                 HeroSlider(title: "Glow", value: $borders.glow, range: 0...1, hue: DS.Spectrum.windows) { "\(Int(($0 * 100).rounded()))%" }
                 HeroSlider(title: "Corners", value: $borders.radius, range: 0...30, hue: DS.Spectrum.windows) { "\(Int($0.rounded())) pt" }
-                Text(trusted ? "Steps aside in full screen, and around Atelier's own window."
-                             : "Needs Accessibility, to know where your window is.")
+                NeedsAccessRow(reason: "To know where your window is.", previewTrusted: trusted ? nil : false)
+                Text("Steps aside in full screen, and around Atelier's own window.")
                     .font(DS.caption).foregroundStyle(DS.Ink.tertiary)
             }
         }

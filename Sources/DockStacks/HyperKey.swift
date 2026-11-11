@@ -224,8 +224,6 @@ final class HyperKey: ObservableObject {
 /// rebuild, which is why the check runs again each time.
 @MainActor
 enum InputTrust {
-    private static var observer: NSObjectProtocol?
-    private static var wasTrusted = AXIsProcessTrusted()
 
     /// The cards' note; limited rather than unavailable, so the switch can still be set.
     static var availability: FeatureAvailability {
@@ -233,23 +231,17 @@ enum InputTrust {
             : .limited("Needs Accessibility in System Settings › Privacy & Security, to read and change input")
     }
 
-    /// Idempotent; every input feature calls it from `resume()`.
+    /// Idempotent; every input feature calls it from `resume()`. The watching itself is
+    /// `AccessWatch`'s: it reads the flag every two seconds while it is missing, as macOS does
+    /// not always post its notification, and calls `granted()` when it arrives.
     static func watch() {
-        guard observer == nil else { return }
-        observer = DistributedNotificationCenter.default().addObserver(
-            forName: NSNotification.Name("com.apple.accessibility.api"), object: nil, queue: .main) { _ in
-            // The list changes a moment before the process's trust does.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { MainActor.assumeIsolated { changed() } }
-        }
+        AccessWatch.shared.start()
     }
 
-    private static func changed() {
-        let trusted = AXIsProcessTrusted()
-        defer { wasTrusted = trusted }
-        guard trusted, !wasTrusted else { return }
+    /// From `AccessWatch`, the moment Accessibility is granted.
+    static func granted() {
         HyperKey.shared.resume()
         WheelDirection.shared.resume()
-        QuitGuard.shared.resume()
         MousePrecision.shared.resume()
     }
 }
@@ -302,6 +294,7 @@ enum KeyMapping {
 struct HyperKeyCard: View {
     @ObservedObject private var hyper = HyperKey.shared
     @ObservedObject private var remapper = KeyRemapper.shared
+    @ObservedObject private var access = AccessWatch.shared
     private let hue = DS.Spectrum.input
 
     var body: some View {
@@ -321,11 +314,11 @@ struct HyperKeyCard: View {
             HyperPlate(on: hyper.enabled, tapEscape: hyper.tapEscape, hue: hue)
         } controls: {
             VStack(alignment: .leading, spacing: 8) {
-                if conflict == nil { AvailabilityNote(availability: hyper.availability) }
+                if conflict == nil { NeedsAccessRow(reason: "To see Caps Lock before macOS does.") }
                 SettingRow(title: "Tap for Escape", detail: "A quick press on its own sends Escape.", density: .compact) {
                     LuxSwitch(isOn: $hyper.tapEscape, label: "Tap for Escape", tint: hue)
                 }
-                if conflict == nil, AXIsProcessTrusted() {
+                if conflict == nil, access.trusted {
                     Text("Caps Lock no longer types capitals while this is on. Turn it off and Caps Lock is back as it was. In password fields macOS keeps keystrokes private, so Hyper pauses there.")
                         .font(DS.caption).foregroundStyle(DS.Ink.tertiary).fixedSize(horizontal: false, vertical: true)
                 }

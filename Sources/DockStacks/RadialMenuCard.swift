@@ -11,6 +11,7 @@ struct RadialMenuCard: View {
     let trusted: Bool
     @ObservedObject private var model = RadialMenu.shared
     @ObservedObject private var hyper = HyperKey.shared
+    @ObservedObject private var access = AccessWatch.shared
     private let hue = DS.Spectrum.windows
 
     var body: some View {
@@ -24,7 +25,8 @@ struct RadialMenuCard: View {
             }
         } controls: {
             VStack(alignment: .leading, spacing: DS.Space.m) {
-                AvailabilityNote(availability: model.availability)
+                NeedsAccessRow(reason: "To read keys and move windows.", previewTrusted: trusted ? nil : false)
+                if access.trusted { AvailabilityNote(availability: model.availability) }
                 VStack(alignment: .leading, spacing: 6) {
                     Text("TRIGGER").font(DS.eyebrow).tracking(0.6).foregroundStyle(DS.Ink.tertiary)
                     ChipPicker(selection: $model.trigger, options: RadialTrigger.allCases.map { ($0, $0.title) }, minimum: 64)
@@ -50,7 +52,7 @@ struct RadialMenuCard: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
                     Chip("Show Ring") { model.handleTest([URLQueryItem(name: "show", value: "1"), URLQueryItem(name: "hold", value: "3")]) }
-                        .disabled(!trusted)
+                        .disabled(!access.trusted)
                 }
             }
         }

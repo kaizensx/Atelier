@@ -9,22 +9,27 @@ import Vision
 
 // MARK: - Shell
 
+/// What a system tool returned. `timedOut` and `cancelled` say why it was stopped early.
+struct ShellResult: Sendable {
+    var status: Int32
+    var output: String
+    var timedOut = false
+    var cancelled = false
+}
+
 enum ToolsShell {
-    /// Runs a system tool off the main thread and returns its status and output.
+    /// Runs a system tool and waits for it without holding any thread: the exit arrives through
+    /// its termination handler. Cancelling the calling task, or passing `timeout`, terminates it.
     @discardableResult
-    nonisolated static func run(_ path: String, _ arguments: [String]) async -> (status: Int32, output: String) {
-        await Task.detached {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: path)
-            process.arguments = arguments
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = Pipe()
-            guard (try? process.run()) != nil else { return (-1, "") }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return (process.terminationStatus, String(decoding: data, as: UTF8.self))
-        }.value
+    nonisolated static func run(_ path: String, _ arguments: [String], timeout: TimeInterval? = nil) async -> ShellResult {
+        let job = ShellJob(path: path, arguments: arguments)
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                job.start(continuation, timeout: timeout)
+            }
+        } onCancel: {
+            job.stop(timedOut: false)
+        }
     }
 
     static var scratch: URL {
@@ -34,51 +39,300 @@ enum ToolsShell {
     }
 }
 
+/// One running tool. Every field is touched under the lock; the continuation resumes once.
+private final class ShellJob: @unchecked Sendable {
+    private let lock = NSLock()
+    private let process = Process()
+    private let pipe = Pipe()
+    private var output = Data()
+    private var continuation: CheckedContinuation<ShellResult, Never>?
+    private var finished = false
+    private var timedOut = false
+    private var cancelled = false
+
+    init(path: String, arguments: [String]) {
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = arguments
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+    }
+
+    func start(_ continuation: CheckedContinuation<ShellResult, Never>, timeout: TimeInterval?) {
+        let early = lock.withLock { () -> Bool in
+            self.continuation = continuation
+            return cancelled
+        }
+        if early { finish(status: -1); return }
+        pipe.fileHandleForReading.readabilityHandler = { [self] handle in
+            let data = handle.availableData
+            if data.isEmpty { handle.readabilityHandler = nil } else { lock.withLock { output.append(data) } }
+        }
+        process.terminationHandler = { [self] process in
+            // What the tool wrote just before it exited is still in the pipe.
+            pipe.fileHandleForReading.readabilityHandler = nil
+            let rest = (try? pipe.fileHandleForReading.readToEnd()) ?? nil
+            if let rest { lock.withLock { output.append(rest) } }
+            finish(status: process.terminationStatus)
+        }
+        do { try process.run() } catch { finish(status: -1); return }
+        // A cancel that landed between the check above and the launch.
+        if lock.withLock({ cancelled }) { stop(timedOut: false) }
+        if let timeout {
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) { [self] in stop(timedOut: true) }
+        }
+    }
+
+    func stop(timedOut: Bool) {
+        let running = lock.withLock { () -> Bool in
+            guard !finished else { return false }
+            if timedOut { self.timedOut = true } else { cancelled = true }
+            return process.isRunning
+        }
+        guard running else { return }
+        process.terminate()
+        // Anything that ignores SIGTERM gets SIGKILL a moment later.
+        let pid = process.processIdentifier
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 2) { [self] in
+            if lock.withLock({ !finished }) { kill(pid, SIGKILL) }
+        }
+    }
+
+    private func finish(status: Int32) {
+        let (continuation, result) = lock.withLock { () -> (CheckedContinuation<ShellResult, Never>?, ShellResult) in
+            guard !finished else { return (nil, ShellResult(status: status, output: "")) }
+            finished = true
+            let result = ShellResult(status: status, output: String(decoding: output, as: UTF8.self), timedOut: timedOut, cancelled: cancelled)
+            let pending = self.continuation
+            self.continuation = nil
+            return (pending, result)
+        }
+        continuation?.resume(returning: result)
+    }
+}
+
+// MARK: - Screen Recording access
+
+/// Whether Atelier may read the screen. Text Grab, the Screen Recorder and Pin Window ask here
+/// first, so a missing permission shows as "Needs Screen Recording" instead of a blank capture
+/// or a hang. While it is missing the answer is re-read every 2 s, so a grant in System
+/// Settings lights the tools up without a relaunch.
+@MainActor
+final class ScreenCaptureAccess: ObservableObject {
+    static let shared = ScreenCaptureAccess()
+    @Published private(set) var granted = CGPreflightScreenCaptureAccess()
+    private var asked = false
+    private var timer: Timer?
+
+    @discardableResult
+    func refresh() -> Bool {
+        let now = CGPreflightScreenCaptureAccess()
+        if now != granted { granted = now }
+        if now { timer?.invalidate(); timer = nil }
+        return now
+    }
+
+    /// Starts the 2 s re-check while access is missing. Stops by itself once it is granted.
+    func watch() {
+        guard !refresh(), timer == nil else { return }
+        let timer = Timer(timeInterval: 2, repeats: true) { _ in
+            MainActor.assumeIsolated { _ = ScreenCaptureAccess.shared.refresh() }
+        }
+        timer.tolerance = 0.5
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    /// The system prompt the first time; after that macOS only lists Atelier in Settings, so
+    /// the Screen Recording pane opens instead.
+    func request() {
+        watch()
+        if !asked {
+            asked = true
+            if CGRequestScreenCaptureAccess() { refresh(); return }
+        }
+        openSettings()
+    }
+
+    func openSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+}
+
+/// "Needs Screen Recording · Grant…", shown under a tool for as long as access is missing.
+struct ScreenRecordingNeeded: View {
+    var detail = "Allow Atelier in System Settings, Privacy & Security, Screen Recording. It works as soon as you do."
+    @ObservedObject private var access = ScreenCaptureAccess.shared
+
+    var body: some View {
+        Group {
+            if !access.granted {
+                HStack(alignment: .center, spacing: DS.Space.m) {
+                    Image(systemName: "lock.shield").font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.orange.opacity(0.95))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Needs Screen Recording").font(DS.Typo.rowTitle).foregroundStyle(DS.Ink.primary)
+                        Text(detail).font(DS.caption).foregroundStyle(DS.Ink.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Chip("Grant…") { access.request() }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .background(Color.orange.opacity(0.1), in: .rect(cornerRadius: DS.Radius.control, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: DS.Radius.control, style: .continuous)
+                        .strokeBorder(Color.orange.opacity(0.35), lineWidth: 0.5)
+                }
+                .transition(.opacity)
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .onAppear { access.watch() }
+        .animation(DS.Motion.reveal, value: access.granted)
+    }
+}
+
+/// ScreenCaptureKit's window and display list, with a deadline. Without a deadline the call
+/// can wait on a permission prompt indefinitely.
+enum ToolsCapture {
+    struct TimedOut: LocalizedError {
+        var errorDescription: String? { "Screen capture did not answer in time." }
+    }
+
+    nonisolated static func content(timeout: TimeInterval = 8) async throws -> SCShareableContent {
+        let once = OnceResume<SCShareableContent>()
+        return try await withCheckedThrowingContinuation { continuation in
+            once.set(continuation)
+            SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, error in
+                if let content { once.resume(.success(content)) } else { once.resume(.failure(error ?? TimedOut())) }
+            }
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) { once.resume(.failure(TimedOut())) }
+        }
+    }
+}
+
+/// Resumes a continuation exactly once, whichever of a result and a deadline comes first.
+final class OnceResume<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, any Error>?
+
+    func set(_ continuation: CheckedContinuation<T, any Error>) { lock.withLock { self.continuation = continuation } }
+
+    func resume(_ result: sending Result<T, any Error>) {
+        let pending = lock.withLock { () -> CheckedContinuation<T, any Error>? in
+            defer { continuation = nil }
+            return continuation
+        }
+        pending?.resume(with: result)
+    }
+}
+
 // MARK: - Text Grab
 
 /// One-shot OCR: you drag a region with the system's own capture UI, Vision reads it,
 /// the text goes to the clipboard. Nothing is kept.
+///
+/// Nothing here runs on the main thread but the bookkeeping: the capture UI is its own
+/// process, decoding and Vision run on a background queue, and each step has a deadline.
+/// Escape in the capture UI cancels it; pressing Grab (or its shortcut) again does too.
 @MainActor
 final class TextGrab: ObservableObject {
     static let shared = TextGrab()
     @Published private(set) var lastText = ""
     @Published private(set) var working = false
     @Published var notice: String?
+    private var job: Task<Void, Never>?
+    private var generation = 0
 
     func grab() {
-        guard !working else { return }
+        if working { cancel(); return }
+        let access = ScreenCaptureAccess.shared
+        guard access.refresh() else {
+            // Without access, screencapture returns only the wallpaper: no text, and no reason why.
+            notice = "Needs Screen Recording. Grant it, then grab again."
+            access.request()
+            return
+        }
         working = true
         notice = nil
+        generation += 1
+        let current = generation
         let file = ToolsShell.scratch.appendingPathComponent("grab-\(UUID().uuidString).png")
-        Task {
-            await ToolsShell.run("/usr/sbin/screencapture", ["-i", "-x", "-o", file.path])
+        job = Task {
+            // Two minutes to drag a region; the capture UI is the system's, Escape leaves it.
+            let capture = await ToolsShell.run("/usr/sbin/screencapture", ["-i", "-x", "-o", file.path], timeout: 120)
             defer { try? FileManager.default.removeItem(at: file) }
-            guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
-                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
-                working = false
-                notice = "Cancelled."
-                return
-            }
-            let text = await Self.recognise(image)
-            working = false
-            if text.isEmpty { notice = "No text found in that area."; return }
+            // A cancel or a newer grab owns the state now.
+            guard current == generation, !Task.isCancelled else { return }
+            if capture.timedOut { done("Timed out. Nothing was copied."); return }
+            if capture.cancelled { done("Cancelled."); return }
+            let text = await Self.read(file)
+            guard current == generation, !Task.isCancelled else { return }
+            guard let text else { done("Cancelled. Nothing was captured."); return }
+            if text.isEmpty { done("No text found in that area."); return }
             lastText = text
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
-            notice = "Copied \(text.count) characters."
+            done("Copied \(text.count) characters.")
+        }
+    }
+
+    func cancel() {
+        generation += 1
+        job?.cancel()
+        job = nil
+        working = false
+        notice = "Cancelled."
+    }
+
+    private func done(_ message: String) {
+        working = false
+        job = nil
+        notice = message
+    }
+
+    /// Decodes the capture and reads it. Nil when there was no capture (Escape, or a click
+    /// without a drag).
+    nonisolated static func read(_ file: URL, timeout: TimeInterval = 20) async -> String? {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
+                      let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                    continuation.resume(returning: nil); return
+                }
+                continuation.resume(returning: recogniseNow(image, timeout: timeout))
+            }
         }
     }
 
     nonisolated static func recognise(_ image: CGImage) async -> String {
-        await Task.detached {
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = true
-            request.automaticallyDetectsLanguage = true
-            try? VNImageRequestHandler(cgImage: image).perform([request])
-            return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
-        }.value
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async { continuation.resume(returning: recogniseNow(image, timeout: 20)) }
+        }
     }
+
+    /// Blocking; call it off the main thread. Vision is told to stop if it runs past `timeout`.
+    nonisolated private static func recogniseNow(_ image: CGImage, timeout: TimeInterval) -> String {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        request.automaticallyDetectsLanguage = true
+        let box = RequestBox(request)
+        let deadline = DispatchWorkItem { box.request.cancel() }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout, execute: deadline)
+        try? VNImageRequestHandler(cgImage: image).perform([request])
+        deadline.cancel()
+        return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+    }
+}
+
+/// Lets the deadline reach the request from another queue; cancel() is thread-safe.
+private final class RequestBox: @unchecked Sendable {
+    let request: VNRequest
+    init(_ request: VNRequest) { self.request = request }
 }
 
 // MARK: - Clipboard
@@ -87,9 +341,18 @@ final class TextGrab: ObservableObject {
 final class ClipboardTools: ObservableObject {
     static let shared = ClipboardTools()
     @Published var notice: String?
+    private var previewCount = -1
+    private var previewText = ""
 
+    /// Read again only when the clipboard changes: the card redraws often, and a large copied
+    /// text is not worth decoding on every frame.
     var preview: String {
-        String((NSPasteboard.general.string(forType: .string) ?? "").prefix(140))
+        let board = NSPasteboard.general
+        if board.changeCount != previewCount {
+            previewCount = board.changeCount
+            previewText = String((board.string(forType: .string) ?? "").prefix(140))
+        }
+        return previewText
     }
 
     func run(_ transform: TextTransform) {
@@ -105,28 +368,42 @@ final class ClipboardTools: ObservableObject {
 // MARK: - Quick Look
 
 /// Quick Look anything: files, or whatever is on the clipboard, through Apple's qlmanage.
+/// One preview at a time: a new one closes the last, so repeated presses never pile up.
+@MainActor
 enum QuickLookTool {
+    private static var current: Task<Void, Never>?
+
     static func preview(_ urls: [URL]) {
         guard !urls.isEmpty else { return }
-        Task { await ToolsShell.run("/usr/bin/qlmanage", ["-p"] + urls.map(\.path)) }
+        current?.cancel()
+        current = Task { await ToolsShell.run("/usr/bin/qlmanage", ["-p"] + urls.map(\.path)) }
     }
 
-    /// Returns false when the clipboard holds nothing previewable.
-    @MainActor static func previewClipboard() -> Bool {
+    /// Returns false when the clipboard holds nothing previewable. Images are written out
+    /// off the main thread; a big screenshot on the clipboard is many megabytes.
+    static func previewClipboard() -> Bool {
         let board = NSPasteboard.general
         if let urls = board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
             preview(urls); return true
         }
-        if let image = NSImage(pasteboard: board), let tiff = image.tiffRepresentation,
-           let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
-            let url = ToolsShell.scratch.appendingPathComponent("Clipboard.png")
-            if (try? png.write(to: url)) != nil { preview([url]); return true }
+        if let png = board.data(forType: .png) {
+            write(png, as: "Clipboard.png"); return true
+        }
+        if let tiff = board.data(forType: .tiff) {
+            write(tiff, as: "Clipboard.tiff"); return true
         }
         if let text = board.string(forType: .string), !text.isEmpty {
-            let url = ToolsShell.scratch.appendingPathComponent("Clipboard.txt")
-            if (try? text.write(to: url, atomically: true, encoding: .utf8)) != nil { preview([url]); return true }
+            write(Data(text.utf8), as: "Clipboard.txt"); return true
         }
         return false
+    }
+
+    private static func write(_ data: Data, as name: String) {
+        let url = ToolsShell.scratch.appendingPathComponent(name)
+        Task {
+            let written = await Task.detached(priority: .userInitiated) { (try? data.write(to: url, options: .atomic)) != nil }.value
+            if written { preview([url]) }
+        }
     }
 }
 
@@ -143,18 +420,31 @@ final class ScreenRecorder: NSObject, ObservableObject {
     @Published var showKeys = false
     @Published var notice: String?
     @Published private(set) var lastFile: URL?
+    /// Between the press and the first frame, or the stop and the file closing. Presses in
+    /// between are ignored, so a double press never starts two streams.
+    @Published private(set) var busy = false
 
     private var stream: SCStream?
     /// An SCRecordingOutput on macOS 15+, which is when ScreenCaptureKit learnt to write files.
     private var output: AnyObject?
     private var keysWereOn = false
 
-    func toggle() { recording ? stop() : start() }
+    func toggle() {
+        guard !busy else { return }
+        recording ? stop() : start()
+    }
 
     func start() {
+        guard !busy, !recording else { return }
         notice = nil
         guard #available(macOS 15, *) else {
             notice = "Recording needs macOS 15 or later, where ScreenCaptureKit can write the file itself."
+            return
+        }
+        let access = ScreenCaptureAccess.shared
+        guard access.refresh() else {
+            notice = "Needs Screen Recording. Grant it, then press Record again."
+            access.request()
             return
         }
         startRecording()
@@ -162,9 +452,11 @@ final class ScreenRecorder: NSObject, ObservableObject {
 
     @available(macOS 15, *)
     private func startRecording() {
+        busy = true
         Task {
+            defer { busy = false }
             do {
-                let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                let content = try await ToolsCapture.content()
                 let mainID = CGMainDisplayID()
                 guard let display = content.displays.first(where: { $0.displayID == mainID }) ?? content.displays.first else {
                     notice = "No display to record."; return
@@ -198,14 +490,17 @@ final class ScreenRecorder: NSObject, ObservableObject {
                     DesktopPlus.shared.keystrokes = true
                 }
             } catch {
-                notice = "Recording could not start: \(error.localizedDescription) Screen Recording permission is needed."
+                ScreenCaptureAccess.shared.refresh()
+                notice = "Recording could not start: \(error.localizedDescription)"
             }
         }
     }
 
     func stop() {
-        guard let stream else { return }
+        guard let stream, !busy else { return }
+        busy = true
         Task {
+            defer { busy = false }
             try? await stream.stopCapture()
             if #available(macOS 15, *), let output = output as? SCRecordingOutput { try? stream.removeRecordingOutput(output) }
             self.stream = nil
@@ -299,7 +594,9 @@ final class DisplayModes: ObservableObject {
 
 // MARK: - Audio devices
 
-/// Default input and output through CoreAudio's public HAL properties.
+/// Default input and output through CoreAudio's public HAL properties. The HAL can take a
+/// long moment to answer (a Bluetooth headset waking, an AirPlay device), so every call runs
+/// off the main thread and only the result is published here.
 @MainActor
 final class AudioDevices: ObservableObject {
     static let shared = AudioDevices()
@@ -316,12 +613,12 @@ final class AudioDevices: ObservableObject {
     @Published private(set) var defaultInput: AudioObjectID = 0
     @Published var alertsFollow = true
 
-    private static func address(_ selector: AudioObjectPropertySelector,
+    nonisolated private static func address(_ selector: AudioObjectPropertySelector,
                                 _ scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal) -> AudioObjectPropertyAddress {
         AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
     }
 
-    private static func defaultDevice(_ selector: AudioObjectPropertySelector) -> AudioObjectID {
+    nonisolated private static func defaultDevice(_ selector: AudioObjectPropertySelector) -> AudioObjectID {
         var address = address(selector)
         var id = AudioObjectID(0)
         var size = UInt32(MemoryLayout<AudioObjectID>.size)
@@ -329,13 +626,13 @@ final class AudioDevices: ObservableObject {
         return id
     }
 
-    private static func hasStreams(_ id: AudioObjectID, scope: AudioObjectPropertyScope) -> Bool {
+    nonisolated private static func hasStreams(_ id: AudioObjectID, scope: AudioObjectPropertyScope) -> Bool {
         var address = address(kAudioDevicePropertyStreams, scope)
         var size: UInt32 = 0
         return AudioObjectGetPropertyDataSize(id, &address, 0, nil, &size) == noErr && size > 0
     }
 
-    private static func name(_ id: AudioObjectID) -> String {
+    nonisolated private static func name(_ id: AudioObjectID) -> String {
         var address = address(kAudioObjectPropertyName)
         var name: Unmanaged<CFString>?
         var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
@@ -343,33 +640,60 @@ final class AudioDevices: ObservableObject {
         return name.takeRetainedValue() as String
     }
 
-    func refresh() {
-        var address = Self.address(kAudioHardwarePropertyDevices)
+    private struct Snapshot: Sendable {
+        let devices: [Device]
+        let output: AudioObjectID
+        let input: AudioObjectID
+    }
+
+    nonisolated private static func snapshot() -> Snapshot? {
+        var address = address(kAudioHardwarePropertyDevices)
         var size: UInt32 = 0
         let system = AudioObjectID(kAudioObjectSystemObject)
-        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr else { return }
+        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr else { return nil }
         var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
         AudioObjectGetPropertyData(system, &address, 0, nil, &size, &ids)
-        devices = ids.map {
-            Device(id: $0, name: Self.name($0),
-                   output: Self.hasStreams($0, scope: kAudioObjectPropertyScopeOutput),
-                   input: Self.hasStreams($0, scope: kAudioObjectPropertyScopeInput))
+        let devices = ids.map {
+            Device(id: $0, name: name($0),
+                   output: hasStreams($0, scope: kAudioObjectPropertyScopeOutput),
+                   input: hasStreams($0, scope: kAudioObjectPropertyScopeInput))
         }
-        defaultOutput = Self.defaultDevice(kAudioHardwarePropertyDefaultOutputDevice)
-        defaultInput = Self.defaultDevice(kAudioHardwarePropertyDefaultInputDevice)
+        return Snapshot(devices: devices, output: defaultDevice(kAudioHardwarePropertyDefaultOutputDevice),
+                        input: defaultDevice(kAudioHardwarePropertyDefaultInputDevice))
+    }
+
+    func refresh() {
+        Task {
+            guard let snapshot = await Task.detached(priority: .userInitiated, operation: { Self.snapshot() }).value else { return }
+            publish(snapshot)
+        }
+    }
+
+    private func publish(_ snapshot: Snapshot) {
+        if devices != snapshot.devices { devices = snapshot.devices }
+        defaultOutput = snapshot.output
+        defaultInput = snapshot.input
     }
 
     func use(_ device: Device, asOutput: Bool) {
-        var id = device.id
-        let size = UInt32(MemoryLayout<AudioObjectID>.size)
-        let system = AudioObjectID(kAudioObjectSystemObject)
-        var address = Self.address(asOutput ? kAudioHardwarePropertyDefaultOutputDevice : kAudioHardwarePropertyDefaultInputDevice)
-        AudioObjectSetPropertyData(system, &address, 0, nil, size, &id)
-        if asOutput, alertsFollow {
-            var alerts = Self.address(kAudioHardwarePropertyDefaultSystemOutputDevice)
-            AudioObjectSetPropertyData(system, &alerts, 0, nil, size, &id)
+        // Shown at once; the HAL catches up off the main thread.
+        if asOutput { defaultOutput = device.id } else { defaultInput = device.id }
+        let follow = alertsFollow, target = device.id
+        Task {
+            let snapshot = await Task.detached(priority: .userInitiated) { () -> Snapshot? in
+                var id = target
+                let size = UInt32(MemoryLayout<AudioObjectID>.size)
+                let system = AudioObjectID(kAudioObjectSystemObject)
+                var address = Self.address(asOutput ? kAudioHardwarePropertyDefaultOutputDevice : kAudioHardwarePropertyDefaultInputDevice)
+                AudioObjectSetPropertyData(system, &address, 0, nil, size, &id)
+                if asOutput, follow {
+                    var alerts = Self.address(kAudioHardwarePropertyDefaultSystemOutputDevice)
+                    AudioObjectSetPropertyData(system, &alerts, 0, nil, size, &id)
+                }
+                return Self.snapshot()
+            }.value
+            if let snapshot { publish(snapshot) }
         }
-        refresh()
     }
 }
 
@@ -535,9 +859,18 @@ final class FocusSession: ObservableObject {
         panel.allowsMultipleSelection = true
         panel.directoryURL = URL(fileURLWithPath: "/Applications")
         NSApp.activate(ignoringOtherApps: true)
-        guard panel.runModal() == .OK else { return }
-        for url in panel.urls {
-            if let id = Bundle(url: url)?.bundleIdentifier, !blocked.contains(id), id != Bundle.main.bundleIdentifier { blocked.append(id) }
+        // Not runModal: a modal loop stops every timer and animation in the app until it closes.
+        panel.begin { response in
+            guard response == .OK else { return }
+            let urls = panel.urls
+            MainActor.assumeIsolated {
+                let session = FocusSession.shared
+                for url in urls {
+                    if let id = Bundle(url: url)?.bundleIdentifier, !session.blocked.contains(id), id != Bundle.main.bundleIdentifier {
+                        session.blocked.append(id)
+                    }
+                }
+            }
         }
     }
 
@@ -552,17 +885,20 @@ final class FocusSession: ObservableObject {
 @MainActor
 final class BatchRenamer: ObservableObject {
     static let shared = BatchRenamer()
-    @Published var files: [URL] = []
+    /// Dates are read once when the list changes, not on every redraw of the preview.
+    @Published var files: [URL] = [] { didSet { dates = files.map(Self.date) } }
     @Published var plan = RenamePlan()
+    private var dates: [Date] = []
     @Published var notice: String?
     /// The last batch, new name to old, for Undo.
     @Published private(set) var undo: [(URL, URL)] = []
 
+    private static func date(_ url: URL) -> Date {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+    }
+
     var items: [RenamePlan.Item] {
-        files.map { url in
-            let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
-            return RenamePlan.Item(name: url.lastPathComponent, date: date)
-        }
+        zip(files, dates).map { RenamePlan.Item(name: $0.lastPathComponent, date: $1) }
     }
 
     var preview: [String] { plan.names(for: items) }
@@ -572,8 +908,11 @@ final class BatchRenamer: ObservableObject {
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
         NSApp.activate(ignoringOtherApps: true)
-        guard panel.runModal() == .OK else { return }
-        files = panel.urls.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        panel.begin { response in
+            guard response == .OK else { return }
+            let urls = panel.urls.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+            MainActor.assumeIsolated { BatchRenamer.shared.files = urls }
+        }
     }
 
     func apply() {

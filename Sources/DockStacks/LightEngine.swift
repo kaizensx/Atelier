@@ -18,9 +18,16 @@ import QuartzCore
 //   only once EDR has engaged, always as a glide, and on a curve that keeps every brightness
 //   step a step.
 // - Below Black: the table scaled below 1, darker than the lowest brightness step (Lunar's
-//   "sub-zero" dimming). It took over from Extra Dim and keeps its settings.
+//   "sub-zero" dimming). It took over from Extra Dim and keeps its settings. It follows the
+//   backlight: nothing above a quarter brightness, its full depth at the lowest step, so it is
+//   the brightness keys going on down rather than a second dimmer fighting them.
 // - Candlelight: per-channel gains for a black body between 2700 K and 1900 K, warmer than
 //   Night Shift, which CoreBrightness clamps at 2700 K.
+//
+// While Boost's layer is up on a display, Below Black and Candlelight ride that layer instead of
+// the table: the multiply lifts white past 1, and the display keeps the table off EDR pixels, so
+// through the table both did nothing exactly where they show most (white pages). The table goes
+// back to the system's curve there and the layer carries Boost × dim × warmth in one colour.
 //
 // Nothing here is permanent. macOS throws a process's gamma tables away when it exits, even by
 // crashing; turning everything off calls CGDisplayRestoreColorSyncSettings at once; quitting
@@ -74,7 +81,7 @@ final class LightEngine: ObservableObject {
     @Published var boostOn: Bool { didSet { store.set(boostOn, forKey: Keys.boostOn); boostWanted() } }
     /// How much of the headroom Boost uses, 0 to 1.
     @Published var boostAmount: Double { didSet { store.set(boostAmount, forKey: Keys.boostAmount); boostTick() } }
-    @Published var dimOn: Bool { didSet { store.set(dimOn, forKey: Keys.dimOn); changed(fade: true) } }
+    @Published var dimOn: Bool { didSet { store.set(dimOn, forKey: Keys.dimOn); watchDimBrightness(); changed(fade: true) } }
     /// How much light Below Black takes away, 0.1 to 0.8.
     @Published var dimAmount: Double { didSet { store.set(dimAmount, forKey: Keys.dimAmount); changed(fade: false) } }
     @Published var candleOn: Bool { didSet { store.set(candleOn, forKey: Keys.candleOn); changed(fade: true) } }
@@ -87,6 +94,9 @@ final class LightEngine: ObservableObject {
     @Published private(set) var potentialHeadroom: Double = 1
     /// The built-in panel's brightness, 0 to 1, when DisplayServices answers.
     @Published private(set) var brightness: Double?
+    /// How much of Below Black the backlight calls for now, 0 (above a quarter brightness) to 1
+    /// (the lowest step); see `LightMath.belowBlackEngagement`.
+    @Published private(set) var dimEngagement: Double = 0
 
     private let store = UserDefaults.standard
 
@@ -111,7 +121,11 @@ final class LightEngine: ObservableObject {
     private var fadeTimer: Timer?
     private var watchdog: Timer?
     private var observers: [NSObjectProtocol] = []
-    private var goal: Mix { Mix(dim: dimOn ? 1 : 0, candle: candleOn ? 1 : 0) }
+    private var goal: Mix { Mix(dim: dimOn ? dimEngagement : 0, candle: candleOn ? 1 : 0) }
+    /// Polls the backlight while Below Black is on, so it follows the brightness keys.
+    private var dimWatch: Timer?
+    /// Tests: a backlight level instead of DisplayServices' (`atelier://light?brightness=0.05`).
+    private var testBrightness: Double?
 
     var active: Bool { boostOn || dimOn || candleOn }
 
@@ -141,6 +155,7 @@ final class LightEngine: ObservableObject {
     /// process, so whatever is on is simply applied again.
     func resume() {
         refreshReadings()
+        watchDimBrightness()
         if dimOn || candleOn { changed(fade: true) }
         if boostOn && boostState == .off {
             // At login the display is still settling into its profile and EDR: wait longer than
@@ -155,10 +170,14 @@ final class LightEngine: ObservableObject {
     func restoreOnQuit() {
         fadeTimer?.invalidate()
         fadeTimer = nil
-        finish()
+        dimWatch?.invalidate()
+        dimWatch = nil
+        // Boost first: taking its layer down hands dim and warmth back to the tables, which the
+        // restore right after then clears.
         boostState = .off
         applyBoost()
         runBoostClock()
+        finish()
     }
 
     // MARK: Readings
@@ -174,6 +193,15 @@ final class LightEngine: ObservableObject {
         XDRBoostPolicy.factor(amount: amount, headroom: readoutHeadroom, sdrWhite: sdrWhite)
     }
     var dimScale: Double { LightMath.dimScale(amount: dimAmount) }
+    /// The share of light Below Black takes away at its full depth (the gamma scale decoded).
+    var dimLightTaken: Double { 1 - LightMath.lightKept(scale: dimScale) }
+    /// The share it takes away right now, at this brightness: zero above a quarter.
+    var dimLightTakenNow: Double {
+        guard dimOn else { return 0 }
+        return 1 - LightMath.lightKept(scale: LightMath.belowBlackScale(amount: dimAmount, engagement: dimEngagement))
+    }
+    /// The backlight Below Black follows (the test override when one is set).
+    var dimBrightness: Double? { testBrightness ?? brightness }
     var boostedNits: Double { sdrNits * boostFactor }
     func boostedNits(amount: Double) -> Double { sdrNits * boostFactor(amount: amount) }
     var sdrNits: Double { XDRBoostPolicy.sdrNow(headroom: readoutHeadroom, sdrWhite: sdrWhite) }
@@ -213,7 +241,8 @@ final class LightEngine: ObservableObject {
 
     var diagnostics: String {
         let warm = mix.candle > 0 ? LightMath.blendedKelvin(candleKelvin, mix: mix.candle) : LightMath.neutralKelvin
-        let dim = 1 - (1 - dimScale) * mix.dim
+        let dim = mixedDim
+        let tint = overlayTint
         let state: String = switch boostState {
         case .off: "off"
         case .suspended: "suspended"
@@ -227,10 +256,11 @@ final class LightEngine: ObservableObject {
                        CACurrentMediaTime() < reconfigUntil ? "reconfig" : nil, polledAway ? "polled" : nil,
                        boostCapable ? nil : "noEDR"]
             .compactMap { $0 }.joined(separator: ",")
-        return String(format: "lightBoost=%.3f lightBoostState=%@ lightBoostTarget=%.2f lightAway=%@ lightHeadroom=%.3f lightSDR=%.0f lightDim=%.3f lightWarmK=%.0f gammaTop=%.4f lightPanels=%d lightTriggers=%d",
+        return String(format: "lightBoost=%.3f lightBoostState=%@ lightBoostTarget=%.2f lightAway=%@ lightHeadroom=%.3f lightSDR=%.0f lightDim=%.3f lightDimEngaged=%.2f lightBrightness=%.3f lightWarmK=%.0f lightRoute=%@ lightTint=%.3f,%.3f,%.3f gammaTop=%.4f lightPanels=%d lightTriggers=%d",
                       XDRBoostMachine.factor(boostState, now: CACurrentMediaTime()), state, boostTarget,
                       awayWhy.isEmpty ? "no" : awayWhy, headroom,
-                      XDRBoostPolicy.sdrNow(headroom: headroom, sdrWhite: sdrWhite), dim, warm, gammaTop,
+                      XDRBoostPolicy.sdrNow(headroom: headroom, sdrWhite: sdrWhite), dim, dimEngagement, dimBrightness ?? -1, warm,
+                      overlays.isEmpty ? "gamma" : "overlay", tint.red, tint.green, tint.blue, gammaTop,
                       panels.count, overlays.count)
     }
 
@@ -288,6 +318,40 @@ final class LightEngine: ObservableObject {
             startWatching()
             write()
         }
+        // Where Boost's layer is up it carries dim and warmth; it follows every frame of a fade.
+        if !overlays.isEmpty { applyBoost(heavy: false) }
+    }
+
+    /// Below Black's gamma scale and Candlelight's temperature as faded in now.
+    private var mixedDim: Double { 1 - (1 - dimScale) * mix.dim }
+    private var mixedKelvin: Double { LightMath.blendedKelvin(candleKelvin, mix: mix.candle) }
+    /// The same two as a multiplier for Boost's layer.
+    private var overlayTint: LightMath.Gains { LightMath.overlayTint(dimScale: mixedDim, kelvin: mixedKelvin) }
+
+    /// While Below Black is on, reads the backlight four times a second and glides to the depth
+    /// it calls for, so pressing brightness down past a quarter visibly goes on down.
+    private func watchDimBrightness() {
+        guard dimOn else {
+            dimWatch?.invalidate()
+            dimWatch = nil
+            return
+        }
+        dimEngagement = LightMath.belowBlackEngagement(brightness: dimBrightness)
+        guard dimWatch == nil else { return }
+        let timer = Timer(timeInterval: 0.25, repeats: true) { _ in
+            MainActor.assumeIsolated { LightEngine.shared.dimBrightnessTick() }
+        }
+        timer.tolerance = 0.05
+        RunLoop.main.add(timer, forMode: .common)
+        dimWatch = timer
+    }
+
+    private func dimBrightnessTick() {
+        refreshReadings()
+        let engagement = LightMath.belowBlackEngagement(brightness: dimBrightness)
+        guard abs(engagement - dimEngagement) > 0.002 else { return }
+        dimEngagement = engagement
+        changed(fade: true)
     }
 
     // MARK: Writing
@@ -295,13 +359,15 @@ final class LightEngine: ObservableObject {
     private func write() {
         let ids = Self.displays()
         for id in panels.keys where !ids.contains(id) { panels[id] = nil }
-        let dim = 1 - (1 - dimScale) * mix.dim
-        let kelvin = LightMath.blendedKelvin(candleKelvin, mix: mix.candle)
+        let dim = mixedDim
+        let kelvin = mixedKelvin
         for id in ids {
             // Boost is the multiplying overlay; the gamma table only carries Below Black and
-            // Candlelight.
+            // Candlelight, and not even those where Boost's layer is up and carries them itself.
             guard var panel = panels[id] ?? Self.read(id).map({ Panel(baseline: $0) }) else { continue }
-            let gains = LightMath.gains(boost: 1, dim: dim * (monitorDim[id] ?? 1), kelvin: kelvin)
+            let riding = overlays[id] != nil
+            let gains = LightMath.gains(boost: 1, dim: (riding ? 1 : dim) * (monitorDim[id] ?? 1),
+                                        kelvin: riding ? LightMath.neutralKelvin : kelvin)
             var red = LightMath.scaled(panel.baseline.red, by: gains.red)
             var green = LightMath.scaled(panel.baseline.green, by: gains.green)
             var blue = LightMath.scaled(panel.baseline.blue, by: gains.blue)
@@ -401,7 +467,7 @@ final class LightEngine: ObservableObject {
     private var testFactor: Double?
     /// When the slower checks (session, display sleep, frames) and the keep-alive draw last ran.
     private var lastHeavyTick = 0.0
-    private var lastDrawn = (factor: 0.0, time: 0.0)
+    private var lastDrawn = (factor: 0.0, time: 0.0, tint: LightMath.Gains.identity)
 
     /// SDR white of the panel Boost reasons about (the built-in one when there is one).
     private var sdrWhite: Double {
@@ -497,16 +563,21 @@ final class LightEngine: ObservableObject {
     /// Makes the screen match the state: overlays up at the factor, or none at all.
     private func applyBoost(heavy: Bool = true) {
         guard XDRBoostMachine.showsLayer(boostState) else {
+            let had = !overlays.isEmpty
             for overlay in overlays.values { overlay.close() }
             overlays = [:]
-            lastDrawn = (0, 0)
+            lastDrawn = (0, 0, .identity)
+            // The tables take Below Black and Candlelight back from the layer.
+            if had && fadeTimer == nil { render() }
             return
         }
         let now = CACurrentMediaTime()
         let factor = XDRBoostMachine.factor(boostState, now: now)
-        // Between the slower checks only a moved factor is drawn.
-        guard heavy || abs(factor - lastDrawn.factor) > 0.0005 || now - lastDrawn.time > 0.19 else { return }
-        lastDrawn = (factor, now)
+        let tint = overlayTint
+        // Between the slower checks only a moved factor or tint is drawn.
+        guard heavy || abs(factor - lastDrawn.factor) > 0.0005 || tint != lastDrawn.tint || now - lastDrawn.time > 0.19 else { return }
+        lastDrawn = (factor, now, tint)
+        let before = Set(overlays.keys)
         let screens = xdrScreens
         for (id, overlay) in overlays where screens[id] == nil {
             overlay.close()
@@ -522,9 +593,11 @@ final class LightEngine: ObservableObject {
             } else if let overlay = EDRBoostOverlay(screen: screen, capturable: testFactor != nil) {
                 overlays[id] = overlay
             }
-            overlays[id]?.show(factor: factor)
+            overlays[id]?.show(factor: factor, tint: tint)
         }
         CATransaction.commit()
+        // A layer came or went: the tables hand dim and warmth over to it, or take them back.
+        if Set(overlays.keys) != before && fadeTimer == nil && (dimOn || candleOn || mix != .zero) { render() }
     }
 
     private func runBoostClock() {
@@ -604,6 +677,14 @@ final class LightEngine: ObservableObject {
             case ("simulate", "unsaver"): saverOn = false
             case ("simulate", "noedr"): testNoEDR = true
             case ("simulate", "edr"): testNoEDR = false
+            case ("brightness", "off"):
+                testBrightness = nil
+                dimBrightnessTick()
+            case ("brightness", let value):
+                if let level = Double(value) {
+                    testBrightness = min(max(level, 0), 1)
+                    dimBrightnessTick()
+                }
             case ("simulate", "reconfig"):
                 reconfigUntil = CACurrentMediaTime() + 0.6
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) {
@@ -724,9 +805,10 @@ final class EDRBoostOverlay {
         }
     }
 
-    /// Draws every layer at the factor. The caller wraps all overlays in one transaction.
-    func show(factor: Double) {
-        for band in bands { band.set(value: factor) }
+    /// Draws every layer at the factor, times Below Black's and Candlelight's tint (identity
+    /// when both are off). The caller wraps all overlays in one transaction.
+    func show(factor: Double, tint: LightMath.Gains = .identity) {
+        for band in bands { band.set(red: factor * tint.red, green: factor * tint.green, blue: factor * tint.blue) }
         for band in bands { band.draw() }
         pixel.draw()
     }
@@ -773,9 +855,13 @@ final class EDRTriggerView: MTKView, MTKViewDelegate {
     }
 
     /// The extended-range value of the next draw.
-    func set(value: Double) {
-        guard abs(clearColor.red - value) > 0.0005 else { return }
-        clearColor = MTLClearColorMake(value, value, value, 1)
+    func set(value: Double) { set(red: value, green: value, blue: value) }
+
+    /// A coloured value, for a multiply that also dims or warms.
+    func set(red: Double, green: Double, blue: Double) {
+        guard abs(clearColor.red - red) > 0.0005 || abs(clearColor.green - green) > 0.0005
+            || abs(clearColor.blue - blue) > 0.0005 else { return }
+        clearColor = MTLClearColorMake(red, green, blue, 1)
     }
 
     required init(coder: NSCoder) { fatalError("init(coder:) is not used") }

@@ -56,6 +56,17 @@ final class ThemeEngine: ObservableObject {
             .appendingPathComponent("Atelier/Themes", isDirectory: true)
     }
 
+    /// Copies the example themes or plugins shipped in Contents/Resources/Examples into the
+    /// owner's folder: each once, never over one of the same name, never again once deleted.
+    /// They carry "Atelier Examples" as their author.
+    static func seedExamples(kind: String, into folder: URL, pathExtension: String) {
+        guard let source = Bundle.main.resourceURL?.appendingPathComponent("Examples/" + kind, isDirectory: true) else { return }
+        let key = "examples.offered." + kind
+        let offered = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
+        let now = ExampleSeeding.seed(from: source, into: folder, pathExtension: pathExtension, offered: offered)
+        if now != offered { UserDefaults.standard.set(now.sorted(), forKey: key) }
+    }
+
     private init() {
         appliedID = store.string(forKey: Key.applied)
         revertPoint = store.data(forKey: Key.revert).flatMap { try? JSONValue.parse($0).object }.map(ThemeDocument.init(root:))
@@ -74,6 +85,7 @@ final class ThemeEngine: ObservableObject {
         guard !started else { return }
         started = true
         if let hex = Self.exactAccent, let color = ThemeColor(hex: hex) { DS.Ink.current = Color(color) }
+        Self.seedExamples(kind: "themes", into: Self.folder, pathExtension: ThemeSchema.bundleExtension)
         reload()
         lastHour = Self.hourNow()
     }

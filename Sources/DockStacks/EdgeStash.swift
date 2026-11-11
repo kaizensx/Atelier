@@ -363,7 +363,7 @@ final class EdgeStash: ObservableObject {
         let height = primaryHeight
         return NSScreen.screens.map {
             .init(frame: WindowGeometry.flipped($0.frame, primaryHeight: height),
-                  visible: WindowGeometry.flipped($0.visibleFrame, primaryHeight: height))
+                  visible: WindowGeometry.flipped(ScreenArea.usable($0), primaryHeight: height))
         }
     }
 

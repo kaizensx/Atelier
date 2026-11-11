@@ -125,6 +125,7 @@ struct SoundMixerCard: View {
             MixerPlate(mixer: mixer, hue: hue).displayCompatNote(availability)
         } controls: {
             VStack(alignment: .leading, spacing: DS.Space.l) {
+                MixerPermissionNote(mixer: mixer)
                 MixerAppList(mixer: mixer, hue: hue)
                 Rectangle().fill(DS.Ink.hairline).frame(height: 0.5)
                 MixerEQSection(mixer: mixer, hue: hue)
@@ -137,15 +138,43 @@ struct SoundMixerCard: View {
     }
 
     @ViewBuilder private var footnote: some View {
-        if let problem = mixer.problem {
-            HStack(spacing: DS.Space.s) {
-                AvailabilityNote(availability: .limited(problem))
-                if mixer.permission == .denied { Chip("Open Settings") { mixer.openPrivacySettings() } }
-            }
-        } else {
+        if let problem = mixer.problem, mixer.permission != .denied {
+            AvailabilityNote(availability: .limited(problem))
+        } else if mixer.permission != .denied {
             Text("Apps at 100 % on the default output are left alone: nothing is inserted, nothing is added to their latency.")
                 .font(DS.caption).foregroundStyle(DS.Ink.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// "Needs Screen & System Audio Recording · Open Settings…", for as long as the permission is
+/// refused. macOS files the audio taps under that name, so the copy uses it word for word.
+struct MixerPermissionNote: View {
+    @ObservedObject var mixer: SoundMixer
+
+    var body: some View {
+        if mixer.permission == .denied {
+            HStack(alignment: .center, spacing: DS.Space.m) {
+                Image(systemName: "lock.shield").font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.orange.opacity(0.95))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Needs Screen & System Audio Recording").font(DS.Typo.rowTitle).foregroundStyle(DS.Ink.primary)
+                    Text("Allow Atelier in System Settings, Privacy & Security, Screen & System Audio Recording. The mixer starts as soon as you do.")
+                        .font(DS.caption).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Chip("Open Settings…") { mixer.openPrivacySettings() }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .background(Color.orange.opacity(0.1), in: .rect(cornerRadius: DS.Radius.control, style: .continuous))
+            .accessibilityElement(children: .combine)
+            .task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(2))
+                    mixer.recheckPermission()
+                }
+            }
         }
     }
 }
@@ -551,6 +580,7 @@ struct SoundMixerPopover: View {
             if !SoundMixer.availability.isUsable {
                 AvailabilityNote(availability: SoundMixer.availability)
             } else {
+                MixerPermissionNote(mixer: mixer)
                 if mixer.apps.isEmpty {
                     Text("Nothing is playing.").font(DS.caption).foregroundStyle(DS.Ink.tertiary)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, DS.Space.xs)

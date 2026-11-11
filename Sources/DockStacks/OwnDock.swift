@@ -277,15 +277,11 @@ struct OwnDockBar: View {
             if theme.reflection { reflections }
             ZStack(alignment: .topLeading) {
             ForEach(Array(scene.tiles.enumerated()), id: \.element.id) { index, tile in
-                if tile.slot.kind == .divider {
-                    Capsule().fill(DS.Ink.fillStrong)
-                        .frame(width: scene.edge.horizontal ? 1 : tile.base * 0.66,
-                               height: scene.edge.horizontal ? tile.base * 0.66 : 1)
-                        .position(tile.center)
-                        .accessibilityHidden(true)
-                } else if tile.slot.kind == .section {
+                if tile.slot.kind == .divider || tile.slot.kind == .section {
+                    // The dock's own separators and the sections' share one mark, in the
+                    // Separator style chosen in Sections, drawn in the design's own ink.
                     OwnDockSectionMark(tile: tile, edge: scene.edge, bar: scene.bar, accent: theme.accent, arranging: arranging,
-                                       named: named.contains(index))
+                                       named: named.contains(index), ink: DockDesignStyle.ink(theme.fx.design))
                 } else if tile.slot.empty {
                     if tile.focused { OwnDockFocusRing(size: tile.icon, accent: theme.accent).position(tile.center) }
                     if arranging {
@@ -587,34 +583,7 @@ struct OwnDockTileView: View {
     }
 }
 
-/// Now Vitals in one tile: concentric rings that grow with the lens like any other icon.
-struct DockVitalsGlyph: View {
-    @ObservedObject var vitals: Vitals
-    let theme: DockTheme
-    let size: Double
-
-    private func ring(_ value: Double, _ color: Color, _ inset: Double, _ width: Double) -> some View {
-        ZStack {
-            Circle().stroke(color.opacity(0.2), lineWidth: width)
-            Circle().trim(from: 0, to: max(value, 0.01))
-                .stroke(color, style: StrokeStyle(lineWidth: width, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-        }
-        .padding(inset)
-    }
-
-    var body: some View {
-        // The owner picks the rings and their order (Dock, Dock's Own Tiles, Vitals).
-        let metrics = OwnDock.shared.vitalMetrics.filter { vitals.value($0) != nil }
-        let count = max(metrics.count, 1)
-        let width = size * (count > 3 ? 0.07 : 0.085), step = width * 1.42, margin = size * 0.11
-        ZStack {
-            ForEach(Array(metrics.prefix(4).enumerated()), id: \.element) { index, metric in
-                ring(vitals.value(metric) ?? 0, theme.rings[index % theme.rings.count], margin + step * Double(index), width)
-            }
-        }
-    }
-}
+// The Vitals tile's face, `DockVitalsGlyph`, is in OwnDockVitals.swift with its options.
 
 // MARK: - Live Peek
 
@@ -633,6 +602,8 @@ struct DockPeek: Equatable {
     var label = false
     /// Window Previews: a picture of each window.
     var thumbs: [DockThumb] = []
+    /// A permission the card is missing, said plainly under it.
+    var note: String?
 }
 
 struct OwnDockLabel: View {
@@ -695,11 +666,7 @@ struct OwnDockPeekCard: View {
                 WindowMap(windows: peek.windows, aspect: peek.aspect, accent: theme.accent)
             }
             if peek.vitals {
-                HStack(spacing: 14) {
-                    gauge("Memory", vitals.memory, theme.rings[0])
-                    gauge("Disk", vitals.disk, theme.rings[1])
-                    if let battery = vitals.battery { gauge("Battery", battery, theme.rings[2]) }
-                }
+                DockVitalsPeekRow(vitals: vitals, theme: theme)
             }
             if !peek.items.isEmpty {
                 HStack(spacing: 6) {
@@ -707,6 +674,11 @@ struct OwnDockPeekCard: View {
                         Image(nsImage: ItemIcon.image(for: item)).resizable().interpolation(.high).frame(width: 32, height: 32)
                     }
                 }
+            }
+            if let note = peek.note {
+                Label(note, systemImage: "lock")
+                    .font(DS.caption).foregroundStyle(DS.Ink.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(13)
@@ -716,14 +688,6 @@ struct OwnDockPeekCard: View {
             RoundedRectangle(cornerRadius: DS.Radius.card, style: .continuous).strokeBorder(DS.Ink.hairline, lineWidth: 0.5)
         }
         .shadow(color: .black.opacity(0.25), radius: 16, y: 6)
-    }
-
-    private func gauge(_ title: String, _ value: Double, _ color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(value, format: .percent.precision(.fractionLength(0)))
-                .font(.system(size: 15, weight: .semibold, design: .rounded)).monospacedDigit().foregroundStyle(color)
-            Text(title).font(DS.caption).foregroundStyle(DS.Ink.secondary)
-        }
     }
 }
 
@@ -1138,6 +1102,7 @@ final class OwnDock: ObservableObject {
         .compactMap(VitalMetric.init(rawValue:)) ?? [.memory, .disk, .battery] {
         didSet {
             UserDefaults.standard.set(vitalMetrics.map(\.rawValue), forKey: "ownDock.vitalMetrics")
+            vitals.wanted = Set(vitalMetrics)
             live.bump()
         }
     }
@@ -1365,6 +1330,8 @@ final class OwnDock: ObservableObject {
         started = true
         DockIcons.loaded = { OwnDock.shared.refresh() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { MinimizeRedirect.shared.update() }
+        // Accessibility and Screen Recording, watched: a grant made now is used at once.
+        DockPermissions.shared.start()
         let center = NSWorkspace.shared.notificationCenter
         center.addObserver(forName: NSWorkspace.didLaunchApplicationNotification, object: nil, queue: .main) { note in
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
@@ -1970,9 +1937,11 @@ final class OwnDock: ObservableObject {
             decorate(&trash)
             right.append(trash)
         }
-        return DockRightSide.arrange(kept: kept, open: open, right: right, separators: look.divider) {
+        var list = DockRightSide.arrange(kept: kept, open: open, right: right, separators: look.divider) {
             $0 == 0 ? .divider : .rightDivider
         }
+        for index in list.indices where list[index].kind == .divider { list[index].sectionStyle = hub.sectionStyle }
+        return list
     }
 
     func refresh() {
@@ -2006,16 +1975,12 @@ final class OwnDock: ObservableObject {
     private func systemDockChanged() {
         let reading = reader.reading
         feed.dockProgress = reading.progress
-        let now = Date()
         let front = NSWorkspace.shared.frontmostApplication?.bundleURL.map { resolved($0.path) }
-        for path in reading.bouncing where path != front {
-            // A launch bounces too. That is not a request for attention.
-            if let launched = launchedAt[path], now.timeIntervalSince(launched) < 8 { continue }
-            if launching.keys.contains(where: { resolved($0) == path }) { continue }
-            attention[path] = now
-        }
-        // A request that is answered or has stopped for a while is over.
-        attention = attention.filter { now.timeIntervalSince($0.value) < 12 && $0.key != front }
+        // Only the tile the macOS Dock lifts, never one opening or just launched (a launch
+        // bounces too), and a request that is answered or has stopped for a while is over.
+        let next = OwnDockBounce.attention(previous: attention, bouncing: reading.bouncing, front: front,
+                                           launched: launchedAt, opening: Set(launching.keys.map(resolved)), now: Date())
+        if next != attention { attention = next }
         refresh()
         live.bump()
     }
@@ -2062,6 +2027,7 @@ final class OwnDock: ObservableObject {
 
     func ensureVitals() {
         guard !vitalsRunning else { return }
+        DockVitalsSettings.shared.apply(to: vitals)
         vitals.start()
         vitalsRunning = true
     }
@@ -2407,7 +2373,9 @@ final class OwnDock: ObservableObject {
         if moved { followPointer(mouse) }
         let inside = pointerInside(mouse)
         if inside == (panel?.ignoresMouseEvents ?? true) { panel?.ignoresMouseEvents = !inside }
-        if inside ? moved : autoHide && (revealed || onEdgeStrip(mouse)) { wake() }
+        // Also while a card is up: the pointer may leave the panel in one jump between frames
+        // (a fast exit, the screen edge, a Space switch) and the card must still go.
+        if inside ? moved : autoHide && (revealed || onEdgeStrip(mouse)) || field.peekTarget && (moved || !inside) { wake() }
     }
 
     private func updateHide(_ mouse: NSPoint, inside: Bool) {
@@ -2483,7 +2451,9 @@ final class OwnDock: ObservableObject {
         }
 
         // Sit still with the pointer still. The poll timer wakes the link on the next move.
-        let waiting = hoverID != nil && !field.peekTarget
+        // A card that is up keeps the link running: leaving the tile starts a short countdown
+        // that only a tick can finish, and a paused link left the card stuck on screen.
+        let waiting = (hoverID != nil && !field.peekTarget) || peekLeft != nil
         if field.settled(), mouse == tickMouse, !waiting, pressID == nil, !bubble.isOpen {
             ticker?.paused = true
         }
@@ -2665,7 +2635,10 @@ final class OwnDock: ObservableObject {
             if slot.recent { peek.status = "Recently used" }
             let pid = runningApps().first(where: { $0.bundleURL?.path == slot.path })?.processIdentifier
             if let pid, options[slot.id]?.quickActions ?? true { contents.prefetchCommands(pid) }
-            if let pid, hub.windowPreviews, DockWindowShots.shared.allowed || OwnDockGestures.shared.titleCards {
+            // Window Previews: pictures with Screen Recording; without it, each window's icon
+            // and its Accessibility title. Neither hangs on Dock Gestures being on.
+            let pictures = DockWindowShots.shared.allowed
+            if let pid, hub.windowPreviews, pictures || AXIsProcessTrusted() {
                 previewWindows(pid: pid, shown: shown, request: request, peek: &peek)
             } else if peek.rows.isEmpty, slot.running, AXIsProcessTrusted(), let pid {
                 Task.detached(priority: .userInitiated) {
@@ -2675,6 +2648,11 @@ final class OwnDock: ObservableObject {
                         OwnDock.shared.stage.peek?.rows = titles
                     }
                 }
+            }
+            // Say why there are no pictures, rather than leave the card quietly plainer.
+            if hub.windowPreviews, slot.running, peek.thumbs.isEmpty, !pictures {
+                peek.note = AXIsProcessTrusted() ? "Window pictures need Screen Recording."
+                    : "Window pictures need Screen Recording, titles need Accessibility."
             }
         }
         stage.peek = peek
@@ -2727,6 +2705,11 @@ final class OwnDock: ObservableObject {
                 peek.thumbs[index].image = image
                 peek.thumbs[index].aspect = image.size.width / max(image.size.height, 1)
                 dock.stage.peek = peek
+            }
+            // Refused after all (the grant has not reached this process): draw the card again,
+            // so the cells show icons and titles instead of waiting for pictures.
+            if !shots.allowed, OwnDock.shared.peekRequest == request, OwnDock.shared.stage.peek != nil {
+                OwnDock.shared.stage.objectWillChange.send()
             }
         }
     }
@@ -2800,11 +2783,20 @@ final class OwnDock: ObservableObject {
     private func launched(_ path: String?) {
         slotCache = nil
         guard let path, enabled else { return }
-        launchedAt[resolved(path)] = Date()
-        let waiting = launching.removeValue(forKey: path) != nil
+        let now = Date()
+        launchedAt = launchedAt.filter { now.timeIntervalSince($0.value) < 60 }
+        launchedAt[resolved(path)] = now
+        // The tile's path and the one the app runs from can differ (a symlink, Safari's
+        // Cryptex copy): the tile that was opening stops whichever path named it.
+        let opened = OwnDockBounce.sameApp(Array(launching.keys), as: path, resolve: resolved)
+        opened.forEach { launching[$0] = nil }
+        let waiting = !opened.isEmpty
         field.sync(slots())
-        field.ignite(path, tile: field.fitted(metrics).tile)
-        if !waiting, appearance.bounce { field.pulse(path, strength: 0.6, tile: field.fitted(metrics).tile) }
+        // One tile, the app's own: found by resolved path, as its id may be the kept path.
+        let key = resolved(path)
+        let id = field.slots.first { $0.kind == .app && ($0.path == path || resolved($0.path) == key) }?.id ?? path
+        field.ignite(id, tile: field.fitted(metrics).tile)
+        if !waiting, appearance.bounce { field.pulse(id, strength: 0.6, tile: field.fitted(metrics).tile) }
         if waiting { DockSounds.play(.launch, prefs: design) }
         wake()
     }
@@ -2946,7 +2938,7 @@ final class OwnDock: ObservableObject {
         case .file: NSWorkspace.shared.open(URL(fileURLWithPath: slot.path))
         case .folder: showFolder(slot)
         case .trash: NSWorkspace.shared.open(TrashWatcher.url)
-        case .vitals: ManagerWindow.shared.show(chapter: Chapter.vitals.rawValue)
+        case .vitals: DockVitalsSettings.shared.click()
         case .window: restore(slot)
         case .clock:
             NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/Calendar.app"))
@@ -3272,9 +3264,14 @@ final class OwnDock: ObservableObject {
         guard panel?.isVisible == true else { return nil }
         let tiles = stage.scene.tiles.filter { !$0.slot.empty && $0.slot.kind != .divider && $0.slot.kind != .section }
         if !appearance.minimized {
-            guard let appPath, let own = tiles.first(where: { $0.slot.kind == .app && $0.slot.path == appPath }) else { return nil }
-            let rect = screenRect(of: own)
-            return rect.width > 0 ? rect : nil
+            // The app's own tile, by resolved path too (a kept tile can name a symlink). An app
+            // with no tile of its own still goes into this Dock, by the right end, never to the
+            // hidden macOS Dock.
+            let key = appPath.map(resolved)
+            if let appPath, let own = tiles.first(where: { $0.slot.kind == .app && ($0.slot.path == appPath || resolved($0.slot.path) == key) }) {
+                let rect = screenRect(of: own)
+                if rect.width > 0 { return rect }
+            }
         }
         guard let last = tiles.last(where: { $0.slot.kind == .trash }) ?? tiles.last else { return nil }
         var rect = screenRect(of: last)
@@ -3325,7 +3322,10 @@ final class OwnDock: ObservableObject {
                 // a menu bar app): stop the bounce now, and check once more a moment later.
                 @MainActor func settle() {
                     guard OwnDock.shared.launching[path] != nil else { return }
-                    if failed || app == nil || app?.isTerminated == true || app?.activationPolicy != .regular {
+                    // Already running under another path (the tile names a symlink or the
+                    // app's public copy): no launch notification will come, so stop here.
+                    let already = app.map { $0.isFinishedLaunching && Date().timeIntervalSince($0.launchDate ?? .distantPast) > 2 } ?? false
+                    if failed || app == nil || app?.isTerminated == true || app?.activationPolicy != .regular || already {
                         OwnDock.shared.launching[path] = nil
                         OwnDock.shared.refresh()
                     }
@@ -3794,7 +3794,8 @@ final class OwnDock: ObservableObject {
             menu.addItem(item("Open") { NSWorkspace.shared.open(TrashWatcher.url) })
             menu.addItem(item("Empty Trash…", enabled: slot.full) { OwnDock.shared.emptyTrash() })
         case .vitals:
-            menu.addItem(item("Open Vitals") { OwnDock.shared.click(slot.id) })
+            menu.addItem(item("Open Activity Monitor") { DockVitalsSettings.openActivityMonitor() })
+            menu.addItem(item("Vitals Options…") { ManagerWindow.shared.show(chapter: Chapter.dock.rawValue) })
             menu.addItem(item("Hide Vitals") { OwnDock.shared.showVitals = false })
         case .window:
             menu.addItem(item("Bring Back", symbol: "macwindow") { OwnDock.shared.restore(slot) })

@@ -88,3 +88,23 @@ import Testing
     // A fresh press while a hold seemed on: its key-up was lost, so start over rather than swallow forever.
     #expect(QuitHoldDecision.keyDown(command: true, otherModifiers: false, isRepeat: false, holding: true) == .begin)
 }
+
+// MARK: - Hold ⌘Q: which key is Q
+
+@Test func quitKeyFollowsTheLayoutNotThePosition() {
+    // QWERTY: keycode 12 types q.
+    #expect(QuitHoldDecision.isQuitKey(characters: "q", keyCode: 12))
+    // AZERTY: the Q is where QWERTY has A, keycode 0.
+    #expect(QuitHoldDecision.isQuitKey(characters: "q", keyCode: 0))
+    // Dvorak: keycode 12 is an apostrophe, and ⌘' is not Quit.
+    #expect(!QuitHoldDecision.isQuitKey(characters: "'", keyCode: 12))
+    // AZERTY's keycode 12 is A: ⌘A is Select All, never held back.
+    #expect(!QuitHoldDecision.isQuitKey(characters: "a", keyCode: 12))
+    // Caps Lock or Shift may report a capital.
+    #expect(QuitHoldDecision.isQuitKey(characters: "Q", keyCode: 12))
+}
+
+@Test func quitKeyWithoutCharactersFallsBackToTheANSIPosition() {
+    #expect(QuitHoldDecision.isQuitKey(characters: "", keyCode: 12))
+    #expect(!QuitHoldDecision.isQuitKey(characters: "", keyCode: 0))
+}

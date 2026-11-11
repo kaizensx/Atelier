@@ -38,9 +38,19 @@ final class MinimizeRedirect {
 
     /// On while the Atelier Dock replaces the macOS Dock and Accessibility is allowed.
     func update() {
-        let want = enabledPreference && OwnDock.shared.replacesSystemDock && AXIsProcessTrusted()
+        let want = wanted
         want ? start() : stop()
         OwnDock.shared.refreshSources()
+    }
+
+    private var wanted: Bool { enabledPreference && OwnDock.shared.replacesSystemDock && AXIsProcessTrusted() }
+
+    /// Called every few seconds by `DockPermissions`: a tap that could not be made (the grant
+    /// was still landing) is tried again, so minimising lands in this Dock without a relaunch.
+    func ensureTap() {
+        guard wanted, !MinimizeTap.shared.alive else { return }
+        MinimizeTap.shared.stop()
+        start()
     }
 
     private func start() {
@@ -125,9 +135,12 @@ final class MinimizeRedirect {
             let t1 = CACurrentMediaTime()
             note = "minimize: captured \(image != nil)"
             guard let image else {
-                note = "minimize fallback: no picture (screen recording \(CGPreflightScreenCaptureAccess()))"
+                // No picture (Screen Recording is off): the window flies into the Atelier Dock
+                // itself, then is minimised there. Never the full genie to the hidden Dock.
+                saved[key] = (frame, nil, window, path)
+                await Self.shrink(window, from: frame, onto: target)
+                note = "minimized: shrunk without a picture (screen recording \(ScreenRecordingFlag.allowed))"
                 busy.remove(key)
-                Self.setMinimized(window, true)
                 return
             }
             saved[key] = (frame, image, window, path)
@@ -156,6 +169,19 @@ final class MinimizeRedirect {
             note = String(format: "minimized: window picture %.0f ms, band %.0f ms, flight %.0f ms", (t1 - t0) * 1000, (t2 - t1) * 1000, (CACurrentMediaTime() - t2) * 1000)
             busy.remove(key)
         }
+    }
+
+    /// Moves and shrinks the window onto the slot a few frames at a time, parks it against
+    /// the hidden Dock's edge and minimises it there. Accessibility only.
+    private static func shrink(_ window: AXUIElement, from frame: CGRect, onto target: CGRect) async {
+        let slot = ax(target)
+        for step in OwnDockMinimizeShrink.frames(from: frame, to: OwnDockMinimizeShrink.aim(slot: slot)) {
+            setFrame(window, step)
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+        let slotScreen = NSScreen.screens.first { $0.frame.intersects(target) } ?? NSScreen.screens.first
+        setFrame(window, DockCompat.parkRect(target: slot, screen: ax(slotScreen?.frame ?? target), edge: systemEdge))
+        setMinimized(window, true)
     }
 
     /// From the Atelier Dock's window tile. Returns false when Atelier did not shrink this
@@ -395,6 +421,12 @@ final class MinimizeTap: @unchecked Sendable {
         thread.start()
     }
 
+    /// The tap exists and is listening.
+    var alive: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return port.map { CGEvent.tapIsEnabled(tap: $0) } ?? false
+    }
+
     func stop() {
         lock.lock(); defer { lock.unlock() }
         if let port { CGEvent.tapEnable(tap: port, enable: false); CFMachPortInvalidate(port) }
@@ -409,7 +441,13 @@ final class MinimizeTap: @unchecked Sendable {
         guard let port = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
                                            eventsOfInterest: CGEventMask(mask), callback: { _, type, event, _ in
             MinimizeTap.shared.handle(type, event)
-        }, userInfo: nil) else { return }
+        }, userInfo: nil) else {
+            // Not allowed yet: forget this thread so a later start can try again.
+            lock.lock()
+            thread = nil
+            lock.unlock()
+            return
+        }
         let source = CFMachPortCreateRunLoopSource(nil, port, 0)
         CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
         CGEvent.tapEnable(tap: port, enable: true)

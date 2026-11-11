@@ -182,7 +182,10 @@ final class NotchFree: ObservableObject {
     func notchFraction(for display: CGDirectDisplayID, modes: [DisplayModeInfo]) -> Double? {
         if let screen = DisplayModeKit.screen(display),
            let measured = NotchFreeLogic.notchFraction(safeAreaTop: screen.safeAreaInsets.top, screenHeight: screen.frame.height) {
-            store.set(measured, forKey: Keys.fraction)
+            // Called from SwiftUI on every evaluation: write only when the measurement moved.
+            if (store.object(forKey: Keys.fraction) as? Double).map({ abs($0 - measured) > 1e-6 }) ?? true {
+                store.set(measured, forKey: Keys.fraction)
+            }
             return measured
         }
         if let saved = store.object(forKey: Keys.fraction) as? Double, saved > 0 { return saved }

@@ -130,7 +130,8 @@ enum NavRegistry {
         // Dock & Launch
         NavItem(.dock, "Dock", symbol: "dock.rectangle", in: .dock,
                 keywords: ["atelier dock", "macos dock", "size", "magnification", "auto-hide", "position", "spacer", "tiles",
-                           "dock peek", "window previews", "hover", "thumbnails", "swipe", "pinch", "minimise", "quit", "dockdoor"]) { model in
+                           "dock peek", "window previews", "hover", "thumbnails", "swipe", "pinch", "minimise", "quit", "dockdoor",
+                           "bounce", "opening bounce", "launch bounce", "attention bounce", "launch effect", "vitals tile"]) { model in
             DockHubChapter(model: model)
             SystemDockPeekCard()
             DockGlowCard()
@@ -242,7 +243,7 @@ enum NavRegistry {
             PersonalChapter(area: .sounds, model: model)
             UserSoundsCard()
         },
-        .personal(.animations, "Animations", symbol: "slowmo", in: .system, keywords: ["motion", "speed", "genie", "minimise", "bounce"]),
+        .personal(.animations, "Animations", symbol: "slowmo", in: .system, keywords: ["motion", "speed", "genie", "minimise"]),
         .personal(.spotlight, "Spotlight", symbol: "magnifyingglass", in: .system, keywords: ["search", "results", "animation"]),
         .personal(.lockScreen, "Lock Screen & Screen Saver", symbol: "lock.display", in: .system, keywords: ["login", "screen saver", "clock", "avatar"]),
         .personal(.accessibility, "Accessibility Visuals", symbol: "accessibility", in: .system, keywords: ["reduce motion", "transparency", "contrast", "zoom", "focus ring"]),

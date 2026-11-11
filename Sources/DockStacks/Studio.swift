@@ -160,6 +160,8 @@ struct StageViewport: View {
     @ObservedObject var model: ManagerModel
     @ObservedObject var theme: StudioTheme
     @ObservedObject private var preview = StagePreview.shared
+    /// The camera pulls back while the dock is on a side edge, so it never hides under a panel.
+    @ObservedObject private var dockSide = StageDockSide.shared
     let tilt: Tilt
     let entered: Bool
     let layout: StudioLayout
@@ -189,6 +191,9 @@ struct StageViewport: View {
                 // A zoomed camera fades out at the viewport's edges instead of being cut by them.
                 .mask { StageFeather(layout: layout) }
         }
+        .onChange(of: model.dock.string("orientation", "bottom"), initial: true) { _, edge in
+            StageDockSide.shared.systemEdge = edge
+        }
     }
 }
 
@@ -198,6 +203,8 @@ struct StudioView: View {
     /// Held in @State so the pointer only moves the tilt, not the whole studio.
     @State private var tilt = Tilt()
     @ObservedObject private var theme = StudioTheme.shared
+    /// Read by the camera (`Chapter.camera`), so the band under the stage follows it too.
+    @ObservedObject private var dockSide = StageDockSide.shared
     @AppStorage("studio.sidebarCollapsed") private var sidebarCollapsed = false
     private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
@@ -455,7 +462,7 @@ struct DockChapter: View {
             slider("Magnify to", $large, 32...128, label: "Magnify To") { model.refreshDock(after: 0.4) }
                 .onChange(of: large) { _, value in LiveDock.setMagnification(value) }
                 .stagePreview(.focus("dock.largesize", "Magnify To", region: region))
-            SettingRow(title: "Position", density: .compact) {
+            DockHubWideRow("Position") {
                 Segments(selection: Binding(get: { model.dock.string("orientation", "bottom") },
                                             set: { value in
                                                 LiveDock.setOrientation(value)
@@ -467,9 +474,7 @@ struct DockChapter: View {
                                  $0.dock["orientation"] = value
                              }
                          })
-                    .frame(width: DockHubLayout.segmentsWidth)
             }
-            .dockHubRow()
             SettingRow(title: "Auto-hide", density: .compact) { LuxSwitch(isOn: flag("autohide"), label: "Auto-hide") }
                 .dockHubRow()
                 .stagePreview(flip("autohide", "Auto-hide"))
@@ -486,7 +491,8 @@ struct DockChapter: View {
             .stagePreview(.toggle("dock.fullWidth", "Full Width", isOn: fullWidth, region: StageRegion.dock(model.dock.string("orientation", "bottom"))) {
                 Tiles.setFullWidth(!fullWidth, in: &$0.dock)
             })
-            SettingRow(title: "Spacers", detail: "Blank room between tiles, to group them.", density: .compact) {
+            // Three chips beside a title and detail squeezed every word: the chips go below.
+            DockHubWideRow("Spacers", detail: "Blank room between tiles, to group them.") {
                 HStack(spacing: 6) {
                     Chip("Small") { model.changeTiles("Small spacer") { Tiles.addSpacer(.small, to: &$0) } }
                         .stagePreview(.init(id: "dock.spacer.small", title: "Small Spacer", detail: "Added", region: region) {
@@ -502,7 +508,6 @@ struct DockChapter: View {
                         })
                 }
             }
-            .dockHubRow()
         }
         .onAppear {
             Task.detached { if let plist = try? DockStore.read() { try? Timeline.record(plist, label: "Before live Dock edits") } }
@@ -973,6 +978,10 @@ struct IconStudio: View {
     @ObservedObject var model: ManagerModel
     @State private var theme = Prefs.current("AppleIconAppearanceTheme", domain: "NSGlobalDomain") ?? "Default"
     @State private var custom = Color(red: 0.1, green: 0.85, blue: 0.75)
+    /// The custom colour waiting to be written. Each write restarts the Dock, so a drag across
+    /// the colour wheel writes once, 0.6 s after it comes to rest, instead of queuing a restart
+    /// for every colour it passed.
+    @State private var pendingTint: Task<Void, Never>?
 
     private static let presets: [(String, Color)] = [
         ("Blue", .blue), ("Purple", .purple), ("Pink", .pink), ("Orange", .orange),
@@ -987,6 +996,8 @@ struct IconStudio: View {
     }
 
     private func apply(theme: String?, tint: String? = nil, rgb: String? = nil) {
+        pendingTint?.cancel()
+        pendingTint = nil
         self.theme = theme ?? "Default"
         model.perform("Recolouring your Mac…", { try IconTint.write(theme: theme, tint: tint, rgb: rgb) }) {
             Effects.shared.iconRevision += 1
@@ -1038,7 +1049,12 @@ struct IconStudio: View {
                         .onChange(of: custom) { _, color in
                             let rgb = NSColor(color).usingColorSpace(.sRGB) ?? .white
                             let text = String(format: "%f %f %f 1.000000", rgb.redComponent, rgb.greenComponent, rgb.blueComponent)
-                            apply(theme: "TintedDark", tint: "Other", rgb: text)
+                            pendingTint?.cancel()
+                            pendingTint = Task { @MainActor in
+                                try? await Task.sleep(for: .milliseconds(600))
+                                guard !Task.isCancelled else { return }
+                                apply(theme: "TintedDark", tint: "Other", rgb: text)
+                            }
                         }
                 }
                 Text("Any colour, on every app icon. Applying restarts the Dock.")
@@ -1060,11 +1076,39 @@ final class Vitals: ObservableObject {
     @Published var swap = 0.0
     /// The system's thermal state as 0, ⅓, ⅔ or 1.
     @Published var thermal = 0.0
+    /// Download speed in bytes per second. Read only while `wanted` asks for it.
+    @Published var network: Double?
+    /// Recent fills, oldest first, for each metric in `wanted`: the Dock tile's graph.
+    @Published private(set) var history: [VitalMetric: [Double]] = [:]
+    nonisolated static let historyLength = 40
+    /// Seconds between samples. The Dock's Vitals tile lets the owner choose; never under one.
+    var interval: TimeInterval = 3 {
+        didSet {
+            interval = max(interval, 1)
+            if timer != nil, interval != oldValue { schedule() }
+        }
+    }
+    /// What the face shows. Only these keep a history, and network and the hardware sensors
+    /// are read only when asked for.
+    var wanted: Set<VitalMetric> = [] {
+        didSet {
+            guard wanted != oldValue else { return }
+            history = history.filter { wanted.contains($0.key) }
+            if timer != nil { holdSensors(wanted.contains { $0.isSensor }) }
+        }
+    }
+    /// Asked before each timed sample: false while nothing that shows these values can be seen,
+    /// so a hidden dock costs one call a tick and no reading.
+    var gate: (@MainActor () -> Bool)?
     private var timer: Timer?
     private var ticks = 0
     private var lastTicks: (busy: UInt64, total: UInt64)?
+    private var counters: [String: UInt32] = [:]
+    private var countersAt: Date?
+    private var sensorsHeld = false
 
-    /// A ring's fill for the Dock's Vitals tile; nil for what a ring cannot show here.
+    /// A ring's fill for the Dock's Vitals tile, 0 to 1; nil for what this Mac cannot show
+    /// (no battery, no fans) or has not read yet.
     func value(_ metric: VitalMetric) -> Double? {
         switch metric {
         case .cpu: cpu
@@ -1073,20 +1117,66 @@ final class Vitals: ObservableObject {
         case .battery: battery
         case .thermal: max(thermal, 0.08)
         case .uptime: min(uptime / 604_800, 1)
-        case .network: nil
-        // The Dock's tile samples on its own timer; the sensors are offered in widgets instead.
-        case .cpuTemp, .gpuTemp, .power, .fans: nil
+        // A log scale: 1 KB/s barely moves it, 100 MB/s fills it. The same as the widget's.
+        case .network: network.map { min(max(log10(max($0, 1)) - 3, 0) / 5, 1) }
+        case .cpuTemp: Sensors.shared.cpu.map { HeatScale.temperature($0) }
+        case .gpuTemp: Sensors.shared.gpu.map { HeatScale.temperature($0) }
+        case .power: Sensors.shared.watts.map { HeatScale.watts($0) }
+        case .fans:
+            Sensors.shared.fans.map { rpm in
+                let fan = Sensors.shared.latest?.fans.first
+                return HeatScale.fan(rpm, min: fan?.min ?? 0, max: fan?.max ?? 6000)
+            }
+        }
+    }
+
+    /// The reading as words: a percentage, a speed, degrees or a state.
+    func text(_ metric: VitalMetric) -> String {
+        switch metric {
+        case .cpu: Units.percent(cpu)
+        case .memory: Units.percent(memory)
+        case .disk: Units.percent(disk)
+        case .battery: battery.map(Units.percent) ?? "—"
+        case .thermal: thermal < 0.2 ? "Normal" : thermal < 0.5 ? "Fair" : thermal < 0.9 ? "Serious" : "Critical"
+        case .uptime: Units.uptime(since: Date(timeIntervalSinceNow: -uptime), now: Date())
+        case .network: Units.rate(network)
+        case .cpuTemp: ThermalsFormat.degrees(Sensors.shared.cpu)
+        case .gpuTemp: ThermalsFormat.degrees(Sensors.shared.gpu)
+        case .power: ThermalsFormat.watts(Sensors.shared.watts)
+        case .fans: ThermalsFormat.rpm(Sensors.shared.fans)
         }
     }
 
     func start() {
         sample()
-        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.sample() }
-        }
+        schedule()
+        holdSensors(wanted.contains { $0.isSensor })
     }
 
-    func stop() { timer?.invalidate() }
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        holdSensors(false)
+    }
+
+    private func schedule() {
+        timer?.invalidate()
+        let tick = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.gate?() ?? true else { return }
+                self.sample()
+            }
+        }
+        tick.tolerance = interval * 0.2
+        RunLoop.main.add(tick, forMode: .common)
+        timer = tick
+    }
+
+    private func holdSensors(_ on: Bool) {
+        guard on != sensorsHeld else { return }
+        sensorsHeld = on
+        on ? Sensors.shared.acquire() : Sensors.shared.release()
+    }
 
     private func sample() {
         var stats = vm_statistics64()
@@ -1122,6 +1212,48 @@ final class Vitals: ObservableObject {
         case .critical: 1
         @unknown default: 0
         }
+        if wanted.contains(.network) { sampleNetwork() } else if network != nil { network = nil; counters = [:]; countersAt = nil }
+        guard !wanted.isEmpty else { return }
+        var next = history
+        for metric in wanted {
+            guard let fill = value(metric) else { continue }
+            var line = next[metric] ?? []
+            line.append(fill)
+            if line.count > Self.historyLength { line.removeFirst(line.count - Self.historyLength) }
+            next[metric] = line
+        }
+        history = next
+    }
+
+    /// Bytes received across Wi‑Fi, Ethernet and cellular since the last sample, per second.
+    private func sampleNetwork() {
+        var list: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&list) == 0, let first = list else { return }
+        defer { freeifaddrs(list) }
+        var current: [String: UInt32] = [:]
+        for entry in sequence(first: first, next: { $0.pointee.ifa_next }) {
+            let item = entry.pointee
+            let flags = Int32(item.ifa_flags)
+            guard let address = item.ifa_addr, address.pointee.sa_family == UInt8(AF_LINK),
+                  flags & IFF_UP != 0, flags & IFF_LOOPBACK == 0, let data = item.ifa_data else { continue }
+            let name = String(cString: item.ifa_name)
+            guard name.hasPrefix("en") || name.hasPrefix("pdp_ip") else { continue }
+            current[name] = data.assumingMemoryBound(to: if_data.self).pointee.ifi_ibytes
+        }
+        let now = Date()
+        defer { counters = current; countersAt = now }
+        // A long gap (the dock was hidden) would average over minutes: start over instead.
+        guard let countersAt, case let elapsed = now.timeIntervalSince(countersAt), elapsed > 0.5, elapsed < interval * 3 + 1 else {
+            // Nothing to compare with yet: show it idle rather than leave it out.
+            if network == nil { network = 0 }
+            return
+        }
+        var received: UInt64 = 0
+        for (name, value) in current {
+            // 32-bit kernel counters: wrapping subtraction reads straight across a rollover.
+            if let old = counters[name] { received += UInt64(value &- old) }
+        }
+        network = Double(received) / elapsed
     }
 
     private func sampleCPU() {

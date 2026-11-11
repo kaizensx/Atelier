@@ -132,36 +132,33 @@ public enum DesktopCompat {
 
     /// Up to macOS 26 an over-long divider simply pushes the items to its left off the bar.
     /// macOS 27 composites the menu bar as one surface and drops an item too long to fit from
-    /// the layout altogether, and a dropped item pushes nothing, so there the length has to be
-    /// measured against the live bar (dwarvesf/hidden#360 and its v1.11.1 fix).
+    /// the layout altogether, and a dropped item pushes nothing, so there the length is worked
+    /// out from the display instead (dwarvesf/hidden#360 and its v1.11.1 fix).
     public static func hiderNeedsMeasuring(major: Int) -> Bool { major >= 27 }
 
-    /// The longest divider worth trying: twice the widest display, inside macOS's ceiling.
-    public static func hiderCeiling(widestScreen: Double) -> Double {
-        max(500, min(widestScreen * 2, statusItemMaximum))
+    /// Room held back from macOS 27's cutoff, so rounding never tips the divider over it.
+    public static let hiderMargin = 24.0
+
+    /// How long the divider grows to push the items left of it off the bar.
+    ///
+    /// Measured on macOS 27.3 (1728 pt display, divider beside Control Centre): a status item
+    /// whose window, its length plus `padding`, is wider than half the display is dropped from
+    /// the bar, and items are fully gone (no overflow chevron) once the divider's left edge
+    /// passes the display's middle. Half the display less a margin meets both for any divider
+    /// in the right half. The window frame cannot tell a dropped item from a laid-out one there,
+    /// so nothing is probed live. `padding` is the window's width less the item's length.
+    public static func hiderLength(major: Int, screenWidth: Double, padding: Double) -> Double {
+        guard hiderNeedsMeasuring(major: major) else { return statusItemMaximum }
+        let length = screenWidth / 2 - max(0, padding) - hiderMargin
+        return min(statusItemMaximum, max(10, length.rounded(.down)))
     }
 
-    /// Room left below the measured cutoff. Too long hides nothing at all, too short only leaves
-    /// the icon nearest the divider showing, and an icon added later moves the cutoff down, so
-    /// about one icon's width (60 points, or 6% of a short bar) is held back.
-    public static func collapseMargin(_ cutoff: Double) -> Double { min(60, cutoff * 0.06) }
-
-    /// Binary-searches the longest divider the menu bar still lays out. `probe` sets the length
-    /// and returns the divider's edge that faces the arrow: while laid out it stays where it was
-    /// at rest (`baseline`), and once dropped from the layout it jumps by about the length asked.
-    public static func measureCollapse(ceiling: Double, baseline: Double, tolerance: Double = 4,
-                                       probe: (Double) -> Double) -> Double {
-        func laidOut(_ length: Double) -> Bool { abs(probe(length) - baseline) <= tolerance }
-        let rest = 10.0
-        guard ceiling > rest else { return rest }
-        if laidOut(ceiling) { return ceiling }
-        var low = rest, high = ceiling
-        while high - low > 4 {
-            let middle = ((low + high) / 2).rounded()
-            if laidOut(middle) { low = middle } else { high = middle }
-        }
-        return max(rest, low - collapseMargin(low))
-    }
+    /// `NSStatusItem Preferred Position` values that place the arrow beside Control Centre
+    /// and the divider just left of it, so every other icon starts out tucked. Smaller sits
+    /// further right; 0 means "no preference" and lands at the far left. Only seeded when
+    /// missing: macOS rewrites them when you Command-drag either item.
+    public static let hiderToggleSlot = 1.0
+    public static let hiderDividerSlot = 2.0
 
     // MARK: Generated wallpapers
 
