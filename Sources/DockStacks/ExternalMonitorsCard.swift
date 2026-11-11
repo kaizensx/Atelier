@@ -202,7 +202,7 @@ private struct LevelRow: View {
                 }
             }
             .frame(width: 18)
-            LuxSlider(value: Binding(get: { value }, set: set), range: 0...1, label: label, tint: hue)
+            LuxSlider(value: Binding(get: { value }, set: { newValue in set(newValue) }), range: 0...1, label: label, tint: hue)
             Text("\(Int((value * 100).rounded()))%").font(DS.Typo.value).foregroundStyle(DS.Ink.secondary)
                 .frame(width: 40, alignment: .trailing)
                 .contentTransition(.numericText())
