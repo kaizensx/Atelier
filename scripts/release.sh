@@ -43,6 +43,8 @@ install_archive() {   # unzip an archive over /Applications/Atelier.app, as the 
   ditto -x -k "$zip" "$tmp"
   [[ -f "$tmp/Atelier.app/Contents/Info.plist" ]] || die "archive has no Atelier.app"
   pkill -x DockStacks || true; pkill -x AtelierGuard || true; sleep 1
+  # SIGTERM is a clean quit now (restores run): wait for it to finish before copying.
+  for _ in {1..100}; do pgrep -x DockStacks >/dev/null || break; sleep 0.1; done
   rm -rf "$dest.new"; ditto "$tmp/Atelier.app" "$dest.new"
   rm -rf "$dest"; mv "$dest.new" "$dest"; rm -rf "$tmp"
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$dest"

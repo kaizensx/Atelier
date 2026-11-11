@@ -56,6 +56,7 @@ let mouseButtonMark: Int64 = 0x41544D42
 private func buttonCallback(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent,
                             _ info: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        TapRevoke.disabled(type)
         if let buttonTap { CGEvent.tapEnable(tap: buttonTap, enable: true) }
         return Unmanaged.passUnretained(event)
     }
@@ -427,7 +428,7 @@ final class MousePrecision: ObservableObject {
             let mask = CGEventMask(1 << CGEventType.otherMouseDown.rawValue | 1 << CGEventType.otherMouseUp.rawValue
                                    | 1 << CGEventType.otherMouseDragged.rawValue)
             guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
-                                              eventsOfInterest: mask, callback: buttonCallback, userInfo: nil) else { return }
+                                              eventsOfInterest: mask, callback: buttonCallback, userInfo: nil) else { TapRevoke.creationFailed(); return }
             buttonTap = tap
             let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
             CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)

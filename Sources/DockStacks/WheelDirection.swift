@@ -36,6 +36,7 @@ private let glideMark: Int64 = 0x41544C52
 private func wheelCallback(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent,
                            _ info: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        TapRevoke.disabled(type)
         if let wheelTap { CGEvent.tapEnable(tap: wheelTap, enable: true) }
         return Unmanaged.passUnretained(event)
     }
@@ -144,7 +145,7 @@ final class WheelDirection: ObservableObject {
             guard wheelTap == nil, AXIsProcessTrusted() else { return }
             let mask = CGEventMask(1 << CGEventType.scrollWheel.rawValue)
             guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
-                                              eventsOfInterest: mask, callback: wheelCallback, userInfo: nil) else { return }
+                                              eventsOfInterest: mask, callback: wheelCallback, userInfo: nil) else { TapRevoke.creationFailed(); return }
             wheelTap = tap
             let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
             CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)

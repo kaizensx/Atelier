@@ -12,6 +12,12 @@ import Foundation
 // - Launches bounce in the macOS Dock too, and are not a request for attention.
 
 public enum OwnDockBounce {
+    /// Whether attention requests can be seen at all on this macOS. From macOS 27 the Dock draws
+    /// every tile in one full-screen window: a bouncing tile's Accessibility frame no longer
+    /// moves, and LaunchServices carries no sign of the request either. So on 27 and later the
+    /// Atelier Dock cannot bounce for attention, and says so; badges still read.
+    public static func attentionReadable(osMajor: Int) -> Bool { osMajor < 27 }
+
     /// The most tiles that can be bouncing at once before a reading is taken for the whole Dock
     /// moving (sliding in or out, or still settling) rather than for bounces.
     public static func most(of count: Int) -> Int { max(2, count / 6) }

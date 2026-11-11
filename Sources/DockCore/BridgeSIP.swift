@@ -122,6 +122,15 @@ public enum BridgeGateStage: Equatable, Sendable {
     case sipEnabled, needsBootArgument, notInstalled, notLoaded, ready
 }
 
+/// What the scripting addition on disk amounts to. Pure, so a stale or broken bridge is tested.
+public enum BridgeInstall {
+    /// This build's bridge, whole: on disk, the expected version, both binaries in place. Anything
+    /// else on disk is stale: still installed (Remove shows), but Update replaces it before a load.
+    public static func isCurrent(onDisk: Bool, version: String?, expected: String, binaries: Bool) -> Bool {
+        onDisk && binaries && version == expected
+    }
+}
+
 public enum BridgeGate {
     /// The stage this Mac is at. `loaded` is only consulted once every earlier precondition is met
     /// (the caller learns it from the payload's handshake), so pass it as the final tiebreak.

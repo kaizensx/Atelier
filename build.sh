@@ -99,6 +99,8 @@ echo "Built: $APP"
 if [[ "${1:-}" == "--install" ]]; then
   pkill -x DockStacks || true
   pkill -x AtelierGuard || true
+  # SIGTERM is a clean quit now (restores run): wait for it to finish before copying.
+  for _ in {1..100}; do pgrep -x DockStacks >/dev/null || break; sleep 0.1; done
   LS=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
   [[ -d "/Applications/Dock Stacks.app" ]] && { $LS -u "/Applications/Dock Stacks.app"; rm -rf "/Applications/Dock Stacks.app"; }
   # Copy beside, check, then swap: a half-copied bundle (no Info.plist) cannot launch, and the

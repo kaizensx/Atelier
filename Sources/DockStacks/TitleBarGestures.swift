@@ -47,6 +47,7 @@ private let magnifyEventType: UInt32 = 30
 private func titleBarTapCallback(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent,
                                  _ info: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        TapRevoke.disabled(type)
         if let titleBarTap { CGEvent.tapEnable(tap: titleBarTap, enable: true) }
         return Unmanaged.passUnretained(event)
     }
@@ -406,6 +407,7 @@ final class TitleBarGestures: ObservableObject {
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
                                           eventsOfInterest: mask, callback: titleBarTapCallback, userInfo: nil) else {
             lastError = "Couldn’t watch scrolling. Check Accessibility in System Settings."
+            TapRevoke.creationFailed()
             return
         }
         titleBarTap = tap

@@ -26,6 +26,7 @@ private let grabMark: Int64 = 0x41544752
 private func grabCallback(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent,
                           _ info: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        TapRevoke.disabled(type)
         if let grabTap { CGEvent.tapEnable(tap: grabTap, enable: true) }
         return Unmanaged.passUnretained(event)
     }
@@ -119,7 +120,7 @@ final class WindowGrab: ObservableObject {
                                         .rightMouseDown, .rightMouseDragged, .rightMouseUp, .flagsChanged]
             let mask = types.reduce(CGEventMask(0)) { $0 | CGEventMask(1) << $1.rawValue }
             guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
-                                              eventsOfInterest: mask, callback: grabCallback, userInfo: nil) else { return }
+                                              eventsOfInterest: mask, callback: grabCallback, userInfo: nil) else { TapRevoke.creationFailed(); return }
             grabTap = tap
             let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
             CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)

@@ -357,8 +357,20 @@ struct BridgeStatusHero: View {
                 Text("Copies Atelier's scripting addition to /Library/ScriptingAdditions. macOS asks for an administrator password.")
                     .font(DS.caption).foregroundStyle(DS.Ink.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if bridge.stale {
+                    Text(bridge.sip.isBridgeCapable ? "The bridge on this Mac is out of date or incomplete. Update it, or remove it."
+                                                    : "The bridge on this Mac is out of date or incomplete. Remove it, or update it once SIP is partly off.")
+                        .font(DS.caption).foregroundStyle(caution)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 HStack(spacing: DS.Space.s) {
-                    if state(2) != .done {
+                    // A stale bridge is updated in place, as soon as SIP allows it, whatever the step.
+                    if bridge.stale {
+                        BridgeButton(title: "Update…", symbol: "arrow.triangle.2.circlepath", busy: working == 2,
+                                     enabled: bridge.sip.isBridgeCapable && working == nil) {
+                            run(2) { try await DockBridge.shared.install() }
+                        }
+                    } else if state(2) != .done {
                         BridgeButton(title: "Install…", symbol: "shippingbox", busy: working == 2,
                                      enabled: state(2) == .current && working == nil) {
                             run(2) { try await DockBridge.shared.install() }

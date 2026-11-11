@@ -54,6 +54,11 @@ final class DockBridge: ObservableObject, DockBridging {
     /// The addition is on disk, whatever its version and whatever SIP says. Removing it needs no
     /// SIP change (/Library/ScriptingAdditions is not SIP-protected), so Remove shows on this.
     @Published private(set) var installed = false
+    /// On disk but not this build's: another version, or its loader or payload missing. The UI
+    /// offers Update next to Remove, and the gate treats it as not installed.
+    @Published private(set) var stale = false
+    /// The installed addition is this build's, with both binaries in place.
+    private(set) var installedCurrent = false
     /// What an administrator step is doing right now, for a progress line. The prompt runs off
     /// the main thread, so the Studio keeps drawing while it waits for the password.
     @Published private(set) var working: String?
@@ -68,13 +73,18 @@ final class DockBridge: ObservableObject, DockBridging {
 
     private let io = DispatchQueue(label: "net.dasantos.atelier.bridge.io")
 
-    private init() {}
+    /// Cheap file checks at once, so Remove and Update are right from launch, before the first
+    /// full `refresh()` (SIP, boot argument, handshake) has run.
+    private init() { refreshFiles() }
 
     // MARK: Paths
 
     private var socketPath: String { "/tmp/atelier-sa_\(getuid()).socket" }
     private let osaxDir = "/Library/ScriptingAdditions/Atelier.osax"
     private var installedInfoPlist: String { "\(osaxDir)/Contents/Info.plist" }
+    private var installedBinaries: [String] {
+        ["\(osaxDir)/Contents/MacOS/loader", "\(osaxDir)/Contents/Resources/payload.bundle/Contents/MacOS/payload"]
+    }
 
     /// The staged scripting addition and loader shipped inside Atelier.app/Contents/Resources,
     /// placed there by build.sh.
@@ -86,8 +96,7 @@ final class DockBridge: ObservableObject, DockBridging {
     func refresh() async {
         sip = Self.detectSIP()
         bootArgPresent = Self.detectBootArg()
-        installedVersion = readInstalledVersion()
-        installed = FileManager.default.fileExists(atPath: osaxDir)
+        refreshFiles()
 
         // The precondition order lives in DockCore.BridgeGate (pure, unit-tested). The CPU is read
         // at runtime (sysctl via MacPlatform), not by build slice, so the Intel slice under Rosetta
@@ -96,7 +105,7 @@ final class DockBridge: ObservableObject, DockBridging {
         let stage = BridgeGate.stage(sipCapable: sip.isBridgeCapable,
                                      cpu: Self.gateCPU,
                                      bootArgPresent: bootArgPresent,
-                                     installedMatches: installedVersion == expectedVersion,
+                                     installedMatches: installedCurrent,
                                      loaded: true)
         switch stage {
         case .sipEnabled:
@@ -148,6 +157,20 @@ final class DockBridge: ObservableObject, DockBridging {
         return false
     }
 
+    /// File checks only: what is in /Library/ScriptingAdditions, whatever its version or state.
+    /// A broken or half-copied addition (no Info.plist, a missing binary, even a dangling link)
+    /// still counts as installed, so Remove is always offered for it.
+    func refreshFiles() {
+        let onDisk = (try? FileManager.default.attributesOfItem(atPath: osaxDir)) != nil
+        let version = onDisk ? readInstalledVersion() : nil
+        let binaries = onDisk && installedBinaries.allSatisfy { FileManager.default.isExecutableFile(atPath: $0) }
+        installedVersion = version
+        installedCurrent = BridgeInstall.isCurrent(onDisk: onDisk, version: version, expected: expectedVersion, binaries: binaries)
+        if installed != onDisk { installed = onDisk }
+        let isStale = onDisk && !installedCurrent
+        if stale != isStale { stale = isStale }
+    }
+
     private func readInstalledVersion() -> String? {
         guard FileManager.default.fileExists(atPath: osaxDir),
               let data = FileManager.default.contents(atPath: installedInfoPlist),
@@ -192,7 +215,7 @@ final class DockBridge: ObservableObject, DockBridging {
         if MacPlatform.appleSilicon {
             guard bootArgPresent else { throw BridgeError.notReady(.needsBootArgument) }
         }
-        if installedVersion != expectedVersion { try await install() }
+        if !installedCurrent { try await install() }
 
         let loader = "\(osaxDir)/Contents/MacOS/loader"
         let script = "\(Self.shellQuote(loader))"
@@ -254,7 +277,7 @@ final class DockBridge: ObservableObject, DockBridging {
     /// unless they added a sudoers rule (sudoersInstructions explains how; we never write it).
     private func autoLoadIfEnabled() {
         guard UserDefaults.standard.bool(forKey: Self.autoloadDefaultsKey) else { return }
-        guard sip.isBridgeCapable, installedVersion == expectedVersion else { return }
+        guard sip.isBridgeCapable, installedCurrent else { return }
         if MacPlatform.appleSilicon, !bootArgPresent { return }
         Task { try? await self.load() }
     }
@@ -302,11 +325,12 @@ final class DockBridge: ObservableObject, DockBridging {
     // MARK: - Diagnostics
 
     var diagnostics: String {
-        let installed = installedVersion ?? "no"
+        // bridgeInstalled is the folder on disk (what Remove shows on); bridgeOnDisk its version.
+        let onDisk = installed ? (installedVersion ?? "unreadable") + (stale ? " stale" : "") : "none"
         let version: String
         if case .ready(let v) = status { version = v } else { version = installedVersion ?? "none" }
         return "bridgeStatus=\(statusWord) bridgeSIP=<\(sip.flags)> "
-             + "bridgeBootArg=\(bootArgPresent) bridgeInstalled=\(installed) bridgeVersion=\(version)"
+             + "bridgeBootArg=\(bootArgPresent) bridgeInstalled=\(installed) bridgeOnDisk=<\(onDisk)> bridgeVersion=\(version)"
     }
 
     private var statusWord: String {

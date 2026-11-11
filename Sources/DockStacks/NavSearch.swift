@@ -88,6 +88,13 @@ final class NavFocus: ObservableObject {
         point(at: entry.target)
     }
 
+    /// A deep link to a card: opens the Studio at `chapter`, scrolls to the view marked
+    /// `.navTarget(focus)` and lights it. `atelier://studio?chapter=dock&focus=vitals` lands here.
+    func open(chapter: String, focus: String?) {
+        ManagerWindow.shared.show(chapter: chapter)
+        point(at: focus)
+    }
+
     private func point(at target: String?) {
         clear?.cancel()
         self.target = target

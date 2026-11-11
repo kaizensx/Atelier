@@ -51,6 +51,7 @@ private let hyperFlags: CGEventFlags = [.maskControl, .maskAlternate, .maskShift
 private func hyperCallback(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent,
                            _ info: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        TapRevoke.disabled(type)
         if let hyperTap { CGEvent.tapEnable(tap: hyperTap, enable: true) }
         return Unmanaged.passUnretained(event)
     }
@@ -207,6 +208,20 @@ final class HyperKey: ObservableObject {
         objectWillChange.send()
     }
 
+    /// Access was revoked: the tap is deaf, so it goes, and Caps Lock is given back until the
+    /// grant returns. The switch stays on.
+    func dropTap() {
+        guard let tap = hyperTap else { return }
+        CGEvent.tapEnable(tap: tap, enable: false)
+        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+        CFMachPortInvalidate(tap)
+        hyperTap = nil
+        source = nil
+        hyperState.reset()
+        KeyMapping.write()
+        objectWillChange.send()
+    }
+
     fileprivate func noteWrite(ok: Bool, hyper: Bool) {
         mapped = ok && hyper
         hyperMappedNow = mapped
@@ -236,6 +251,11 @@ enum InputTrust {
     /// not always post its notification, and calls `granted()` when it arrives.
     static func watch() {
         AccessWatch.shared.start()
+    }
+
+    /// From `AccessWatch`, the moment Accessibility is taken away. `granted()` starts it all again.
+    static func revoked() {
+        HyperKey.shared.dropTap()
     }
 
     /// From `AccessWatch`, the moment Accessibility is granted.

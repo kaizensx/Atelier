@@ -34,6 +34,7 @@ func radialHyperKey(down: Bool) {
 private func radialCallback(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent,
                             _ info: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        TapRevoke.disabled(type)
         if let radialTap { CGEvent.tapEnable(tap: radialTap, enable: true) }
         return Unmanaged.passUnretained(event)
     }
@@ -175,7 +176,7 @@ final class RadialMenu: ObservableObject {
             mask |= CGEventMask(1 << CGEventType.otherMouseDown.rawValue | 1 << CGEventType.otherMouseUp.rawValue)
         }
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
-                                          eventsOfInterest: mask, callback: radialCallback, userInfo: nil) else { return }
+                                          eventsOfInterest: mask, callback: radialCallback, userInfo: nil) else { TapRevoke.creationFailed(); return }
         radialTap = tap
         let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)

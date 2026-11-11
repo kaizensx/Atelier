@@ -500,6 +500,7 @@ final class MinimizeTap: @unchecked Sendable {
     private func handle(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
+            TapRevoke.disabled(type)
             if let port { CGEvent.tapEnable(tap: port, enable: true) }
         case .leftMouseDown:
             if let window = Self.minimizeButtonWindow(at: event.location) {

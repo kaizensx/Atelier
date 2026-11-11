@@ -421,10 +421,13 @@ struct VirtualScreensCard: View {
                     }
                 }
             } label: {
-                Text(active.map { "\($0.width) × \($0.height)" } ?? "HiDPI…").font(.system(size: 12, weight: .semibold))
+                // Nothing chosen yet: say what the menu holds, not the feature's name.
+                Text(active.map { "\($0.width) × \($0.height)" } ?? "Choose a Size").font(.system(size: 12, weight: .semibold))
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
+            .accessibilityLabel(active.map { "HiDPI size for \(monitor.name), looks like \($0.width) by \($0.height)" }
+                                ?? "Choose a HiDPI size for \(monitor.name)")
             .disabled(monitor.nativeWidth == 0)
             if let active, engine.live[active.id] == nil {
                 Button("Start") { engine.start(active.id) }

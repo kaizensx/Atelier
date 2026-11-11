@@ -84,8 +84,54 @@ final class AccessWatch: ObservableObject {
             InputTrust.granted()
             InstantSpaces.shared.resume()
             AtelierHUD.shared.retryIfTrusted()
+        } else {
+            // A deaf tap behind a live Caps Lock → F18 mapping would leave Caps Lock dead.
+            InputTrust.revoked()
         }
         NotificationCenter.default.post(name: .atelierAccessibilityChanged, object: nil)
+    }
+}
+
+// MARK: - Revoke signals
+
+/// A revoke shows up before `AXIsProcessTrusted()` admits it: macOS turns Atelier's event taps
+/// off, refuses new ones, and refuses AX requests. Each is a reason to read again at once.
+enum TapRevoke {
+    /// From a tap's callback, on whatever thread it runs: the tap was turned off. A timeout is
+    /// usually just a slow callback, but reading again costs nothing.
+    nonisolated static func disabled(_ type: CGEventType) {
+        guard type == .tapDisabledByUserInput || type == .tapDisabledByTimeout else { return }
+        signal()
+    }
+
+    /// `CGEvent.tapCreate` returned nil although Atelier believed it had access.
+    nonisolated static func creationFailed() { signal() }
+
+    private nonisolated static func signal() {
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                guard AccessWatch.shared.trusted else { return }
+                PermissionCenter.shared.recheckSoon()
+            }
+        }
+    }
+}
+
+/// One AX request to the system-wide element, with a short timeout. macOS answers
+/// `kAXErrorAPIDisabled` the moment access is revoked, while `AXIsProcessTrusted()` may not yet.
+@MainActor
+enum AXLiveProbe {
+    private static let element: AXUIElement = {
+        let element = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(element, 0.25)
+        return element
+    }()
+
+    /// True only when macOS refuses Atelier's AX requests outright. No focused app, a busy app or
+    /// a timeout all count as not refused.
+    static func refused() -> Bool {
+        var value: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, kAXFocusedApplicationAttribute as CFString, &value) == .apiDisabled
     }
 }
 

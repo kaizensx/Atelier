@@ -121,8 +121,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func openFromScheme(_ url: URL) {
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
         if url.host() == "studio" {
-            let chapter = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first?.value
-            ManagerWindow.shared.show(chapter: chapter)
+            // ?chapter=dock&focus=vitals: the chapter, then the card marked `.navTarget("vitals")`.
+            // Old links carried the chapter as their only item, under any name.
+            let chapter = items?.first(where: { $0.name == "chapter" })?.value ?? items?.first?.value
+            if let chapter, let focus = items?.first(where: { $0.name == "focus" })?.value, !focus.isEmpty {
+                NavFocus.shared.open(chapter: chapter, focus: focus)
+            } else {
+                ManagerWindow.shared.show(chapter: chapter)
+            }
             return
         }
         if url.host() == "grant" {

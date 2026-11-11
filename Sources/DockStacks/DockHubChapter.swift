@@ -1046,7 +1046,11 @@ struct DockOwnTilesCard: View {
                     symbol: "gauge.with.dots.needle.67percent", id: "vitals")
             if dock.showVitals, !dock.hasOwnIcon("vitals") { DockVitalsSettingsView() }
         }
+        // The Vitals tile's "Vitals Options…" and `atelier://studio?chapter=dock&focus=vitals`.
+        .navTarget(Self.vitalsTarget)
     }
+
+    nonisolated static let vitalsTarget = "vitals"
 
     private func tileRow(_ title: String, detail: String, symbol: String, id: String) -> some View {
         SettingRow(title: title + " Icon", detail: detail, symbol: symbol, density: .compact) {

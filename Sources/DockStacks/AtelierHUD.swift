@@ -31,6 +31,7 @@ private nonisolated(unsafe) var heldKeys: Set<Int> = []
 private func hudCallback(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent,
                          _ info: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        TapRevoke.disabled(type)
         if let hudTap { CGEvent.tapEnable(tap: hudTap, enable: true) }
         return Unmanaged.passUnretained(event)
     }

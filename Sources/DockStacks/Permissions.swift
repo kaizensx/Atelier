@@ -77,8 +77,9 @@ final class PermissionCenter: ObservableObject {
         guard observers.isEmpty else { return }
         observers.append(DistributedNotificationCenter.default().addObserver(
             forName: NSNotification.Name("com.apple.accessibility.api"), object: nil, queue: .main) { _ in
-            // The list changes a moment before the process's trust does.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { MainActor.assumeIsolated { PermissionCenter.shared.check() } }
+            // The list changes a moment before the process's trust does, and the flag can lag
+            // further on a revoke: read it a few times over the next seconds.
+            MainActor.assumeIsolated { PermissionCenter.shared.recheckSoon() }
         })
         observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
@@ -88,9 +89,29 @@ final class PermissionCenter: ObservableObject {
         retime()
     }
 
+    private var burst: [DispatchWorkItem] = []
+    private var lastBurst = Date.distantPast
+
+    /// A sign that Accessibility may have changed (the list changed, an event tap was turned off,
+    /// a tap could not be made): read now, then again over the next seconds, since the flag can
+    /// lag the change. Several signs at once make one burst.
+    func recheckSoon() {
+        check()
+        guard Date().timeIntervalSince(lastBurst) > 1 else { return }
+        lastBurst = Date()
+        burst.forEach { $0.cancel() }
+        burst = [0.6, 2, 5].map { delay in
+            let item = DispatchWorkItem { MainActor.assumeIsolated { PermissionCenter.shared.check() } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+            return item
+        }
+    }
+
     /// Reads everything now and tells the wrappers. Each acts only on its own change.
     func check() {
-        let ax = AXIsProcessTrusted()
+        // AXIsProcessTrusted can keep answering yes for a while after a revoke; an AX request
+        // that macOS refuses outright settles it (AccessWatch.swift).
+        let ax = AXIsProcessTrusted() && !AXLiveProbe.refused()
         let preflight = CGPreflightScreenCaptureAccess()
         let allowed = preflight || ScreenRecordingFlag.allowed
         if ax != accessibility { accessibility = ax }

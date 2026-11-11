@@ -81,3 +81,21 @@ import Testing
     #expect(BridgeGate.spacesSupport(osMajor: 13, cpu: .appleSilicon) == .none)
     #expect(BridgeGate.spacesSupport(osMajor: 99, cpu: .intel) == .none)
 }
+
+// MARK: - The addition on disk
+
+@Test func onlyAWholeBridgeOfThisVersionIsCurrent() {
+    #expect(BridgeInstall.isCurrent(onDisk: true, version: "1.0.0", expected: "1.0.0", binaries: true))
+    // Stale: an older version, an unreadable Info.plist, or a binary missing.
+    #expect(!BridgeInstall.isCurrent(onDisk: true, version: "0.9.0", expected: "1.0.0", binaries: true))
+    #expect(!BridgeInstall.isCurrent(onDisk: true, version: nil, expected: "1.0.0", binaries: true))
+    #expect(!BridgeInstall.isCurrent(onDisk: true, version: "1.0.0", expected: "1.0.0", binaries: false))
+    #expect(!BridgeInstall.isCurrent(onDisk: false, version: nil, expected: "1.0.0", binaries: false))
+}
+
+@Test func aStaleBridgeGatesAsNotInstalled() {
+    let current = BridgeInstall.isCurrent(onDisk: true, version: "0.9.0", expected: "1.0.0", binaries: true)
+    let s = BridgeGate.stage(sipCapable: true, cpu: .appleSilicon, bootArgPresent: true,
+                             installedMatches: current, loaded: true)
+    #expect(s == .notInstalled)
+}

@@ -92,3 +92,11 @@ private func row(_ bases: [Double]) -> [(path: String, base: Double)] {
     // Always shrinking toward the slot.
     for pair in zip(frames, frames.dropFirst()) { #expect(pair.1.width <= pair.0.width) }
 }
+
+@Test func attentionIsReadOnlyBeforeMacOS27() {
+    // macOS 27's Dock draws every tile in one window: a bounce moves no tile frame.
+    #expect(OwnDockBounce.attentionReadable(osMajor: 15))
+    #expect(OwnDockBounce.attentionReadable(osMajor: 26))
+    #expect(!OwnDockBounce.attentionReadable(osMajor: 27))
+    #expect(!OwnDockBounce.attentionReadable(osMajor: 28))
+}

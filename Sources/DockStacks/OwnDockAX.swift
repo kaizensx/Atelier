@@ -192,6 +192,9 @@ struct SystemDockReading: Sendable, Equatable {
 
 enum SystemDockAX {
     /// One pass over the Dock's tiles. About a millisecond; never call it on the main thread.
+    /// macOS 27 and later: a tile's frame stays put while it bounces, so frames are not read.
+    nonisolated static let readsBounces = OwnDockBounce.attentionReadable(osMajor: ProcessInfo.processInfo.operatingSystemVersion.majorVersion)
+
     nonisolated static func read(dockPID: pid_t, orientation: String) -> SystemDockReading {
         let dock = DockAX.application(dockPID, timeout: 0.3)
         guard let list = DockAX.children(dock).first(where: { DockAX.attribute($0, kAXRoleAttribute) as? String == kAXListRole as String })
@@ -204,6 +207,7 @@ enum SystemDockAX {
             let path = url.resolvingSymlinksInPath().standardizedFileURL.path
             if subrole == "AXApplicationDockItem" {
                 if let label = DockAX.attribute(item, "AXStatusLabel") as? String, !label.isEmpty { reading.badges[path] = label }
+                guard readsBounces else { continue }
                 var frame = CGRect.zero
                 if let value = DockAX.attribute(item, "AXFrame"), CFGetTypeID(value) == AXValueGetTypeID() {
                     AXValueGetValue(value as! AXValue, .cgRect, &frame)

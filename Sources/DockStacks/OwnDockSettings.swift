@@ -773,13 +773,22 @@ struct OwnDockBehaviourCard: View {
             .dockHubRow()
             .help("The red counts apps put on their icons, read from the macOS Dock, even while it is hidden.")
             .stagePreview(.dock("badges", "Badges", detail: dock.appearance.badges ? "On → Off" : "Off → On") { $0.appearance.badges.toggle() })
-            SettingRow(title: "Attention Bounce", detail: "Hops when an app asks for you, as the macOS Dock does.", density: .compact) {
-                LuxSwitch(isOn: $dock.appearance.attention, label: "Attention Bounce", tint: hue)
+            if SystemDockAX.readsBounces {
+                SettingRow(title: "Attention Bounce", detail: "Hops when an app asks for you, as the macOS Dock does.", density: .compact) {
+                    LuxSwitch(isOn: $dock.appearance.attention, label: "Attention Bounce", tint: hue)
+                }
+                .dockHubRow()
+                .help("Seen by watching the macOS Dock's own tile, so a single short bounce can be missed.")
+                .stagePreview(.demo("dock.attention", "Attention Bounce", isOn: dock.appearance.attention, region: StageRegion.ownDock(OwnDock.shared.edge), Demos.attentionBounce))
+            } else {
+                // macOS 27 gives no sign that an app asks for attention (OwnDockBounce in DockCore).
+                SettingRow(title: "Attention Bounce", detail: "Not available on macOS 27. Badges still show.", density: .compact) {
+                    Text("Not available").font(DS.caption).foregroundStyle(DS.Ink.tertiary)
+                }
+                .dockHubRow()
+                .help("macOS 27 no longer tells other apps when one asks for attention, so the Atelier Dock can't hop for it.")
             }
-            .dockHubRow()
-            .help("Seen by watching the macOS Dock's own tile, so a single short bounce can be missed.")
-            .stagePreview(.demo("dock.attention", "Attention Bounce", isOn: dock.appearance.attention, region: StageRegion.ownDock(OwnDock.shared.edge), Demos.attentionBounce))
-            if !permissions.trusted, dock.appearance.badges || dock.appearance.attention {
+            if !permissions.trusted, dock.appearance.badges || (dock.appearance.attention && SystemDockAX.readsBounces) {
                 DockNeedsAccess().dockHubRow()
             }
             SettingRow(title: "Click to Hide", detail: "Clicking the app in front hides it.", density: .compact) {

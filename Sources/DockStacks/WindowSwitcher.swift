@@ -31,6 +31,7 @@ private let shiftMask = CGEventFlags.maskShift.rawValue
 private func switchCallback(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent,
                             _ info: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        TapRevoke.disabled(type)
         if let switchTap { CGEvent.tapEnable(tap: switchTap, enable: true) }
         return Unmanaged.passUnretained(event)
     }
@@ -209,7 +210,7 @@ final class WindowSwitcher: ObservableObject {
             let mask = CGEventMask(1 << CGEventType.keyDown.rawValue | 1 << CGEventType.keyUp.rawValue
                                    | 1 << CGEventType.flagsChanged.rawValue)
             guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
-                                              eventsOfInterest: mask, callback: switchCallback, userInfo: nil) else { return }
+                                              eventsOfInterest: mask, callback: switchCallback, userInfo: nil) else { TapRevoke.creationFailed(); return }
             switchTap = tap
             let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
             CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)

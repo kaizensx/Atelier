@@ -35,6 +35,7 @@ private func characters(of event: CGEvent) -> String {
 private func quitCallback(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent,
                           _ info: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        TapRevoke.disabled(type)
         if let guardTap { CGEvent.tapEnable(tap: guardTap, enable: true) }
         return Unmanaged.passUnretained(event)
     }
@@ -122,7 +123,7 @@ final class QuitGuard: ObservableObject {
             let mask = CGEventMask(1 << CGEventType.keyDown.rawValue | 1 << CGEventType.keyUp.rawValue
                                    | 1 << CGEventType.flagsChanged.rawValue)
             guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
-                                              eventsOfInterest: mask, callback: quitCallback, userInfo: nil) else { return }
+                                              eventsOfInterest: mask, callback: quitCallback, userInfo: nil) else { TapRevoke.creationFailed(); return }
             guardTap = tap
             let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
             CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)

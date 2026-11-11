@@ -8,6 +8,8 @@ import ServiceManagement
 /// - While the macOS Dock is hidden, `restore-dock.sh` holds the commands that bring it back.
 /// - A crash signal leaves a `crashed` marker, so the agent relaunches the app.
 /// - A normal quit leaves `clean-exit`, so the agent does nothing.
+/// - SIGTERM (`kill`, `pkill`, launchd) is a request to quit, not a crash: it runs the normal
+///   quit, restores and all, so the agent sees a clean end. SIGKILL and crashes still relaunch.
 enum CrashGuard {
     static let folder = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Atelier/Guard", isDirectory: true)
@@ -23,6 +25,9 @@ enum CrashGuard {
 
     /// The marker's path, kept as C bytes: a signal handler may not allocate.
     nonisolated(unsafe) private static var crashedPath: UnsafeMutablePointer<CChar>?
+    /// Kept alive for the life of the process.
+    @MainActor private static var terminateSource: DispatchSourceSignal?
+    @MainActor private static var terminating = false
 
     /// At launch, before anything can crash.
     @MainActor static func start() {
@@ -30,7 +35,36 @@ enum CrashGuard {
         try? FileManager.default.removeItem(at: crashedMarker)
         try? FileManager.default.removeItem(at: cleanMarker)
         installSignalHandlers()
+        installTerminateHandler()
         register()
+    }
+
+    /// SIGTERM becomes "Quit Atelier Completely". A no-op handler, not SIG_IGN, keeps the default
+    /// from killing the process: a handler is reset to the default across exec, so the helpers
+    /// Atelier starts (hidutil, the relaunch and update shells) still die on SIGTERM.
+    @MainActor private static func installTerminateHandler() {
+        guard terminateSource == nil else { return }
+        signal(SIGTERM, { _ in })
+        let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        source.setEventHandler {
+            MainActor.assumeIsolated { CrashGuard.quitOnSignal() }
+        }
+        source.resume()
+        terminateSource = source
+    }
+
+    @MainActor private static func quitOnSignal() {
+        // A second SIGTERM, or a quit a sheet holds up: do what terminate would, then go.
+        if terminating { forceCleanExit(); return }
+        terminating = true
+        AppDelegate.quitForReal = true
+        NSApp.terminate(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { forceCleanExit() }
+    }
+
+    @MainActor private static func forceCleanExit() {
+        NSApp.delegate?.applicationWillTerminate?(Notification(name: NSApplication.willTerminateNotification, object: NSApp))
+        exit(0)
     }
 
     /// For `applicationWillTerminate`.

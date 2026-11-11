@@ -29,6 +29,7 @@ private nonisolated(unsafe) var spacesHeld = Set<Int64>()
 private func spacesCallback(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent,
                             _ info: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        TapRevoke.disabled(type)
         if let spacesTap { CGEvent.tapEnable(tap: spacesTap, enable: true) }
         return Unmanaged.passUnretained(event)
     }

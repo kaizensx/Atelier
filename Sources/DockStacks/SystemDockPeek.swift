@@ -33,6 +33,7 @@ private let magnifyEventType: UInt32 = 30
 private func peekTapCallback(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent,
                              _ info: UnsafeMutableRawPointer?) -> Unmanaged<CGEvent>? {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+        TapRevoke.disabled(type)
         if let peekTap { CGEvent.tapEnable(tap: peekTap, enable: true) }
         return Unmanaged.passUnretained(event)
     }
@@ -628,7 +629,7 @@ final class SystemDockPeek: ObservableObject {
         for type in [CGEventType.scrollWheel, .leftMouseDown, .rightMouseDown, .otherMouseDown] { mask |= 1 << CGEventMask(type.rawValue) }
         mask |= 1 << CGEventMask(gestureEventType) | 1 << CGEventMask(magnifyEventType)
         guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
-                                          eventsOfInterest: mask, callback: peekTapCallback, userInfo: nil) else { return }
+                                          eventsOfInterest: mask, callback: peekTapCallback, userInfo: nil) else { TapRevoke.creationFailed(); return }
         peekTap = tap
         let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)

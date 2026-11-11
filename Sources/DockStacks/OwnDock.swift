@@ -1964,7 +1964,8 @@ final class OwnDock: ObservableObject {
         feed.seconds = tileKinds.contains(.clock) && options.contains { $0.value.seconds }
         feed.run(visible ? tileKinds : [])
         let trusted = AXIsProcessTrusted()
-        let wantsDock = visible && trusted && (appearance.badges || appearance.attention || tileKinds.contains(.downloads))
+        let attentionSeen = appearance.attention && SystemDockAX.readsBounces
+        let wantsDock = visible && trusted && (appearance.badges || attentionSeen || tileKinds.contains(.downloads))
         if wantsDock != reader.running { wantsDock ? reader.start() : reader.stop() }
         // Minimise into the Atelier Dock needs to know when a window it shrank comes back.
         let wantsWindows = visible && trusted && (appearance.minimized || MinimizeRedirect.shared.active)
@@ -3795,7 +3796,7 @@ final class OwnDock: ObservableObject {
             menu.addItem(item("Empty Trash…", enabled: slot.full) { OwnDock.shared.emptyTrash() })
         case .vitals:
             menu.addItem(item("Open Activity Monitor") { DockVitalsSettings.openActivityMonitor() })
-            menu.addItem(item("Vitals Options…") { ManagerWindow.shared.show(chapter: Chapter.dock.rawValue) })
+            menu.addItem(item("Vitals Options…") { NavFocus.shared.open(chapter: Chapter.dock.rawValue, focus: DockOwnTilesCard.vitalsTarget) })
             menu.addItem(item("Hide Vitals") { OwnDock.shared.showVitals = false })
         case .window:
             menu.addItem(item("Bring Back", symbol: "macwindow") { OwnDock.shared.restore(slot) })

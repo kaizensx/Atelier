@@ -359,8 +359,13 @@ private struct BridgeRecoveryUndo: View {
                         Text("Takes the scripting addition out of /Library/ScriptingAdditions. Every window power stops at once.")
                             .font(DS.caption).foregroundStyle(DS.Ink.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                        if bridge.stale {
+                            Text("The bridge on this Mac is out of date or incomplete.")
+                                .font(DS.caption).foregroundStyle(caution)
+                        }
                         HStack(spacing: DS.Space.s) {
                             if bridge.installed { removeButton }
+                            if bridge.stale, bridge.sip.isBridgeCapable { updateButton }
                             if let message {
                                 Text(message).font(DS.caption).foregroundStyle(DS.Ink.secondary).transition(.opacity)
                             }
@@ -383,6 +388,29 @@ private struct BridgeRecoveryUndo: View {
                 }
             }
         }
+    }
+
+    private var updateButton: some View {
+        Button {
+            guard !busy else { return }
+            busy = true; message = nil
+            Task { @MainActor in
+                do { try await DockBridge.shared.install(); message = "Updated." }
+                catch { message = (error as NSError).localizedDescription }
+                busy = false
+            }
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 11.5, weight: .semibold))
+                Text("Update the bridge").font(.system(size: 12.5, weight: .semibold))
+            }
+            .foregroundStyle(DS.Ink.primary)
+            .padding(.horizontal, 14).frame(height: 30)
+            .background(DS.Ink.fillStrong, in: .capsule)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(Pressable(scale: 0.96))
+        .disabled(busy)
     }
 
     private var removeButton: some View {

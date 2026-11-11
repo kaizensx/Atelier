@@ -395,9 +395,16 @@ struct ChapterPanel: View {
             }
             .scrollIndicators(.never)
             .clipShape(.rect(cornerRadius: DS.Radius.panel, style: .continuous))
-            .task(id: focus.target) {
+            // Keyed on the panel's chapter too: a link that opens another chapter sets the target
+            // before that chapter's rows exist. A second pass once the panel has landed catches a
+            // freshly opened window, whose scroll view has no size yet at the first one.
+            .task(id: "\(focus.target ?? "")|\(model.panelChapter.rawValue)") {
                 guard let target = focus.target else { return }
                 try? await Task.sleep(for: .milliseconds(120))
+                guard !Task.isCancelled else { return }
+                withAnimation(DS.Motion.arrive) { proxy.scrollTo(target, anchor: .center) }
+                try? await Task.sleep(for: .milliseconds(650))
+                guard !Task.isCancelled, focus.target == target else { return }
                 withAnimation(DS.Motion.arrive) { proxy.scrollTo(target, anchor: .center) }
             }
         }
@@ -1343,7 +1350,8 @@ struct SystemChapter: View {
     var body: some View {
         let hue = DS.Ink.accent
         SectionHeader("Permissions", symbol: "lock.shield", detail: "What Atelier may reach on your Mac, and the switch for each.", hue: hue)
-        PermissionsCard()
+        // `atelier://studio?chapter=system&focus=permissions`.
+        PermissionsCard().navTarget("permissions")
 
         SectionHeader("Studio", symbol: "paintbrush.pointed", detail: "How Atelier's own window looks. Nothing here touches your Mac.", hue: hue)
         StudioLookCard()
