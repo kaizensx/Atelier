@@ -2,6 +2,27 @@ name: Bug report
 description: Something in Atelier does not work as it should.
 labels: [bug]
 body:
+  - type: markdown
+    attributes:
+      value: "Thanks for reporting. Atelier asks macOS for Accessibility and Screen Recording for some features: if a feature looks greyed out, check Settings first."
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Dock (Atelier Dock, Stacks, Orbit, Hot Corners)
+        - Windows (Window Engine, snapping, switcher, stash, gestures)
+        - Display (XDR Boost, Below Black, display modes, monitors)
+        - Menu bar (Control Center, Thermals, fans)
+        - Desktop (wallpaper, live wallpaper, widgets, effects)
+        - Sounds (Sound Mixer, EQ, typing sounds)
+        - Input (cursor, trackpad, mouse, keyboard, Hyper Key)
+        - Tools (Toolbox, capture, Text Grab)
+        - Themes & Plugins
+        - Updates & install
+        - Beyond SIP
+        - The Atelier window itself
+    validations: { required: true }
   - type: input
     id: version
     attributes: { label: Atelier version, description: "Settings → Updates shows it.", placeholder: "1.0.0-beta.1" }
@@ -12,11 +33,20 @@ body:
     validations: { required: true }
   - type: textarea
     id: what
-    attributes: { label: What happened, description: "What you did, what you expected, what you saw." }
+    attributes: { label: What happened, description: "What you did, what you expected, what you saw. Screenshots or a screen recording help a lot." }
+    validations: { required: true }
+  - type: dropdown
+    id: severity
+    attributes:
+      label: How bad is it?
+      options:
+        - It crashes, freezes, or I can't undo it
+        - The feature doesn't work as described
+        - Small visual or wording problem
     validations: { required: true }
   - type: textarea
     id: diag
     attributes:
       label: Diagnostics (optional)
-      description: "Run `open 'atelier://diag'` and paste $TMPDIR/atelier-diag.txt. Check it for anything you'd rather not share first."
+      description: "Run `open 'atelier://diag'` and paste $TMPDIR/atelier-diag.txt. Read it first and remove anything you'd rather not share."
       render: text

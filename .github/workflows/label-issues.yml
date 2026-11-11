@@ -1,0 +1,29 @@
+name: Label issues
+on:
+  issues:
+    types: [opened, edited]
+permissions:
+  issues: write
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body || "";
+            const pick = (heading) => {
+              const m = body.match(new RegExp("### " + heading + "\\s+([^\\n]+)"));
+              return m ? m[1].trim() : "";
+            };
+            const area = pick("Area").toLowerCase();
+            const areas = { "dock": "area: dock", "windows": "area: windows", "display": "area: display",
+              "menu bar": "area: menu-bar", "desktop": "area: desktop", "sounds": "area: sounds", "input": "area: input",
+              "tools": "area: tools", "themes": "area: themes-plugins", "updates": "area: updates",
+              "beyond sip": "area: beyond-sip", "the atelier window": "area: studio" };
+            const labels = Object.entries(areas).filter(([k]) => area.startsWith(k)).map(([, v]) => v);
+            const sev = pick("How bad is it\\?");
+            if (sev.startsWith("It crashes")) labels.push("P0");
+            else if (sev.startsWith("The feature")) labels.push("P1");
+            else if (sev.startsWith("Small")) labels.push("P2");
+            if (labels.length) await github.rest.issues.addLabels({ ...context.repo, issue_number: context.payload.issue.number, labels });

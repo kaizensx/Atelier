@@ -1,0 +1,8 @@
+name: Question
+description: How do I…? Why does…?
+labels: [question]
+body:
+  - type: textarea
+    id: q
+    attributes: { label: Your question }
+    validations: { required: true }
