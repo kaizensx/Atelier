@@ -5,7 +5,8 @@ on:
   pull_request:
 
 jobs:
-  test:
+  logic:
+    name: Logic and tests
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -13,9 +14,23 @@ jobs:
         run: |
           sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
           swift --version
-      # Native build only: the hosted runners' Swift 6.3 compiler crashes on the two-architecture
-      # (xcbuild) path. Universal release builds are made on the maintainer's Mac by build.sh.
-      - name: Build
-        run: swift build
+      # DockCore holds every rule Atelier follows, as plain Swift, and all of the tests.
+      - name: Build DockCore and its tests
+        run: swift build --target DockCoreTests
       - name: Test
-        run: swift test
+        run: swift test --skip-build
+
+  # The app itself needs Xcode 27 (Swift 6.4). Hosted runners don't have it yet; this job turns
+  # on by itself once one does. Releases are built and tested on the maintainer's Mac.
+  app:
+    name: App (needs Xcode 27)
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build when Xcode 27 is available
+        run: |
+          X=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$X" ]; then echo "No Xcode 27 on this runner yet: skipping the app build."; exit 0; fi
+          sudo xcode-select -s "$X"
+          swift build
