@@ -582,15 +582,18 @@ private struct HapticPlate: View {
                 let beat = elapsed.map { $0.truncatingRemainder(dividingBy: 0.9) / 0.9 }
                 // Rings first, so the glass sits on them.
                 for ring in 0..<2 {
-                    let r = beat.map { min(max($0 - Double(ring) * 0.12, 0), 1) } ?? (ring == 0 ? 0.3 : 1)
-                    let grow = 1 + r * (0.25 + 0.5 * force)
+                    let lag: Double = Double(ring) * 0.12
+                    let rest: Double = ring == 0 ? 0.3 : 1
+                    let r: Double = beat.map { (b: Double) -> Double in min(max(b - lag, 0), 1) } ?? rest
+                    let grow: Double = 1 + r * (0.25 + 0.5 * force)
                     let rect = CGRect(x: size.width / 2 - pad.width * grow / 2, y: size.height / 2 - pad.height * grow / 2,
                                       width: pad.width * grow, height: pad.height * grow)
                     context.stroke(Path(roundedRect: rect, cornerRadius: pad.width * 0.045 * grow, style: .continuous),
                                    with: .color(hue.opacity((1 - r) * (0.35 + 0.6 * force))), lineWidth: 1.5 + 2.5 * force)
                 }
                 // The glass gives a hair under each click.
-                let press = beat.map { 1 - 0.015 * force * max(0, 1 - $0 * 6) } ?? 1
+                let squeeze: Double = 0.015 * force
+                let press: Double = beat.map { (b: Double) -> Double in 1 - squeeze * max(0, 1 - b * 6) } ?? 1
                 var glass = context
                 glass.translateBy(x: size.width / 2, y: size.height / 2)
                 glass.scaleBy(x: press, y: press)
