@@ -238,7 +238,8 @@ headers such as `Authorization` and `Accept`; `Cookie`, `Host`, `Origin`, `Refer
 
 ### `atelier.prompt(title, { message?, placeholder?, secure? })` → Promise<string | null>
 
-Asks the owner for one line of text in a standard alert, with your plugin's name on it.
+Asks the owner for one line of text in a small Atelier window, in front, with your plugin's
+name on it.
 `secure: true` hides what is typed: use it for tokens. Resolves to the text, or `null` if the
 owner cancels. A plugin may ask at most once every 10 seconds.
 
