@@ -66,12 +66,26 @@ export function data(name) {
   return cache.get(name);
 }
 
-/** The Mods catalog: the published index, or the bundled seed until it exists. */
-export async function catalog() {
-  const live = await data("mods.json");
-  if (live && Array.isArray(live.mods)) return { ...live, seed: false };
-  const seed = await data("mods-seed.json");
-  return seed ? { ...seed, seed: true } : { mods: [], featured: [], seed: true };
+/** Where the Mods catalog is published (the same signed index Atelier reads). */
+const MODS_INDEX = "https://raw.githubusercontent.com/kaizensx/atelier-mods/dist/index.json";
+let catalogPromise;
+
+/** The Mods catalog: the newer of the site's copy and the published index, read straight from
+ *  GitHub so a new version shows without waiting for the site to rebuild. The bundled seed only
+ *  when neither can be reached. */
+export function catalog() {
+  catalogPromise ??= (async () => {
+    const usable = (c) => (c && Array.isArray(c.mods) ? c : null);
+    const [copy, published] = await Promise.all([
+      data("mods.json").then(usable),
+      fetch(MODS_INDEX, { cache: "no-cache" }).then((r) => (r.ok ? r.json() : null)).then(usable).catch(() => null),
+    ]);
+    const newest = [copy, published].filter(Boolean).sort((a, b) => String(b.generated || "").localeCompare(String(a.generated || "")))[0];
+    if (newest) return { ...newest, seed: false };
+    const seed = await data("mods-seed.json");
+    return seed ? { ...seed, seed: true } : { mods: [], featured: [], seed: true };
+  })();
+  return catalogPromise;
 }
 
 /** Repo stats, falling back once to the live API when the build had none. */

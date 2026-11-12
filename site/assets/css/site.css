@@ -1,5 +1,8 @@
 /* Atelier website. One stylesheet, system fonts, no build step. */
 
+/* `hidden` always wins: components that set their own display (.notice is flex) stay hidden. */
+[hidden] { display: none !important; }
+
 :root, .dark {
   color-scheme: dark;
   --bg: #05080F;
