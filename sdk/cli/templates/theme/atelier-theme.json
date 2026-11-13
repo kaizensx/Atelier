@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "id": "{{id}}",
+  "name": "{{name}}",
+  "version": "1.0.0",
+  "author": "{{author}}",
+  "description": "A calm dark theme with a warm accent.",
+  "tags": ["dark", "warm"],
+  "appearance": "dark",
+  "colors": { "accent": "#FF8A3D", "secondary": "#B07A55" },
+  "dock": { "style": "frost", "accent": "orange", "indicator": "dot", "roundness": 0.6 },
+  "widgets": { "material": "frosted", "accent": "orange", "radius": 18 },
+  "wallpaper": { "mode": "mesh", "mesh": "dusk" }
+}

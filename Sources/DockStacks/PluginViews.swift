@@ -217,10 +217,12 @@ struct PluginWidgetContent: View {
 struct PluginDockTileView: View {
     let key: String
     let size: CGFloat
+    /// Draws this spec instead of the registry's tile (the Mods Playground).
+    var spec: PluginTileSpec? = nil
     @ObservedObject private var registry = PluginRegistry.shared
 
     var body: some View {
-        let tile = registry.tile(key)
+        let tile = spec.map { PluginDockTile(plugin: "", spec: $0) } ?? registry.tile(key)
         let tint = tile?.spec.tint?.color(accent: DS.Ink.accent) ?? DS.Ink.accent
         ZStack {
             RoundedRectangle(cornerRadius: size * 0.225, style: .continuous)

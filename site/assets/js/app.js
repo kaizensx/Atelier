@@ -464,7 +464,7 @@ pages.community = async () => {
 
 const DOCS = [
   { group: "Using Atelier", items: [["features", "Feature reference", "docs/FEATURES.md"], ["compatibility", "Compatibility", "COMPATIBILITY.md"], ["changelog", "Changelog", "CHANGELOG.md"]] },
-  { group: "Making things", items: [["customising", "Themes and plugins", "docs/README.md"], ["themes", "Theme format", "docs/THEMES.md"], ["plugins", "Plugin API", "docs/PLUGINS.md"], ["packs", "Pack formats", "docs/PACKS.md"]] },
+  { group: "Making things", items: [["customising", "Themes and plugins", "docs/README.md"], ["themes", "Theme format", "docs/THEMES.md"], ["plugins", "Plugin API", "docs/PLUGINS.md"], ["packs", "Pack formats", "docs/PACKS.md"], ["making-mods", "Making mods", "docs/MAKING-MODS.md"]] },
   { group: "Project", items: [["contributing", "Contributing", "docs/CONTRIBUTING.md"], ["releasing", "Releasing", "docs/RELEASING.md"], ["security", "Security", "SECURITY.md"]] },
 ];
 pages.docs = async () => {
@@ -519,6 +519,90 @@ pages.docs = async () => {
   });
   addEventListener("popstate", () => load(new URLSearchParams(location.search).get("doc") || "features"));
   load(new URLSearchParams(location.search).get("doc") || "features");
+};
+
+/* ---------- make a mod: the API, from docs/plugin-api.json ---------- */
+pages.make = async () => {
+  let api = await data("plugin-api.json");
+  if (!api) api = await fetch(`https://raw.githubusercontent.com/${REPO}/main/docs/plugin-api.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const body = $("[data-api]"), nav = $("[data-apinav]"), toc = $("[data-apitoc]"), info = $("[data-apiinfo]"), q = $("#q");
+  if (!api) {
+    body.innerHTML = empty(icon.doc, "The API reference could not load", "It is read from docs/plugin-api.json. Read it on GitHub meanwhile.", btn(`${GH}/blob/main/docs/plugin-api.json`, "Open on GitHub", "ghost"));
+    return;
+  }
+  const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const code = (s) => `<code>${esc(s)}</code>`;
+  const since = (x) => (x?.since ? ` <span class="badge beta">New in ${esc(x.since)}</span>` : "");
+  const needs = (p) => (p ? ` <span class="chip">${icon.key}Needs ${esc(p)}</span>` : "");
+  const snippet = (text) => `<div class="code"><pre><code>${esc(text)}</code></pre><button class="copy" type="button" aria-label="Copy example">Copy</button></div>`;
+  const table = (rows, head) => rows.length ? `<div class="table"><table><thead><tr>${head.map((h) => `<th>${esc(h)}</th>`).join("")}</tr></thead><tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>` : "";
+  const props = (list) => table(list.map((p) => [code(p.name) + (p.optional ? "" : " <span class=\"faint\">required</span>"), code(p.type), esc(p.description ?? "") + (p.default ? ` Default ${code(p.default)}.` : "") + since(p)]), ["Key", "Type", ""]);
+  const sig = (e) => {
+    const sigs = e.overloads ?? [{ params: e.params ?? [] }];
+    return sigs.map((s) => `${e.name}(${(s.params ?? []).map((p) => `${p.name}${p.optional ? "?" : ""}`).join(", ")})${e.returns?.type && e.returns.type !== "void" ? ` → ${e.returns.type}` : ""}`).join("\n");
+  };
+  const types = new Map(api.types.map((t) => [t.name, t]));
+  const typeLinks = (text) => esc(text).replace(/\b([A-Z][A-Za-z]+)\b/g, (m) => (types.has(m) ? `<a href="#type-${slug(m)}">${m}</a>` : m));
+
+  const sections = [];
+  const fnEntries = api.api.filter((e) => e.kind !== "namespace" || e.description);
+  sections.push({ id: "functions", title: "Functions", items: fnEntries.map((e) => ({
+    id: slug(e.name), title: e.name, text: [e.name, e.description, e.permission].join(" "),
+    html: `<h3 id="${slug(e.name)}">${code(e.name)}${since(e)}${needs(e.permission)}</h3>
+      ${e.kind === "function" ? `<div class="code"><pre><code>${typeLinks(sig(e))}</code></pre></div>` : e.kind === "property" ? `<p>${code(e.type)}</p>` : ""}
+      <p>${esc(e.description ?? "")}${e.returns?.description ? ` Returns: ${esc(e.returns.description)}` : ""}</p>
+      ${(e.params ?? []).some((p) => p.description) ? props(e.params) : ""}
+      ${(e.params ?? []).filter((p) => types.has(p.type) && types.get(p.type).properties).map((p) => `<p class="faint small">${code(p.name)} is a <a href="#type-${slug(p.type)}">${esc(p.type)}</a>.</p>`).join("")}
+      ${e.example ? snippet(e.example) : ""}`,
+  })) });
+  sections.push({ id: "views", title: "Views", intro: "A view is a plain object with a type, a string or number (drawn as text), or an array (drawn as a vertical stack). Atelier draws it natively. " + `Colours: #RRGGBB or ${api.colors.named.map(code).join(" ")}.`, items: api.views.map((v) => ({
+    id: "view-" + v.type, title: v.type, text: [v.type, v.helper, v.description].join(" "),
+    html: `<h3 id="view-${v.type}">${code(v.type)}${since(v)}</h3><p>${esc(v.description)} Helper: ${code(`atelier.ui.${v.helper}(…)`)}.</p>${props(v.props)}${v.example ? snippet(v.example) : ""}`,
+  })) });
+  sections.push({ id: "events", title: "Events", intro: `Listen with ${code("atelier.on(event, handler)")}.`, items: [{
+    id: "event-list", title: "All events", text: api.events.map((e) => e.name + " " + e.description).join(" "),
+    html: table(api.events.map((e) => [code(e.name) + since(e), code(e.payload), esc(e.description)]), ["Event", "Payload", "When"]) + snippet(`atelier.on("appActivated", ({ name }) => console.log(name + " is in front"));`),
+  }] });
+  sections.push({ id: "types", title: "Types", items: api.types.filter((t) => t.properties).map((t) => ({
+    id: "type-" + slug(t.name), title: t.name, text: [t.name, t.description, ...(t.properties.map((p) => p.name))].join(" "),
+    html: `<h3 id="type-${slug(t.name)}">${code(t.name)}${since(t)}</h3><p>${esc(t.description ?? "")}</p>${props(t.properties)}`,
+  })) });
+  sections.push({ id: "manifest", title: "manifest.json", items: [{
+    id: "manifest-keys", title: "Keys", text: api.manifest.map((m) => m.key + " " + m.description).join(" "),
+    html: table(api.manifest.map((m) => [code(m.key) + (m.required ? " <span class=\"faint\">required</span>" : "") + since(m), code(m.type), esc(m.description) + (m.default ? ` Default ${code(m.default)}.` : "")]), ["Key", "Type", ""])
+      + snippet(JSON.stringify({ format: 1, id: "io.github.you.hello", name: "Hello", version: "1.0.0", author: "You", description: "Says hello.", icon: "hand.wave" }, null, 2)),
+  }] });
+  sections.push({ id: "permissions", title: "Permissions", items: [{
+    id: "permission-list", title: "Permissions", text: api.permissions.map((p) => p.name + " " + p.detail).join(" "),
+    html: `<p>Nothing is granted by default; the owner allows each one on a sheet. Calling an API without its permission throws an Error in the plugin.</p>` + table(api.permissions.map((p) => [code(p.name), `<b>${esc(p.title)}</b>. ${esc(p.detail)}`, api.permissions.length && p.apis.map(code).join(" "), esc(p.notes ?? "")]), ["Permission", "Allows", "APIs", "Notes"]),
+  }] });
+  sections.push({ id: "limits", title: "Limits", items: [{
+    id: "limit-list", title: "Limits", text: api.limits.map((l) => l.title + " " + l.description).join(" "),
+    html: table(api.limits.map((l) => [esc(l.title) + since(l), `<span class="tnum">${l.unit === "bytes" ? bytes(l.value) : `${num(l.value)} ${esc(l.unit)}`}</span>`, esc(l.description)]), ["", "Limit", ""]),
+  }] });
+  sections.push({ id: "kinds", title: "Kinds of mod", items: [{
+    id: "kind-list", title: "Kinds", text: api.kinds.map((k) => k.kind + " " + k.description).join(" "),
+    html: table(api.kinds.map((k) => [code(k.ext) + since(k), esc(k.title), esc(k.description), k.runsCode ? "JavaScript" : "Data only"]), ["Folder", "Kind", "", "Runs"]) + snippet(`atelier-mod new ${api.kinds.map((k) => k.kind).join("|")} io.github.you.my-mod`),
+  }] });
+
+  nav.innerHTML = `<div class="group">API ${esc(api.apiVersion)}</div>` + sections.map((s) => `<a href="#${s.id}" data-s="${s.id}">${esc(s.title)}</a>`).join("");
+  const draw = () => {
+    const words = q.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const match = (it) => words.every((w) => it.text.toLowerCase().includes(w));
+    let shown = 0;
+    body.innerHTML = sections.map((s) => {
+      const items = s.items.filter(match);
+      shown += items.length;
+      if (!items.length) return "";
+      return `<h2 id="${s.id}">${esc(s.title)}</h2>${s.intro && !words.length ? `<p>${s.intro}</p>` : ""}${items.map((i) => i.html).join("")}`;
+    }).join("") || empty(icon.search, "Nothing matches", "Try another word: a function, a view, an event or an option.");
+    info.textContent = words.length ? `${shown} found` : `API ${api.apiVersion} · Atelier ${api.release}`;
+    const heads = $$("h2[id]", body);
+    toc.innerHTML = heads.length > 1 ? `<div class="group">On this page</div>${heads.map((h) => `<a href="#${esc(h.id)}" class="l2">${esc(h.textContent)}</a>`).join("")}` : "";
+  };
+  q.addEventListener("input", draw);
+  draw();
+  if (location.hash) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView();
 };
 
 /* ---------- boot ---------- */

@@ -47,6 +47,10 @@ enum NavIndex {
                                  haystack: [setting.title, setting.detail, setting.section, setting.key, item.title]
                                      .joined(separator: " ").lowercased()))
         }
+        // Mods › Create, the plugin Playground: a tab, so it is found by name and opens in place.
+        list.append(NavEntry(id: "place.mods.playground", kind: .place, title: "Mod Playground", path: "Mods › Create",
+                             symbol: "hammer", chapter: Chapter("mods"), target: "playground",
+                             haystack: "mod playground create make write plugin javascript script run console sdk developer"))
         return list
     }()
 

@@ -5,6 +5,10 @@ tiles in the Atelier Dock, commands in the Command palette, actions for hot corn
 reactions to what happens on the Mac. Atelier draws everything natively; a plugin only
 describes what to show.
 
+New to it? [MAKING-MODS.md](MAKING-MODS.md) covers the **Mods › Create** playground, the
+`atelier-mod` command-line kit and publishing. The API below is also described, field by field, in
+[plugin-api.json](plugin-api.json); editor types (`sdk/atelier.d.ts`) are generated from it.
+
 Plugins can also plug into Atelier's own features: the Command palette, the menu bar, their
 Dock tile's menu and drops, stacks on the Atelier Dock, live activities, Scenes and small HTML
 windows. See [Hooks into Atelier](#hooks-into-atelier).
@@ -575,14 +579,20 @@ Atelier quits.
   a dark one.
 * Keep work small per call. Do heavy lifting in `data`, which may be async, and keep `view`
   cheap.
+* Try ideas in **Mods › Create** first: it runs your script in the real runtime and draws what it
+  registers, with nothing installed.
+* `atelier-mod test` runs a plugin in Node behind the real prelude, with a stand-in for Atelier that
+  checks every call and records what the plugin did; `atelier-mod validate` runs the catalog's
+  checks. See [MAKING-MODS.md](MAKING-MODS.md).
 * Atelier's own tests run each example through the real prelude with a recording bridge (see
-  `Tests/DockCoreTests/PluginBridgeTests.swift`). You can copy that harness to test yours.
+  `Tests/DockCoreTests/PluginBridgeTests.swift`).
 
 ## Sharing in Atelier Mods
 
 The **Mods** chapter is a catalog of community plugins and themes, kept in
 [kaizensx/atelier-mods](https://github.com/kaizensx/atelier-mods). Open a pull request there with
-your plugin folder, a `mod.json` and a screenshot; its CONTRIBUTING.md has the details. The
+your plugin folder, a `mod.json` and a screenshot; its CONTRIBUTING.md has the details, and
+`atelier-mod catalog-entry` writes the folder for you ([MAKING-MODS.md](MAKING-MODS.md#publishing-to-the-catalog)). The
 catalog checks that the permissions in your manifest are the ones your script uses, publishes a
 signed index, and Atelier verifies every download against it. A plugin from the catalog still
 asks for each permission when it is switched on, and an update that asks for more stays off

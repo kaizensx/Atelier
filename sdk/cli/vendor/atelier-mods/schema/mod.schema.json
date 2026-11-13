@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:atelier:mod:1",
+  "title": "Atelier Mods catalog entry",
+  "description": "mod.json, beside the package in mods/<id>/ (plugins, themes) or native/<id>/ (native mods).",
+  "type": "object",
+  "required": ["id", "name", "author", "github", "version", "kind", "summary", "screenshots", "license"],
+  "additionalProperties": false,
+  "patternProperties": { "^(\\$|x-)": {} },
+  "properties": {
+    "id": { "type": "string", "maxLength": 120, "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*(\\.[A-Za-z0-9][A-Za-z0-9_-]*)+$", "description": "Reverse-DNS id. Must equal the folder name and the package's own id." },
+    "name": { "type": "string", "minLength": 1, "maxLength": 60, "description": "Shown on the card. Must equal the package's name." },
+    "author": { "type": "string", "minLength": 1, "maxLength": 80, "description": "Who made it, as shown." },
+    "github": { "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$", "description": "Your GitHub handle. Only this account (or a maintainer) may update the mod." },
+    "version": { "type": "string", "maxLength": 20, "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$", "description": "Semantic version. Must equal the package's version." },
+    "kind": { "enum": ["plugin", "theme", "native"], "description": "plugin and theme live in mods/, native in native/." },
+    "summary": { "type": "string", "minLength": 10, "maxLength": 400, "description": "One or two sentences for the card." },
+    "description": { "type": "string", "maxLength": 20000, "description": "Markdown for the mod page. Or put it in description.md beside mod.json." },
+    "screenshots": {
+      "type": "array", "minItems": 1, "maxItems": 6,
+      "items": {
+        "anyOf": [
+          { "type": "string", "pattern": "^screenshots/[A-Za-z0-9._-]+\\.(png|jpg|jpeg)$" },
+          {
+            "type": "object", "required": ["file"], "additionalProperties": false,
+            "properties": {
+              "file": { "type": "string", "pattern": "^screenshots/[A-Za-z0-9._-]+\\.(png|jpg|jpeg)$" },
+              "caption": { "type": "string", "maxLength": 120 }
+            }
+          }
+        ]
+      },
+      "description": "PNG or JPEG files in screenshots/, at least 640 px wide, at most 1.5 MB each. 16:10 looks best."
+    },
+    "permissions": {
+      "type": "array", "maxItems": 4,
+      "items": { "enum": ["network", "notifications", "openURL", "appearance"] },
+      "description": "Plugins only: exactly the permissions in the plugin's manifest.json."
+    },
+    "hosts": {
+      "type": "array", "maxItems": 8, "items": { "type": "string", "maxLength": 120 },
+      "description": "Plugins only: exactly the plugin's network.hosts."
+    },
+    "minAtelier": { "type": "string", "pattern": "^\\d+\\.\\d+(\\.\\d+)?$", "description": "The oldest Atelier it works with, like 1.0.0." },
+    "homepage": { "type": "string", "maxLength": 300, "pattern": "^https://", "description": "Where to learn more, or the source." },
+    "license": { "type": "string", "maxLength": 40, "description": "An SPDX licence id, like MIT or Apache-2.0." },
+    "tags": { "type": "array", "maxItems": 8, "items": { "type": "string", "maxLength": 24, "pattern": "^[a-z0-9-]+$" } },
+    "changes": { "type": "string", "maxLength": 2000, "description": "What changed in this version, for the version history." }
+  }
+}

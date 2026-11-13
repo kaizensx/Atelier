@@ -365,6 +365,10 @@ each checked file by file before use. Your own live in **Mods › Library**: dro
 [docs/THEMES.md](docs/THEMES.md), [docs/PLUGINS.md](docs/PLUGINS.md) and
 [docs/PACKS.md](docs/PACKS.md), with examples in [`examples/`](examples).
 
+To make your own, start with [docs/MAKING-MODS.md](docs/MAKING-MODS.md): the **Mods › Create**
+playground, and `atelier-mod` in [`sdk/`](sdk), a command-line kit with editor types for the
+plugin API, the catalog's own checks, a test runner and the folder for your pull request.
+
 ## Build from source
 
 You need Xcode 27 or later (Swift 6.4) and its Metal compiler. The app it builds runs on macOS 14

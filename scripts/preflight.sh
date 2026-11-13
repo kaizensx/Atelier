@@ -42,5 +42,15 @@ done
 hits=$(grep -rn -i -E "/Users/santos|geral@|danielandre" README.md docs site Sources Tests 2>/dev/null | grep -v "^Binary")
 [[ -n "$hits" ]] && say "personal data in public files:\n$hits"
 
+# 7. The mod SDK: generated from docs/plugin-api.json and the app's prelude, its catalog rules
+#    identical to atelier-mods' own (compared when a checkout is beside this one), its tests green.
+if command -v node >/dev/null; then
+  node sdk/generate.mjs --check >/dev/null && ok "sdk/ matches docs/plugin-api.json" || say "sdk/ is out of date: run node sdk/generate.mjs"
+  out=$(node sdk/sync-catalog.mjs --check) && ok "atelier-mod: $out" || say "atelier-mod's catalog rules differ:\n$out"
+  node --test sdk/test/ >/dev/null 2>&1 && ok "atelier-mod tests pass" || say "atelier-mod tests fail: node --test sdk/test/"
+else
+  say "node is not installed, so the mod SDK could not be checked"
+fi
+
 if (( fail )); then print -P "%F{red}preflight failed%f"; exit 1; fi
 ok "preflight passed for $VERSION"

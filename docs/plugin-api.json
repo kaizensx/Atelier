@@ -1,0 +1,424 @@
+{
+  "$comment": "The one machine-readable description of Atelier's mod API. sdk/generate.mjs turns it into sdk/atelier.d.ts and sdk/manifest.schema.json; the atelier-mod CLI, the in-app Playground templates and the website's API page read it too. Types are TypeScript type expressions. Entries added in a release carry \"since\". Keep it in step with Sources/DockCore/Plugin*.swift: Tests/DockCoreTests/PluginAPIDescriptionTests.swift fails when the app has a permission, event, view or manifest key this file does not list.",
+  "name": "Atelier plugin API",
+  "apiVersion": "1.0",
+  "release": "1.0.0-beta.4",
+  "docs": "https://kaizensx.github.io/Atelier/make.html",
+
+  "ids": {
+    "description": "Every registration takes an id of letters, digits, -, _ or . (up to 64). Without one, Atelier makes one from the title (\"Say Hello\" becomes say-hello). Registering the same id again updates it.",
+    "pattern": "^[A-Za-z0-9._-]{1,64}$"
+  },
+
+  "colors": {
+    "description": "A colour is #RRGGBB hex or one of Atelier's named inks. \"accent\" follows the widget style, so a plugin matches whatever theme is on.",
+    "named": ["primary", "secondary", "tertiary", "accent", "red", "orange", "yellow", "green", "mint", "teal", "blue", "indigo", "purple", "pink", "gray"]
+  },
+
+  "permissions": [
+    { "name": "network", "title": "Network", "detail": "Download data over https from the sites listed in the manifest. Nothing else on the network.", "apis": ["atelier.http.get", "atelier.http.post", "atelier.http.put", "atelier.http.delete"], "notes": "https only, standard port, only hosts listed in network.hosts, redirects may not leave them, 2 MB per response, 4 requests at once, 15 s timeout, no cookies or cache." },
+    { "name": "notifications", "title": "Notifications", "detail": "Post notifications in Notification Center.", "apis": ["atelier.notify"], "notes": "macOS asks once for Atelier itself." },
+    { "name": "openURL", "title": "Open Links", "detail": "Open web and mail links in your default apps.", "apis": ["atelier.openURL"], "notes": "https: and mailto: links, and atelier://studio." },
+    { "name": "appearance", "title": "Change Appearance", "detail": "Change Atelier theme settings: colours, wallpaper, Dock and widget style. You can revert them.", "apis": ["atelier.theme.apply"], "notes": "Any theme key; validated like a theme; Revert in Looks undoes it." }
+  ],
+
+  "limits": [
+    { "key": "scriptBytes", "value": 524288, "unit": "bytes", "title": "Script size", "description": "The entry script may be at most 512 KB." },
+    { "key": "callSeconds", "value": 1, "unit": "seconds", "title": "Time per call", "description": "Each call into a plugin (loading, a timer, a click, a render) may run 1 s. Three timeouts in a row stop the plugin." },
+    { "key": "registrations", "value": 24, "unit": "count", "title": "Registrations", "description": "Widgets, tiles, commands and corner actions together, per plugin." },
+    { "key": "viewNodes", "value": 160, "unit": "count", "title": "View size", "description": "Nodes in one view tree." },
+    { "key": "viewDepth", "value": 8, "unit": "levels", "title": "View depth", "description": "How deep views may nest." },
+    { "key": "textLength", "value": 400, "unit": "characters", "title": "Text length", "description": "Longer texts in views are cut." },
+    { "key": "sparklinePoints", "value": 240, "unit": "count", "title": "Sparkline points", "description": "The last 240 values are kept." },
+    { "key": "listRows", "value": 20, "unit": "count", "title": "List rows", "description": "Rows in one list view." },
+    { "key": "storageBytes", "value": 262144, "unit": "bytes", "title": "Storage", "description": "All stored values together." },
+    { "key": "storageKeyLength", "value": 128, "unit": "characters", "title": "Storage key length", "description": "Keys are 1 to 128 characters." },
+    { "key": "messageBytes", "value": 262144, "unit": "bytes", "title": "Message size", "description": "One call across the bridge, as JSON." },
+    { "key": "concurrentRequests", "value": 4, "unit": "count", "title": "Requests at once", "description": "Network requests in flight per plugin." },
+    { "key": "responseBytes", "value": 2097152, "unit": "bytes", "title": "Response size", "description": "Per network response." },
+    { "key": "requestSeconds", "value": 15, "unit": "seconds", "title": "Request timeout", "description": "Per network request." },
+    { "key": "timers", "value": 64, "unit": "count", "title": "Timers", "description": "setTimeout and setInterval timers at once." },
+    { "key": "timerEvents", "value": 4, "unit": "count", "title": "Timer events", "description": "atelier.on(\"timer\") subscriptions." },
+    { "key": "hosts", "value": 8, "unit": "count", "title": "Network hosts", "description": "Entries in network.hosts." },
+    { "key": "promptSeconds", "value": 10, "unit": "seconds", "title": "Prompt interval", "description": "atelier.prompt may ask at most once every 10 seconds." },
+    { "key": "pluginZipBytes", "value": 2097152, "unit": "bytes", "title": "Plugin package", "description": "A plugin zips to at most 2 MB in the catalog." },
+    { "key": "themeZipBytes", "value": 41943040, "unit": "bytes", "title": "Theme package", "description": "A theme zips to at most 40 MB in the catalog." },
+    { "key": "settings", "value": 32, "unit": "count", "title": "Settings", "description": "Entries in the manifest's settings list.", "since": "1.0.0-beta.4" },
+    { "key": "messagePayloadBytes", "value": 65536, "unit": "bytes", "title": "Plugin messages", "description": "One atelier.send payload, as JSON.", "since": "1.0.0-beta.4" }
+  ],
+
+  "manifest": [
+    { "key": "format", "type": "1", "required": true, "schema": { "type": "integer", "enum": [1] }, "description": "Manifest format. Always 1." },
+    { "key": "id", "type": "string", "required": true, "schema": { "type": "string", "maxLength": 120, "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*(\\.[A-Za-z0-9][A-Za-z0-9_-]*)+$" }, "description": "Reverse-DNS identifier, unique to the plugin: com.example.pomodoro. Permanent: updates follow it." },
+    { "key": "name", "type": "string", "required": true, "schema": { "type": "string", "minLength": 1, "maxLength": 60 }, "description": "Shown in Atelier." },
+    { "key": "version", "type": "string", "required": true, "schema": { "type": "string", "maxLength": 20, "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$" }, "description": "Semantic version: 1.0.0." },
+    { "key": "author", "type": "string", "schema": { "type": "string", "maxLength": 80 }, "description": "Who made it." },
+    { "key": "description", "type": "string", "schema": { "type": "string", "maxLength": 400 }, "description": "What it does, in a sentence or two." },
+    { "key": "entry", "type": "string", "default": "main.js", "schema": { "type": "string", "pattern": "^[A-Za-z0-9._/-]+\\.js$" }, "description": "The script Atelier runs, a path inside the plugin folder. At most 512 KB." },
+    { "key": "icon", "type": "string", "default": "puzzlepiece.extension", "schema": { "type": "string", "maxLength": 80, "pattern": "^[a-z0-9.]+$" }, "description": "An SF Symbol name for the plugin." },
+    { "key": "homepage", "type": "string", "schema": { "type": "string", "maxLength": 300, "pattern": "^https://" }, "description": "An https link to the plugin's page or source." },
+    { "key": "permissions", "type": "Atelier.Permission[]", "schema": { "type": "array", "maxItems": 8, "items": { "enum": "$permissions" } }, "description": "What it asks for. The owner grants each one separately." },
+    { "key": "network", "type": "{ hosts: string[] }", "schema": { "type": "object", "additionalProperties": false, "required": ["hosts"], "properties": { "hosts": { "type": "array", "maxItems": 8, "items": { "type": "string", "maxLength": 120, "pattern": "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$" } } } }, "description": "Hosts the http functions may reach, like api.github.com. No schemes, paths, ports, wildcards, local or private addresses. Required with the network permission." },
+    { "key": "settings", "type": "Atelier.SettingSpec[]", "since": "1.0.0-beta.4", "schema": { "type": "array", "maxItems": 32, "items": { "type": "object", "required": ["key", "type", "title"], "properties": { "key": { "type": "string", "pattern": "^[A-Za-z0-9._-]{1,64}$" }, "type": { "enum": ["toggle", "text", "secret", "number", "choice", "color"] }, "title": { "type": "string", "maxLength": 60 }, "detail": { "type": "string", "maxLength": 200 }, "default": {}, "options": { "type": "array", "maxItems": 24 }, "min": { "type": "number" }, "max": { "type": "number" }, "step": { "type": "number" } } } }, "description": "Settings Atelier draws for the plugin on its page in Mods. Read them with atelier.settings; changes arrive as the settingsChanged event." },
+    { "key": "activation", "type": "Atelier.Activation[]", "since": "1.0.0-beta.4", "schema": { "type": "array", "maxItems": 16, "items": { "type": "string", "maxLength": 80, "pattern": "^(startup|command:[A-Za-z0-9._-]+|event:[A-Za-z]+|widget:[A-Za-z0-9._-]+)$" } }, "description": "When to start the script. Without it the script starts with Atelier. With it, Atelier waits until one of these happens: startup, command:<id>, event:<name>, widget:<id>. Needs contributes for anything shown before the script runs." },
+    { "key": "contributes", "type": "Atelier.Contributes", "since": "1.0.0-beta.4", "schema": { "type": "object", "additionalProperties": false, "properties": { "commands": { "type": "array", "maxItems": 24 }, "widgets": { "type": "array", "maxItems": 24 }, "tiles": { "type": "array", "maxItems": 24 }, "cornerActions": { "type": "array", "maxItems": 24 }, "menuBarItems": { "type": "array", "maxItems": 4 } } }, "description": "What the plugin adds, declared up front so it shows before the script has run (for lazy activation). Each entry is { id, title } plus the kind's own keys." },
+    { "key": "strings", "type": "Record<string, Record<string, string>>", "since": "1.0.0-beta.4", "schema": { "type": "object", "maxProperties": 40 }, "description": "Translations by language code: { \"en\": { \"hello\": \"Hello\" }, \"pt\": { \"hello\": \"Olá\" } }. atelier.t(key) picks the owner's language, then en." },
+    { "key": "messages", "type": "{ accept: string[] }", "since": "1.0.0-beta.4", "schema": { "type": "object", "additionalProperties": false, "properties": { "accept": { "type": "array", "maxItems": 16, "items": { "type": "string", "maxLength": 120 } } } }, "description": "Plugins (by id) whose atelier.send messages this plugin accepts, as the message event. Both sides must be installed and on." }
+  ],
+
+  "types": [
+    { "name": "Permission", "type": "\"network\" | \"notifications\" | \"openURL\" | \"appearance\"", "description": "A permission a plugin may ask for in its manifest." },
+    { "name": "Color", "type": "\"primary\" | \"secondary\" | \"tertiary\" | \"accent\" | \"red\" | \"orange\" | \"yellow\" | \"green\" | \"mint\" | \"teal\" | \"blue\" | \"indigo\" | \"purple\" | \"pink\" | \"gray\" | `#${string}`", "description": "#RRGGBB hex or a named ink. \"accent\" follows the widget style." },
+    { "name": "Awaitable", "generic": "T", "type": "T | Promise<T>", "description": "A value, or a Promise of one: callbacks may be async." },
+    { "name": "WidgetSize", "type": "\"small\" | \"medium\" | \"large\"", "description": "The size a widget prefers on the board." },
+    { "name": "WidgetSpec", "description": "A widget for the board. Add it with the Plugin widget kind and choose it from the list.", "properties": [
+      { "name": "id", "type": "string", "optional": true, "description": "Defaults to one made from the title." },
+      { "name": "title", "type": "string", "optional": true, "description": "Shown above the content and in the picker." },
+      { "name": "size", "type": "WidgetSize", "optional": true, "default": "\"small\"", "description": "The size it prefers." },
+      { "name": "refresh", "type": "number", "optional": true, "default": "60", "description": "Seconds between runs of data and view, 5 to 86400." },
+      { "name": "data", "type": "() => Awaitable<any>", "optional": true, "description": "Fetches or computes data. May be async." },
+      { "name": "view", "type": "(data: any) => Awaitable<View>", "optional": true, "description": "Turns data into a view. If missing, data's result is drawn as the view." }
+    ]},
+    { "name": "WidgetHandle", "description": "What atelier.widget returns.", "properties": [
+      { "name": "id", "type": "string", "readonly": true, "description": "The widget's id." },
+      { "name": "refresh", "type": "() => void", "description": "Runs data and view again now, for example after a click elsewhere changed your state." }
+    ]},
+    { "name": "TileMenuItem", "since": "1.0.0-beta.4", "description": "An entry in a Dock tile's right-click menu.", "properties": [
+      { "name": "title", "type": "string", "description": "The menu item's text." },
+      { "name": "symbol", "type": "string", "optional": true, "description": "An SF Symbol shown beside it." },
+      { "name": "action", "type": "string | (() => Awaitable<void>)", "description": "An action id registered with atelier.action, or a function." }
+    ]},
+    { "name": "DropItem", "since": "1.0.0-beta.4", "description": "Something dropped on a tile. Files arrive as their name and type only, never their contents or full path.", "properties": [
+      { "name": "kind", "type": "\"text\" | \"url\" | \"file\"", "description": "What was dropped." },
+      { "name": "text", "type": "string", "optional": true, "description": "The text, for kind text." },
+      { "name": "url", "type": "string", "optional": true, "description": "The link, for kind url (https and mailto only)." },
+      { "name": "name", "type": "string", "optional": true, "description": "The file name, for kind file." },
+      { "name": "type", "type": "string", "optional": true, "description": "The file's uniform type identifier, for kind file." }
+    ]},
+    { "name": "TileSpec", "description": "A tile for the Atelier Dock.", "properties": [
+      { "name": "id", "type": "string", "optional": true, "description": "Defaults to one made from the title." },
+      { "name": "title", "type": "string", "optional": true, "description": "The tile's name under the pointer." },
+      { "name": "symbol", "type": "string", "optional": true, "description": "An SF Symbol for the icon." },
+      { "name": "text", "type": "string", "optional": true, "description": "Up to 12 characters drawn under or instead of the symbol: \"24:59\"." },
+      { "name": "badge", "type": "string | number | null", "optional": true, "description": "A red badge of up to 4 characters; null hides it." },
+      { "name": "tint", "type": "Color", "optional": true, "description": "The tile's colour." },
+      { "name": "progress", "type": "number", "optional": true, "description": "0 to 1: a ring around the tile." },
+      { "name": "onClick", "type": "() => Awaitable<void>", "optional": true, "description": "Runs when the tile is clicked." },
+      { "name": "menu", "type": "TileMenuItem[]", "optional": true, "since": "1.0.0-beta.4", "description": "Items for the tile's right-click menu, up to 12." },
+      { "name": "accepts", "type": "Array<\"text\" | \"url\" | \"file\">", "optional": true, "since": "1.0.0-beta.4", "description": "What may be dropped on the tile." },
+      { "name": "onDrop", "type": "(items: DropItem[]) => Awaitable<void>", "optional": true, "since": "1.0.0-beta.4", "description": "Runs when something it accepts is dropped on it." }
+    ]},
+    { "name": "TileHandle", "description": "What atelier.dockTile returns.", "properties": [
+      { "name": "id", "type": "string", "readonly": true, "description": "The tile's id." },
+      { "name": "update", "type": "(changes: Partial<TileSpec>) => void", "description": "Merges the changes into the tile and redraws it. Cheap: updating every second is fine." }
+    ]},
+    { "name": "CommandSpec", "description": "An entry in Atelier's Command palette.", "properties": [
+      { "name": "id", "type": "string", "optional": true, "description": "Defaults to one made from the title." },
+      { "name": "title", "type": "string", "description": "What the palette shows." },
+      { "name": "subtitle", "type": "string", "optional": true, "description": "Defaults to the plugin's name." },
+      { "name": "shortcut", "type": "string", "optional": true, "description": "Shown beside the entry, like \"ctrl+opt+p\" or \"cmd+shift+k\": at least one of cmd, ctrl, opt; keys are one character, space, return, tab, escape or f1 to f20. Shown, not bound globally." },
+      { "name": "run", "type": "() => Awaitable<void>", "description": "Runs when the command is chosen." }
+    ]},
+    { "name": "CornerActionSpec", "description": "An action for a hot corner or edge in Atelier's Corners chapter.", "properties": [
+      { "name": "id", "type": "string", "optional": true, "description": "Defaults to one made from the title." },
+      { "name": "title", "type": "string", "description": "Shown in the Corners picker." },
+      { "name": "symbol", "type": "string", "optional": true, "description": "An SF Symbol." },
+      { "name": "run", "type": "() => Awaitable<void>", "description": "Runs when the corner fires." }
+    ]},
+    { "name": "OnOptions", "description": "Options for atelier.on.", "properties": [
+      { "name": "interval", "type": "number", "optional": true, "default": "60", "description": "For the timer event: seconds between events, 5 to 86400." }
+    ]},
+    { "name": "HttpOptions", "description": "Options for the http functions.", "properties": [
+      { "name": "headers", "type": "Record<string, string>", "optional": true, "description": "Ordinary headers such as Authorization and Accept. Cookie, Host, Origin, Referer, Content-Length and Connection are dropped." }
+    ]},
+    { "name": "HttpResponse", "description": "A frozen response. ok is true for 200 to 299; other statuses still resolve, so check ok.", "properties": [
+      { "name": "status", "type": "number", "readonly": true, "description": "The HTTP status." },
+      { "name": "ok", "type": "boolean", "readonly": true, "description": "True for status 200 to 299." },
+      { "name": "text", "type": "string", "readonly": true, "description": "The body as text." },
+      { "name": "headers", "type": "Record<string, string>", "readonly": true, "description": "Response headers, lowercased." },
+      { "name": "json", "type": "() => any", "description": "Parses text as JSON." }
+    ]},
+    { "name": "PromptOptions", "description": "Options for atelier.prompt.", "properties": [
+      { "name": "message", "type": "string", "optional": true, "description": "A sentence under the title." },
+      { "name": "placeholder", "type": "string", "optional": true, "description": "Grey text in the empty field." },
+      { "name": "secure", "type": "boolean", "optional": true, "default": "false", "description": "Hides what is typed. Use it for tokens." }
+    ]},
+    { "name": "NotifySpec", "description": "A notification.", "properties": [
+      { "name": "title", "type": "string", "description": "Cut at 80 characters." },
+      { "name": "body", "type": "string", "optional": true, "description": "Cut at 240 characters." }
+    ]},
+    { "name": "ThemePatch", "type": "Record<string, any>", "description": "Any theme keys from THEMES.md, without format, id, name or version." },
+    { "name": "SettingSpec", "since": "1.0.0-beta.4", "description": "One setting in the manifest's settings list.", "properties": [
+      { "name": "key", "type": "string", "description": "How the script reads it: atelier.settings.get(key)." },
+      { "name": "type", "type": "\"toggle\" | \"text\" | \"secret\" | \"number\" | \"choice\" | \"color\"", "description": "The control Atelier draws. secret is kept in the Keychain and never shown again." },
+      { "name": "title", "type": "string", "description": "The row's title." },
+      { "name": "detail", "type": "string", "optional": true, "description": "A sentence under the title." },
+      { "name": "default", "type": "any", "optional": true, "description": "The value before the owner changes it." },
+      { "name": "options", "type": "Array<string | { value: string; title: string }>", "optional": true, "description": "For choice: the choices." },
+      { "name": "min", "type": "number", "optional": true, "description": "For number." },
+      { "name": "max", "type": "number", "optional": true, "description": "For number." },
+      { "name": "step", "type": "number", "optional": true, "description": "For number." }
+    ]},
+    { "name": "Activation", "since": "1.0.0-beta.4", "type": "\"startup\" | `command:${string}` | `event:${string}` | `widget:${string}`", "description": "When a lazily activated plugin starts." },
+    { "name": "Contributes", "since": "1.0.0-beta.4", "description": "Registrations declared in the manifest, shown before the script runs.", "properties": [
+      { "name": "commands", "type": "Array<{ id: string; title: string; subtitle?: string; shortcut?: string }>", "optional": true, "description": "Command palette entries." },
+      { "name": "widgets", "type": "Array<{ id: string; title: string; size?: WidgetSize }>", "optional": true, "description": "Board widgets." },
+      { "name": "tiles", "type": "Array<{ id: string; title: string; symbol?: string }>", "optional": true, "description": "Dock tiles." },
+      { "name": "cornerActions", "type": "Array<{ id: string; title: string; symbol?: string }>", "optional": true, "description": "Hot corner actions." },
+      { "name": "menuBarItems", "type": "Array<{ id: string; title: string; symbol?: string }>", "optional": true, "description": "Menu bar items." }
+    ]},
+    { "name": "PaletteItem", "since": "1.0.0-beta.4", "description": "A result a palette provider returns.", "properties": [
+      { "name": "id", "type": "string", "description": "Passed back to choose." },
+      { "name": "title", "type": "string", "description": "The row's title." },
+      { "name": "subtitle", "type": "string", "optional": true, "description": "The row's second line." },
+      { "name": "symbol", "type": "string", "optional": true, "description": "An SF Symbol." }
+    ]},
+    { "name": "PaletteProviderSpec", "since": "1.0.0-beta.4", "description": "Results in the Command palette as the owner types.", "properties": [
+      { "name": "id", "type": "string", "optional": true, "description": "Defaults to one made from the title." },
+      { "name": "title", "type": "string", "description": "The section title in the palette." },
+      { "name": "prefix", "type": "string", "optional": true, "description": "Only asked when the query starts with this word, like \"gh\"." },
+      { "name": "search", "type": "(query: string) => Awaitable<PaletteItem[]>", "description": "Returns up to 20 results. Called as the owner types, so keep it quick." },
+      { "name": "choose", "type": "(id: string) => Awaitable<void>", "description": "Runs when a result is chosen." }
+    ]},
+    { "name": "MenuItem", "since": "1.0.0-beta.4", "description": "An entry in a menu bar item's menu. A divider is { divider: true }.", "properties": [
+      { "name": "title", "type": "string", "optional": true, "description": "The item's text." },
+      { "name": "symbol", "type": "string", "optional": true, "description": "An SF Symbol." },
+      { "name": "checked", "type": "boolean", "optional": true, "description": "Draws a check mark." },
+      { "name": "divider", "type": "boolean", "optional": true, "description": "A separator line instead of an item." },
+      { "name": "action", "type": "string | (() => Awaitable<void>)", "optional": true, "description": "An action id or a function." }
+    ]},
+    { "name": "MenuBarItemSpec", "since": "1.0.0-beta.4", "description": "An item in the menu bar, with a menu or a small view.", "properties": [
+      { "name": "id", "type": "string", "optional": true, "description": "Defaults to one made from the title." },
+      { "name": "title", "type": "string", "description": "Its name, for accessibility and the Menu Bar chapter." },
+      { "name": "symbol", "type": "string", "optional": true, "description": "An SF Symbol." },
+      { "name": "text", "type": "string", "optional": true, "description": "Up to 16 characters beside the symbol." },
+      { "name": "menu", "type": "MenuItem[]", "optional": true, "description": "The menu that opens on click." },
+      { "name": "view", "type": "() => Awaitable<View>", "optional": true, "description": "A small panel that opens on click instead of a menu." }
+    ]},
+    { "name": "MenuBarHandle", "since": "1.0.0-beta.4", "description": "What atelier.menuBarItem returns.", "properties": [
+      { "name": "id", "type": "string", "readonly": true, "description": "The item's id." },
+      { "name": "update", "type": "(changes: Partial<MenuBarItemSpec>) => void", "description": "Merges the changes and redraws it." }
+    ]},
+    { "name": "StackItem", "since": "1.0.0-beta.4", "description": "An entry in a stack a plugin provides.", "properties": [
+      { "name": "id", "type": "string", "description": "Passed back to open." },
+      { "name": "title", "type": "string", "description": "The entry's name." },
+      { "name": "subtitle", "type": "string", "optional": true, "description": "A second line." },
+      { "name": "symbol", "type": "string", "optional": true, "description": "An SF Symbol." },
+      { "name": "url", "type": "string", "optional": true, "description": "An https link opened when the entry is clicked, without the openURL permission round trip." }
+    ]},
+    { "name": "StackProviderSpec", "since": "1.0.0-beta.4", "description": "A Dock stack whose contents come from the plugin.", "properties": [
+      { "name": "id", "type": "string", "optional": true, "description": "Defaults to one made from the title." },
+      { "name": "title", "type": "string", "description": "The stack's name." },
+      { "name": "symbol", "type": "string", "optional": true, "description": "An SF Symbol for the stack's tile." },
+      { "name": "items", "type": "() => Awaitable<StackItem[]>", "description": "Up to 40 entries, asked for when the stack opens." },
+      { "name": "open", "type": "(id: string) => Awaitable<void>", "optional": true, "description": "Runs when an entry without a url is clicked." }
+    ]},
+    { "name": "LiveActivitySpec", "since": "1.0.0-beta.4", "description": "Something in progress, shown in the notch area and the Atelier Dock until it ends.", "properties": [
+      { "name": "id", "type": "string", "optional": true, "description": "Defaults to one made from the title." },
+      { "name": "title", "type": "string", "description": "What is happening." },
+      { "name": "symbol", "type": "string", "optional": true, "description": "An SF Symbol." },
+      { "name": "progress", "type": "number | null", "optional": true, "description": "0 to 1, or null for indeterminate." },
+      { "name": "text", "type": "string", "optional": true, "description": "A short status, like \"12:04\"." },
+      { "name": "view", "type": "() => Awaitable<View>", "optional": true, "description": "The expanded view." }
+    ]},
+    { "name": "LiveActivityHandle", "since": "1.0.0-beta.4", "description": "What atelier.liveActivity returns.", "properties": [
+      { "name": "id", "type": "string", "readonly": true, "description": "The activity's id." },
+      { "name": "update", "type": "(changes: Partial<LiveActivitySpec>) => void", "description": "Merges the changes and redraws it." },
+      { "name": "end", "type": "() => void", "description": "Removes it." }
+    ]},
+    { "name": "SceneSpec", "since": "1.0.0-beta.4", "description": "A step Atelier's Scenes can run when a scene is applied.", "properties": [
+      { "name": "id", "type": "string", "optional": true, "description": "Defaults to one made from the title." },
+      { "name": "title", "type": "string", "description": "Shown in the Scenes chapter." },
+      { "name": "symbol", "type": "string", "optional": true, "description": "An SF Symbol." },
+      { "name": "apply", "type": "(scene: { id: string; name: string }) => Awaitable<void>", "description": "Runs when a scene that includes this step is applied." }
+    ]},
+    { "name": "PanelSpec", "since": "1.0.0-beta.4", "description": "A floating panel the owner opens from a command, tile or menu bar item.", "properties": [
+      { "name": "id", "type": "string", "optional": true, "description": "Defaults to one made from the title." },
+      { "name": "title", "type": "string", "description": "The panel's title." },
+      { "name": "size", "type": "WidgetSize", "optional": true, "default": "\"medium\"", "description": "How big it opens." },
+      { "name": "view", "type": "() => Awaitable<View>", "description": "Its content." }
+    ]},
+    { "name": "PanelHandle", "since": "1.0.0-beta.4", "description": "What atelier.panel returns.", "properties": [
+      { "name": "id", "type": "string", "readonly": true, "description": "The panel's id." },
+      { "name": "show", "type": "() => void", "description": "Opens it in front." },
+      { "name": "close", "type": "() => void", "description": "Closes it." },
+      { "name": "refresh", "type": "() => void", "description": "Runs view again." }
+    ]},
+    { "name": "ActionPayload", "since": "1.0.0-beta.4", "description": "What an action handler receives from a button, toggle or menu item.", "properties": [
+      { "name": "value", "type": "any", "optional": true, "description": "The view's value: a toggle's new state, a button's value." },
+      { "name": "source", "type": "string", "optional": true, "description": "Where it came from: widget:<id>, tile:<id>, panel:<id>, menu:<id>." }
+    ]}
+  ],
+
+  "api": [
+    { "name": "atelier.version", "kind": "property", "type": "string", "description": "The API version, currently \"1.0\"." },
+    { "name": "atelier.widget", "kind": "function", "params": [{ "name": "spec", "type": "WidgetSpec" }], "returns": { "type": "WidgetHandle" }, "bridge": "widget", "registers": true, "description": "Registers a widget for the board. Add it with the Plugin widget kind.", "example": "const w = atelier.widget({\n  id: \"hello\",\n  title: \"Hello\",\n  refresh: 60,\n  view: () => atelier.ui.text(new Date().toLocaleTimeString(), { size: 22, weight: \"bold\" }),\n});" },
+    { "name": "atelier.dockTile", "kind": "function", "params": [{ "name": "spec", "type": "TileSpec" }], "returns": { "type": "TileHandle" }, "bridge": "tile", "registers": true, "description": "Registers a tile for the Atelier Dock.", "example": "const tile = atelier.dockTile({ id: \"timer\", title: \"Timer\", symbol: \"timer\", text: \"25:00\", onClick: () => tile.update({ badge: 1 }) });" },
+    { "name": "atelier.command", "kind": "function", "params": [{ "name": "spec", "type": "CommandSpec" }], "returns": { "type": "string", "description": "The command's id." }, "bridge": "command", "registers": true, "description": "Adds an entry to Atelier's Command palette.", "example": "atelier.command({ title: \"Say Hello\", shortcut: \"ctrl+opt+h\", run: () => console.log(\"Hello!\") });" },
+    { "name": "atelier.cornerAction", "kind": "function", "params": [{ "name": "spec", "type": "CornerActionSpec" }], "returns": { "type": "string", "description": "The action's id." }, "bridge": "corner", "registers": true, "description": "Adds an action you can put on a hot corner or edge in the Corners chapter.", "example": "atelier.cornerAction({ title: \"Shuffle Palette\", symbol: \"dice\", run: shuffle });" },
+    { "name": "atelier.on", "kind": "function", "generic": "E extends keyof EventMap", "params": [{ "name": "event", "type": "E" }, { "name": "handler", "type": "(payload: EventMap[E]) => Awaitable<void>" }, { "name": "options", "type": "OnOptions", "optional": true }], "returns": { "type": "void" }, "bridge": "on", "description": "Listens for an event. See Events.", "example": "atelier.on(\"appActivated\", ({ name }) => console.log(name + \" is in front\"));\natelier.on(\"timer\", () => w.refresh(), { interval: 300 });" },
+    { "name": "atelier.notify", "kind": "function", "overloads": [{ "params": [{ "name": "title", "type": "string" }, { "name": "body", "type": "string", "optional": true }] }, { "params": [{ "name": "spec", "type": "NotifySpec" }] }], "returns": { "type": "void" }, "permission": "notifications", "bridge": "notify", "description": "Posts a notification. Titles are cut at 80 characters, bodies at 240.", "example": "atelier.notify(\"Focus session done\", \"Take five.\");" },
+    { "name": "atelier.openURL", "kind": "function", "params": [{ "name": "url", "type": "string" }], "returns": { "type": "void" }, "permission": "openURL", "bridge": "openURL", "description": "Opens an https: or mailto: link in its default app, or an atelier://studio?chapter=… link.", "example": "atelier.openURL(\"https://github.com/notifications\");" },
+    { "name": "atelier.prompt", "kind": "function", "params": [{ "name": "title", "type": "string" }, { "name": "options", "type": "PromptOptions", "optional": true }], "returns": { "type": "Promise<string | null>", "description": "The text, or null if the owner cancels." }, "bridge": "prompt", "description": "Asks the owner for one line of text in a small Atelier window with your plugin's name on it. At most once every 10 seconds.", "example": "const token = await atelier.prompt(\"GitHub token\", { secure: true, placeholder: \"ghp_…\" });" },
+    { "name": "atelier.storage", "kind": "namespace", "description": "A small key-value store of JSON values, private to the plugin and kept across launches. Keys are 1 to 128 characters; all values together at most 256 KB." },
+    { "name": "atelier.storage.get", "kind": "function", "generic": "T = any", "params": [{ "name": "key", "type": "string" }, { "name": "fallback", "type": "T", "optional": true }], "returns": { "type": "T" }, "bridge": "storage.get", "description": "The value, or fallback (default null).", "example": "let count = atelier.storage.get(\"count\", 0);" },
+    { "name": "atelier.storage.set", "kind": "function", "params": [{ "name": "key", "type": "string" }, { "name": "value", "type": "any" }], "returns": { "type": "void" }, "bridge": "storage.set", "description": "Stores any JSON value. null or undefined removes the key. Saved within a second and when the plugin stops.", "example": "atelier.storage.set(\"count\", count + 1);" },
+    { "name": "atelier.storage.remove", "kind": "function", "params": [{ "name": "key", "type": "string" }], "returns": { "type": "void" }, "bridge": "storage.set", "description": "Removes the key." },
+    { "name": "atelier.storage.keys", "kind": "function", "params": [], "returns": { "type": "string[]" }, "bridge": "storage.keys", "description": "All keys, sorted." },
+    { "name": "atelier.http", "kind": "namespace", "permission": "network", "description": "https requests to the hosts in the manifest's network.hosts. Every request is logged in the Console with its status and timing. The user agent is Atelier-Plugin/1.0 (<your id>)." },
+    { "name": "atelier.http.get", "kind": "function", "params": [{ "name": "url", "type": "string" }, { "name": "options", "type": "HttpOptions", "optional": true }], "returns": { "type": "Promise<HttpResponse>", "description": "Rejects on network failures, refused hosts and oversized responses." }, "permission": "network", "bridge": "http", "description": "Fetches a URL on a listed host.", "example": "const r = await atelier.http.get(\"https://api.github.com/notifications\", { headers: { Authorization: \"Bearer \" + token } });\nif (r.ok) console.log(r.json().length);" },
+    { "name": "atelier.http.post", "kind": "function", "since": "1.0.0-beta.4", "params": [{ "name": "url", "type": "string" }, { "name": "body", "type": "string | object" }, { "name": "options", "type": "HttpOptions", "optional": true }], "returns": { "type": "Promise<HttpResponse>" }, "permission": "network", "bridge": "http", "description": "Sends a POST. An object body is sent as JSON with Content-Type application/json. Bodies are at most 256 KB.", "example": "await atelier.http.post(\"https://api.example.com/items\", { title: \"Hello\" });" },
+    { "name": "atelier.http.put", "kind": "function", "since": "1.0.0-beta.4", "params": [{ "name": "url", "type": "string" }, { "name": "body", "type": "string | object" }, { "name": "options", "type": "HttpOptions", "optional": true }], "returns": { "type": "Promise<HttpResponse>" }, "permission": "network", "bridge": "http", "description": "Sends a PUT, like post." },
+    { "name": "atelier.http.delete", "kind": "function", "since": "1.0.0-beta.4", "params": [{ "name": "url", "type": "string" }, { "name": "options", "type": "HttpOptions", "optional": true }], "returns": { "type": "Promise<HttpResponse>" }, "permission": "network", "bridge": "http", "description": "Sends a DELETE." },
+    { "name": "atelier.theme", "kind": "namespace", "permission": "appearance", "description": "Changing Atelier's theme." },
+    { "name": "atelier.theme.apply", "kind": "function", "params": [{ "name": "patch", "type": "ThemePatch" }], "returns": { "type": "void" }, "permission": "appearance", "bridge": "theme", "description": "Applies part of a theme. Validated like a theme and refused whole if anything is wrong. The first change from a plugin saves the owner's setup, so Revert in Looks undoes it.", "example": "atelier.theme.apply({ colors: { accent: \"#FF8A3D\" }, wallpaper: { shader: \"nebula\", palette: \"ember\" } });" },
+    { "name": "atelier.ui", "kind": "namespace", "description": "Helpers that build view objects. Each takes the view's main value and an optional style object with the view's other keys. See Views." },
+    { "name": "atelier.action", "kind": "function", "since": "1.0.0-beta.4", "params": [{ "name": "id", "type": "string" }, { "name": "handler", "type": "(payload: ActionPayload) => Awaitable<void>" }], "returns": { "type": "string", "description": "The action's id, to use in a view's action key." }, "bridge": "action", "description": "Registers a named action that buttons, toggles and menu items run. Actions do not count as registrations.", "example": "atelier.action(\"refresh\", () => w.refresh());\n// …\natelier.ui.button(\"Refresh\", \"refresh\")" },
+    { "name": "atelier.asset", "kind": "function", "since": "1.0.0-beta.4", "params": [{ "name": "path", "type": "string" }], "returns": { "type": "string", "description": "A reference for an image view's src." }, "bridge": "asset", "description": "Names a PNG or JPEG inside the plugin folder for an image view. Only files in the plugin's own folder; the script never reads their bytes.", "example": "atelier.ui.image(atelier.asset(\"images/logo.png\"), { width: 48, height: 48 })" },
+    { "name": "atelier.t", "kind": "function", "since": "1.0.0-beta.4", "params": [{ "name": "key", "type": "string" }, { "name": "values", "type": "Record<string, string | number>", "optional": true }], "returns": { "type": "string" }, "bridge": "t", "description": "The manifest's strings[language][key] for the owner's language, then en, then the key itself. {name} placeholders are filled from values.", "example": "atelier.t(\"unread\", { count: 3 }) // \"3 unread\"" },
+    { "name": "atelier.settings", "kind": "namespace", "since": "1.0.0-beta.4", "description": "The values of the settings declared in the manifest. The owner changes them on the plugin's page in Mods; each change arrives as the settingsChanged event." },
+    { "name": "atelier.settings.get", "kind": "function", "since": "1.0.0-beta.4", "generic": "T = any", "params": [{ "name": "key", "type": "string" }], "returns": { "type": "T" }, "bridge": "settings.get", "description": "The setting's value, or its default.", "example": "const city = atelier.settings.get(\"city\");" },
+    { "name": "atelier.settings.all", "kind": "function", "since": "1.0.0-beta.4", "params": [], "returns": { "type": "Record<string, any>" }, "bridge": "settings.get", "description": "Every setting's value, by key." },
+    { "name": "atelier.send", "kind": "function", "since": "1.0.0-beta.4", "params": [{ "name": "plugin", "type": "string" }, { "name": "data", "type": "any" }], "returns": { "type": "void" }, "bridge": "send", "description": "Sends a JSON value to another plugin that lists yours in messages.accept. It arrives there as the message event. Silently dropped when the other plugin is off or does not accept it.", "example": "atelier.send(\"com.example.timer\", { start: 25 });" },
+    { "name": "atelier.paletteProvider", "kind": "function", "since": "1.0.0-beta.4", "params": [{ "name": "spec", "type": "PaletteProviderSpec" }], "returns": { "type": "string" }, "bridge": "palette", "registers": true, "description": "Adds live results to the Command palette as the owner types.", "example": "atelier.paletteProvider({\n  title: \"Emoji\", prefix: \"em\",\n  search: (q) => EMOJI.filter((e) => e.name.includes(q)).map((e) => ({ id: e.char, title: e.char + \" \" + e.name })),\n  choose: (id) => console.log(id),\n});" },
+    { "name": "atelier.menuBarItem", "kind": "function", "since": "1.0.0-beta.4", "params": [{ "name": "spec", "type": "MenuBarItemSpec" }], "returns": { "type": "MenuBarHandle" }, "bridge": "menuBar", "registers": true, "description": "Adds an item to the menu bar with a menu or a small view.", "example": "const item = atelier.menuBarItem({ title: \"Focus\", symbol: \"timer\", menu: [{ title: \"Start\", action: \"start\" }] });" },
+    { "name": "atelier.stackProvider", "kind": "function", "since": "1.0.0-beta.4", "params": [{ "name": "spec", "type": "StackProviderSpec" }], "returns": { "type": "string" }, "bridge": "stack", "registers": true, "description": "Adds a Dock stack whose entries come from the plugin.", "example": "atelier.stackProvider({ title: \"Pull Requests\", symbol: \"arrow.triangle.pull\", items: async () => prs.map((p) => ({ id: String(p.id), title: p.title, url: p.html_url })) });" },
+    { "name": "atelier.liveActivity", "kind": "function", "since": "1.0.0-beta.4", "params": [{ "name": "spec", "type": "LiveActivitySpec" }], "returns": { "type": "LiveActivityHandle" }, "bridge": "liveActivity", "registers": true, "description": "Shows something in progress in the notch area and the Atelier Dock until it ends.", "example": "const a = atelier.liveActivity({ title: \"Uploading\", symbol: \"arrow.up\", progress: 0 });\n// later\na.update({ progress: 0.5 });\na.end();" },
+    { "name": "atelier.scene", "kind": "function", "since": "1.0.0-beta.4", "params": [{ "name": "spec", "type": "SceneSpec" }], "returns": { "type": "string" }, "bridge": "scene", "registers": true, "description": "Adds a step that Atelier's Scenes can include.", "example": "atelier.scene({ title: \"Start focus timer\", symbol: \"timer\", apply: () => start() });" },
+    { "name": "atelier.panel", "kind": "function", "since": "1.0.0-beta.4", "params": [{ "name": "spec", "type": "PanelSpec" }], "returns": { "type": "PanelHandle" }, "bridge": "panel", "registers": true, "description": "A floating panel with the plugin's view, opened with show().", "example": "const p = atelier.panel({ title: \"Stats\", view: () => atelier.ui.text(\"Hello\") });\natelier.command({ title: \"Show Stats\", run: () => p.show() });" }
+  ],
+
+  "views": [
+    { "type": "text", "helper": "text", "main": "text", "mainType": "string | number", "description": "Text. A plain string or number in a view is drawn as text too.", "props": [
+      { "name": "text", "type": "string", "description": "The text, cut at 400 characters." },
+      { "name": "size", "type": "number", "optional": true, "default": "13", "description": "8 to 64." },
+      { "name": "weight", "type": "\"light\" | \"regular\" | \"medium\" | \"semibold\" | \"bold\" | \"heavy\"", "optional": true, "default": "\"regular\"", "description": "Font weight." },
+      { "name": "design", "type": "\"default\" | \"rounded\" | \"serif\" | \"mono\"", "optional": true, "default": "\"default\"", "description": "Font design." },
+      { "name": "color", "type": "Color", "optional": true, "description": "Defaults to primary." },
+      { "name": "lines", "type": "number", "optional": true, "default": "2", "description": "1 to 8." }
+    ], "example": "atelier.ui.text(\"Hello\", { size: 22, weight: \"bold\" })" },
+    { "type": "symbol", "helper": "symbol", "main": "name", "mainType": "string", "description": "An SF Symbol, with the text keys for its size and colour.", "props": [
+      { "name": "name", "type": "string", "description": "An SF Symbol name, like timer." },
+      { "name": "size", "type": "number", "optional": true, "default": "18", "description": "8 to 64." },
+      { "name": "weight", "type": "\"light\" | \"regular\" | \"medium\" | \"semibold\" | \"bold\" | \"heavy\"", "optional": true, "description": "Symbol weight." },
+      { "name": "color", "type": "Color", "optional": true, "description": "Defaults to primary." }
+    ], "example": "atelier.ui.symbol(\"cloud.sun\", { size: 28, color: \"yellow\" })" },
+    { "type": "ring", "helper": "ring", "main": "value", "mainType": "number", "description": "A ring that fills from 0 to 1, with an optional label in the middle.", "props": [
+      { "name": "value", "type": "number", "description": "0 to 1." },
+      { "name": "label", "type": "string", "optional": true, "description": "Drawn in the middle." },
+      { "name": "color", "type": "Color", "optional": true, "description": "Defaults to accent." },
+      { "name": "width", "type": "number", "optional": true, "default": "6", "description": "Line width, 2 to 14." }
+    ], "example": "atelier.ui.ring(0.42, { label: \"42%\", color: \"accent\" })" },
+    { "type": "bar", "helper": "bar", "main": "value", "mainType": "number", "description": "A horizontal bar from 0 to 1.", "props": [
+      { "name": "value", "type": "number", "description": "0 to 1." },
+      { "name": "label", "type": "string", "optional": true, "description": "Drawn above the bar." },
+      { "name": "color", "type": "Color", "optional": true, "description": "Defaults to accent." }
+    ], "example": "atelier.ui.bar(0.7, { label: \"Disk\" })" },
+    { "type": "sparkline", "helper": "sparkline", "main": "values", "mainType": "number[]", "description": "A small line chart of recent values.", "props": [
+      { "name": "values", "type": "number[]", "description": "The last 240 are kept." },
+      { "name": "color", "type": "Color", "optional": true, "description": "Defaults to accent." },
+      { "name": "fill", "type": "boolean", "optional": true, "default": "true", "description": "Fills under the line." }
+    ], "example": "atelier.ui.sparkline([3, 5, 4, 8, 6], { color: \"mint\" })" },
+    { "type": "list", "helper": "list", "main": "items", "mainType": "Array<string | ListRow>", "description": "Up to 20 rows.", "props": [
+      { "name": "items", "type": "Array<string | ListRow>", "description": "Strings, or rows with title, detail, symbol and color." }
+    ], "example": "atelier.ui.list([{ title: \"Inbox\", detail: \"12\", symbol: \"tray\" }, \"Plain row\"])" },
+    { "type": "vstack", "helper": "vstack", "main": "children", "mainType": "View[]", "description": "Children top to bottom. An array in a view is a vstack too.", "props": [
+      { "name": "children", "type": "View[]", "description": "The views inside." },
+      { "name": "spacing", "type": "number", "optional": true, "default": "6", "description": "0 to 40." },
+      { "name": "align", "type": "\"leading\" | \"center\" | \"trailing\" | \"top\" | \"bottom\"", "optional": true, "default": "\"leading\"", "description": "Alignment." }
+    ], "example": "atelier.ui.vstack([atelier.ui.text(\"A\"), atelier.ui.text(\"B\")], { spacing: 4 })" },
+    { "type": "hstack", "helper": "hstack", "main": "children", "mainType": "View[]", "description": "Children side by side.", "props": [
+      { "name": "children", "type": "View[]", "description": "The views inside." },
+      { "name": "spacing", "type": "number", "optional": true, "default": "6", "description": "0 to 40." },
+      { "name": "align", "type": "\"leading\" | \"center\" | \"trailing\" | \"top\" | \"bottom\"", "optional": true, "default": "\"center\"", "description": "Alignment." }
+    ], "example": "atelier.ui.hstack([atelier.ui.symbol(\"bolt\"), atelier.ui.text(\"Charging\")])" },
+    { "type": "zstack", "helper": "zstack", "main": "children", "mainType": "View[]", "description": "Children on top of each other.", "props": [
+      { "name": "children", "type": "View[]", "description": "The views inside, back to front." },
+      { "name": "align", "type": "\"leading\" | \"center\" | \"trailing\" | \"top\" | \"bottom\"", "optional": true, "default": "\"leading\"", "description": "Alignment." }
+    ], "example": "atelier.ui.zstack([atelier.ui.ring(0.5), atelier.ui.symbol(\"heart\")], { align: \"center\" })" },
+    { "type": "spacer", "helper": "spacer", "description": "Flexible empty space.", "props": [], "example": "atelier.ui.spacer()" },
+    { "type": "button", "helper": "button", "main": "title", "mainType": "string", "second": "action", "secondType": "string", "since": "1.0.0-beta.4", "description": "A button that runs an action registered with atelier.action.", "props": [
+      { "name": "title", "type": "string", "description": "The button's text." },
+      { "name": "action", "type": "string", "description": "An action id." },
+      { "name": "value", "type": "any", "optional": true, "description": "Passed to the action as payload.value." },
+      { "name": "symbol", "type": "string", "optional": true, "description": "An SF Symbol before the title." },
+      { "name": "style", "type": "\"plain\" | \"prominent\" | \"destructive\"", "optional": true, "default": "\"plain\"", "description": "How it looks." }
+    ], "example": "atelier.ui.button(\"Start\", \"start\", { symbol: \"play.fill\", style: \"prominent\" })" },
+    { "type": "toggle", "helper": "toggle", "main": "label", "mainType": "string", "second": "action", "secondType": "string", "since": "1.0.0-beta.4", "description": "A switch. Its action receives the new state as payload.value; redraw with the new value.", "props": [
+      { "name": "label", "type": "string", "description": "Beside the switch." },
+      { "name": "action", "type": "string", "description": "An action id." },
+      { "name": "value", "type": "boolean", "optional": true, "default": "false", "description": "Whether it is on." }
+    ], "example": "atelier.ui.toggle(\"Do not disturb\", \"dnd\", { value: dnd })" },
+    { "type": "image", "helper": "image", "main": "src", "mainType": "string", "since": "1.0.0-beta.4", "description": "A PNG or JPEG from the plugin's folder, named with atelier.asset.", "props": [
+      { "name": "src", "type": "string", "description": "From atelier.asset(path)." },
+      { "name": "width", "type": "number", "optional": true, "description": "Points, up to 400." },
+      { "name": "height", "type": "number", "optional": true, "description": "Points, up to 400." },
+      { "name": "fit", "type": "\"fit\" | \"fill\"", "optional": true, "default": "\"fit\"", "description": "How it fills its frame." },
+      { "name": "radius", "type": "number", "optional": true, "default": "0", "description": "Corner radius, 0 to 40." }
+    ], "example": "atelier.ui.image(atelier.asset(\"cover.png\"), { width: 64, height: 64, radius: 8 })" },
+    { "type": "chart", "helper": "chart", "main": "values", "mainType": "number[]", "since": "1.0.0-beta.4", "description": "A line, bar or area chart with axes.", "props": [
+      { "name": "values", "type": "number[]", "description": "Up to 240 values." },
+      { "name": "kind", "type": "\"line\" | \"bar\" | \"area\"", "optional": true, "default": "\"line\"", "description": "The chart's form." },
+      { "name": "labels", "type": "string[]", "optional": true, "description": "One per value, for the x axis." },
+      { "name": "color", "type": "Color", "optional": true, "description": "Defaults to accent." },
+      { "name": "height", "type": "number", "optional": true, "default": "80", "description": "Points, 30 to 300." }
+    ], "example": "atelier.ui.chart([12, 18, 9, 22], { kind: \"bar\", labels: [\"M\", \"T\", \"W\", \"T\"] })" },
+    { "type": "grid", "helper": "grid", "main": "children", "mainType": "View[]", "since": "1.0.0-beta.4", "description": "Children in columns, row by row.", "props": [
+      { "name": "children", "type": "View[]", "description": "The views inside." },
+      { "name": "columns", "type": "number", "optional": true, "default": "2", "description": "1 to 6." },
+      { "name": "spacing", "type": "number", "optional": true, "default": "6", "description": "0 to 40." }
+    ], "example": "atelier.ui.grid(stats.map((s) => atelier.ui.text(s)), { columns: 3 })" },
+    { "type": "progress", "helper": "progress", "main": "value", "mainType": "number | null", "since": "1.0.0-beta.4", "description": "A progress bar, or a spinner when value is null.", "props": [
+      { "name": "value", "type": "number | null", "optional": true, "description": "0 to 1, or null for indeterminate." },
+      { "name": "label", "type": "string", "optional": true, "description": "Drawn above it." }
+    ], "example": "atelier.ui.progress(null, { label: \"Loading…\" })" },
+    { "type": "divider", "helper": "divider", "since": "1.0.0-beta.4", "description": "A thin line between views.", "props": [], "example": "atelier.ui.divider()" }
+  ],
+
+  "listRow": [
+    { "name": "title", "type": "string", "description": "The row's text." },
+    { "name": "detail", "type": "string", "optional": true, "description": "Right-aligned, secondary." },
+    { "name": "symbol", "type": "string", "optional": true, "description": "An SF Symbol before the title." },
+    { "name": "color", "type": "Color", "optional": true, "description": "The symbol's colour." }
+  ],
+
+  "events": [
+    { "name": "appActivated", "payload": "{ name: string; bundleID: string }", "description": "Another app comes to the front." },
+    { "name": "spaceChanged", "payload": "{}", "description": "The active Space changes." },
+    { "name": "wallpaperChanged", "payload": "{ live?: string | null; mesh?: string | null }", "description": "Atelier changes the live or mesh wallpaper. A wallpaper picked in System Settings is not seen." },
+    { "name": "themeChanged", "payload": "{ id: string | null; name?: string }", "description": "A theme or Look is applied, or reverted (id is null)." },
+    { "name": "timer", "payload": "{ date: number }", "description": "Every options.interval seconds, 5 to 86400, default 60. Up to 4 per plugin. date is ms since 1970." },
+    { "name": "update", "payload": "{ from: string; to: string }", "since": "1.0.0-beta.4", "description": "The plugin was updated and started again: migrate stored data here." },
+    { "name": "sleep", "payload": "{}", "since": "1.0.0-beta.4", "description": "The Mac is going to sleep. Timers pause until wake." },
+    { "name": "wake", "payload": "{}", "since": "1.0.0-beta.4", "description": "The Mac woke from sleep." },
+    { "name": "screensLocked", "payload": "{}", "since": "1.0.0-beta.4", "description": "The screen was locked." },
+    { "name": "screensUnlocked", "payload": "{}", "since": "1.0.0-beta.4", "description": "The screen was unlocked." },
+    { "name": "displaysChanged", "payload": "{ count: number }", "since": "1.0.0-beta.4", "description": "A display was connected, disconnected or rearranged." },
+    { "name": "powerSource", "payload": "{ source: \"battery\" | \"ac\"; level?: number }", "since": "1.0.0-beta.4", "description": "The Mac switched between battery and power. level is 0 to 1 when there is a battery." },
+    { "name": "settingsChanged", "payload": "{ key: string; value: any }", "since": "1.0.0-beta.4", "description": "The owner changed one of the plugin's settings." },
+    { "name": "message", "payload": "{ from: string; data: any }", "since": "1.0.0-beta.4", "description": "Another plugin sent this one a message with atelier.send." }
+  ],
+
+  "globals": [
+    { "name": "setTimeout", "params": [{ "name": "handler", "type": "(...args: any[]) => void" }, { "name": "ms", "type": "number", "optional": true }, { "name": "...args", "type": "any[]" }], "returns": { "type": "number" }, "description": "Runs handler once after ms milliseconds. Up to 64 timers at once." },
+    { "name": "setInterval", "params": [{ "name": "handler", "type": "(...args: any[]) => void" }, { "name": "ms", "type": "number", "optional": true }, { "name": "...args", "type": "any[]" }], "returns": { "type": "number" }, "description": "Runs handler every ms milliseconds, at least 1000." },
+    { "name": "clearTimeout", "params": [{ "name": "id", "type": "number | undefined" }], "returns": { "type": "void" }, "description": "Cancels a timer." },
+    { "name": "clearInterval", "params": [{ "name": "id", "type": "number | undefined" }], "returns": { "type": "void" }, "description": "Cancels a timer." }
+  ],
+
+  "console": {
+    "levels": ["log", "info", "warn", "error", "debug"],
+    "description": "Writes to the Console in Mods › Library (and the Playground's console). Every error carries its line number."
+  },
+
+  "kinds": [
+    { "kind": "plugin", "ext": ".atelierplugin", "title": "Plugin", "description": "JavaScript that adds widgets, Dock tiles, commands, corner actions and more.", "manifest": "manifest.json", "allowed": [".js", ".json", ".md", ".txt", ".png", ".jpg", ".jpeg"], "maxZip": 2097152, "runsCode": true },
+    { "kind": "theme", "ext": ".ateliertheme", "title": "Theme", "description": "One file that restyles everything Atelier reaches. Format in THEMES.md.", "manifest": "atelier-theme.json", "allowed": [".json", ".md", ".txt", ".png", ".jpg", ".jpeg", ".heic", ".tiff", ".aiff", ".aif", ".wav", ".caf", ".m4a", ".mp3"], "maxZip": 41943040, "runsCode": false },
+    { "kind": "icons", "ext": ".ateliericons", "title": "Icon pack", "since": "1.0.0-beta.4", "description": "App icons by bundle identifier, for the Atelier Dock and Personal Icons.", "manifest": "manifest.json", "allowed": [".json", ".md", ".txt", ".png"], "maxZip": 20971520, "runsCode": false },
+    { "kind": "sounds", "ext": ".ateliersounds", "title": "Sound pack", "since": "1.0.0-beta.4", "description": "Sounds for Atelier's events: Dock clicks, minimise, alerts.", "manifest": "manifest.json", "allowed": [".json", ".md", ".txt", ".aiff", ".aif", ".wav", ".caf", ".m4a"], "maxZip": 20971520, "runsCode": false },
+    { "kind": "shader", "ext": ".ateliershader", "title": "Wallpaper shader", "since": "1.0.0-beta.4", "description": "A preset for one of Atelier's built-in live wallpaper shaders: palette and parameters. No shader code.", "manifest": "manifest.json", "allowed": [".json", ".md", ".txt", ".png", ".jpg"], "maxZip": 2097152, "runsCode": false },
+    { "kind": "layouts", "ext": ".atelierlayouts", "title": "Window layouts", "since": "1.0.0-beta.4", "description": "Window layouts as fractions of the screen, for Atelier's tiling.", "manifest": "manifest.json", "allowed": [".json", ".md", ".txt", ".png"], "maxZip": 1048576, "runsCode": false },
+    { "kind": "effects", "ext": ".ateliereffects", "title": "Effects", "since": "1.0.0-beta.4", "description": "Presets for Atelier's window and minimise effects.", "manifest": "manifest.json", "allowed": [".json", ".md", ".txt", ".png"], "maxZip": 1048576, "runsCode": false },
+    { "kind": "look", "ext": ".atelierlook", "title": "Look", "since": "1.0.0-beta.4", "description": "A one-click Look: a theme plus Dock, menu bar and wallpaper settings.", "manifest": "manifest.json", "allowed": [".json", ".md", ".txt", ".png", ".jpg", ".jpeg", ".heic"], "maxZip": 41943040, "runsCode": false }
+  ]
+}
