@@ -1,9 +1,0 @@
-### New
-- Packs: six new kinds of mod made of data only, installed from the catalog or from Finder and managed in Mods. Nothing in a pack runs; every file is checked before use (its real format, size, picture size or sound length). Formats in docs/PACKS.md, one example of each in examples/packs.
-- Icon packs (.ateliericons): new icons for apps by bundle identifier, plus folders, Downloads and the Trash, in the Atelier Dock, Orbit, the Launcher and Command. Keep any app's own icon from the pack's preview or with Use Original Icon on its Dock tile. Real apps and Apple's Dock are never changed.
-- Sound packs (.ateliersounds): new sounds for the Dock (open, drop, Trash, minimise), the timer and focus chime and the theme sound, and key sounds for Typing Sounds. Choose one in Dock › Sounds or Typing Sounds; Built-in stays the default.
-- Shader packs (.ateliershader): community live wallpapers made from Atelier's own shaders with a new palette, speed, scale, grain, dim and light. They appear in Live Wallpaper › From shader packs with a moving preview. No shader code is ever compiled from a pack.
-- Layout packs (.atelierlayouts): snap layouts for Window Engine, added to your custom layouts with one click and shown as zone diagrams.
-- Effect packs (.ateliereffects): minimise effects described by a curve and keyframes for opacity, scale, blur and brightness, with twist and wave, on top of a built-in effect. They appear in Window Minimise Effect with a live preview.
-- Looks (.atelierlook): a theme with a wallpaper (a picture or a shader pack), a few Dock settings and an icon and sound pack, worn at once. Revert in Looks puts all of it back, packs and Dock size included.
-- Mods › Browse filters by each pack kind; Mods › Library lists your packs with Use, a preview and Remove, and Add Pack… installs one.
