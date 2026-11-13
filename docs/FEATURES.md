@@ -56,10 +56,15 @@ to the whole Mac; **Revert** undoes the run.
 
 ### Mods
 
-Community plugins and themes from the signed catalog at github.com/kaizensx/atelier-mods.
+Community plugins, themes and packs from the signed catalog at github.com/kaizensx/atelier-mods.
 
-- **Browse:** search, filter by Plugins or Themes, open a mod's page (screenshots, description,
-  permissions, version history) and install it. Plugins ask for their permissions right after.
+- **Browse:** search, filter by Plugins or Themes, or by a pack kind (Icon Packs, Sound Packs,
+  Shaders, Layouts, Effects, Looks), open a mod's page (screenshots, description, permissions,
+  version history) and install it. Plugins ask for their permissions right after.
+- **Packs:** data-only mods, checked file by file before use ([PACKS.md](PACKS.md)). An installed
+  pack's page previews it: an icon grid (click an icon to keep that app's own), play buttons for
+  each sound, a moving shader, zone diagrams, a live minimise plate per effect, and what a Look
+  sets. **Use**, **Wear** or **Add to Layouts** puts it to work.
 - **Installed:** every mod on this Mac. Click a row to open its page; plugins have their on/off
   switch in the row; hold **Remove** to take one out.
 - **Updates:** newer versions from the catalog, one at a time or all at once.
@@ -93,7 +98,12 @@ the menu bar, Scenes, and small HTML windows with no network.
   restarts it on every save, keeping its storage.
 - **Plugin details:** its settings, and its activity: calls and script time per minute and its
   recent network requests (method, host, path, status, time, size).
-- **Formats:** [THEMES.md](THEMES.md), [PLUGINS.md](PLUGINS.md), [atelier-theme.schema.json](atelier-theme.schema.json).
+- **Your packs:** every installed pack by kind, with its action, an inline preview and Remove;
+  **Add Pack…** installs a pack folder. Packs also open from Finder.
+- **Where packs show up:** sound packs in Dock › Sounds and Typing Sounds (Built-in by default),
+  shader packs in Live Wallpaper › From shader packs, effect packs in Window Minimise Effect,
+  layout packs in Window Engine's custom layouts, icon packs on every app tile Atelier draws.
+- **Formats:** [THEMES.md](THEMES.md), [PLUGINS.md](PLUGINS.md), [PACKS.md](PACKS.md), [atelier-theme.schema.json](atelier-theme.schema.json).
 - **Needs:** none. Each plugin asks for its own permissions (`notifications`, `openURL`, `network`,
   `appearance`, `menuBar`, `liveActivities`, `scenes`, `panels`) on a sheet before it runs.
 

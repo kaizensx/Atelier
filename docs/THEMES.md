@@ -93,6 +93,10 @@ To share with everyone, submit the theme to Atelier Mods
 ([kaizensx/atelier-mods](https://github.com/kaizensx/atelier-mods)): it appears in the **Mods**
 chapter, signed and checked, and people get your updates there.
 
+A theme can also travel inside a **Look** (`.atelierlook`), together with a wallpaper, a few Dock
+settings and icon and sound packs; see [PACKS.md](PACKS.md). Live wallpapers recoloured and
+retuned as **shader packs** are described there too.
+
 Installed themes live in `~/Library/Application Support/Atelier/Themes/<id>.ateliertheme`.
 Installing a theme with an id that is already installed replaces it; the old copy goes to the
 Trash. Removing a theme moves it to the Trash.

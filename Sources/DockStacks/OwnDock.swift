@@ -198,6 +198,10 @@ enum DockIcons {
             images[path] = image
             return image
         }
+        if let packed = IconPackRuntime.folderImage(path) {
+            images[path] = packed
+            return packed
+        }
         if !loading.contains(path) {
             loading.insert(path)
             DispatchQueue.global(qos: .userInitiated).async {
@@ -231,11 +235,18 @@ enum DockIcons {
         colors[path] = nil
     }
 
+    /// Reads every icon again, after the icon pack changed. Pictures chosen for tiles stay.
+    static func reloadAll() {
+        images = images.filter { $0.key.hasPrefix("custom:") }
+        colors = [:]
+    }
+
     /// The Trash as Finder draws it, empty or full.
     static func trash(full: Bool) -> NSImage {
         let key = full ? "trash.full" : "trash.empty"
         if let image = images[key] { return image }
-        let image = NSImage(named: full ? NSImage.trashFullName : NSImage.trashEmptyName)
+        let packed = full ? IconPackRuntime.image(key: "trash.full") ?? IconPackRuntime.image(key: "trash") : IconPackRuntime.image(key: "trash")
+        let image = packed ?? NSImage(named: full ? NSImage.trashFullName : NSImage.trashEmptyName)
             ?? NSWorkspace.shared.icon(forFile: TrashWatcher.url.path)
         images[key] = image
         return image
@@ -3865,6 +3876,8 @@ final class OwnDock: ObservableObject {
             })
             if AtelierIcons.shared.has(path) {
                 menu.addItem(item("Use Original Icon") { AtelierIcons.shared.reset(path) })
+            } else if IconPackRuntime.covers(path) {
+                menu.addItem(item("Use Original Icon") { ModPackStore.shared.keepOriginal(path: path) })
             }
         } else {
             let id = slot.id

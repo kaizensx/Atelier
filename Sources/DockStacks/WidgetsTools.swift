@@ -387,7 +387,7 @@ final class ChronoModel: ObservableObject {
         running = false
         rang = true
         alarm = nil
-        NSSound(named: "Glass")?.play()
+        SoundPackRuntime.timerDone()
     }
 
     func lap() {

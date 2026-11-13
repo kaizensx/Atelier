@@ -740,7 +740,7 @@ final class Pomodoro: ObservableObject {
         remaining = max(end.timeIntervalSinceNow, 0)
         guard remaining <= 0 else { return }
         halt()
-        NSSound(named: "Glass")?.play()
+        SoundPackRuntime.timerDone()
         if phase == .focus {
             finished += 1
             phase = finished % 4 == 0 ? .longRest : .rest

@@ -221,6 +221,17 @@ final class ModClient: @unchecked Sendable {
                 }
             }
             return (folder, nil)
+        default:
+            // A data-only pack: every rule in ModPacks, then the same id and version as the index.
+            guard let kind = entry.kind.pack else { throw ModCatalogError.package("Atelier does not know this kind of mod.") }
+            switch ModPackDisk.load(folder, kind: kind) {
+            case .failure(let failure): throw failure
+            case .success(let (pack, _)):
+                if let problem = ModPackageCheck.matches(entry: entry, packageID: pack.header.id, packageVersion: pack.header.version) {
+                    throw ModCatalogError.package(problem)
+                }
+            }
+            return (folder, nil)
         }
     }
 

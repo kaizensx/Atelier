@@ -480,6 +480,8 @@ a.stat:hover { background: var(--surface-2); }
 .badge.plugin { color: var(--accent); }
 .badge.theme { color: #C9A2FF; }
 .badge.native { color: var(--warn); }
+.badge.icons, .badge.sounds, .badge.shader, .badge.layouts, .badge.effects, .badge.look { color: #5FD3E8; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) :is(.badge.icons, .badge.sounds, .badge.shader, .badge.layouts, .badge.effects, .badge.look) { color: #137A8F; } }
 .badge.stable { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
 .badge.beta { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
 .badge.feat { color: var(--text); }

@@ -1,0 +1,17 @@
+{
+  "format": 1,
+  "id": "com.example.dusk-studio.sky",
+  "name": "Dusk Sky",
+  "version": "1.0.0",
+  "author": "Atelier Examples",
+  "description": "Northern Lights in teal and violet, slower and a little grainy.",
+  "base": "northernLights",
+  "palette": ["#04121A", "#0E4D5C", "#3FC1B0", "#C7A6FF"],
+  "speed": 0.7,
+  "intensity": 0.6,
+  "grain": 0.12,
+  "scale": 1.15,
+  "dim": 0.08,
+  "cycle": "night",
+  "pointer": true
+}

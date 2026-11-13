@@ -108,11 +108,23 @@ final class AtelierIcons: ObservableObject {
     /// is one, a read.
     nonisolated static func override(for key: String) -> NSImage? {
         let url = file(for: key)
-        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        // One picked for this item wins; then the icon pack in use, by the app's bundle id.
+        guard FileManager.default.fileExists(atPath: url.path) else { return IconPackRuntime.image(forPath: key) }
         return NSImage(contentsOf: url)
     }
 
-    func has(_ key: String) -> Bool { custom(key) != nil }
+    /// Whether an icon was picked for this item (not one from an icon pack).
+    func has(_ key: String) -> Bool { FileManager.default.fileExists(atPath: Self.file(for: key).path) }
+
+    /// The icon pack changed: every memoised icon is read again, everywhere.
+    func packChanged() {
+        cache = [:]
+        missing = []
+        DockIcons.reloadAll()
+        OrbitIconStore.shared.forgetAll()
+        DockIcons.loaded?()
+        revision += 1
+    }
 
     /// The custom icon, if any, memoised so a list of rows reads the disk once per item.
     func custom(_ key: String) -> NSImage? {

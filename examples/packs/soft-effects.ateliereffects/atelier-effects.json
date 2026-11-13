@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "id": "com.example.soft-effects",
+  "name": "Soft Effects",
+  "version": "1.0.0",
+  "author": "Atelier Examples",
+  "description": "Two calm minimise effects: a misty fade and a gentle swirl.",
+  "effects": [
+    {"id": "mist", "name": "Mist", "base": "scale", "duration": 0.45, "curve": "easeInOut",
+     "opacity": [[0, 1], [0.6, 0.85], [1, 0]],
+     "blur": [[0, 0], [1, 5]],
+     "shade": [[0, 1], [1, 1.25]]},
+    {"id": "swirl", "name": "Swirl", "base": "genie", "duration": 0.6, "curve": "easeIn",
+     "scale": [[0, 1], [0.3, 1.04], [1, 0.9]],
+     "twist": 90,
+     "wave": {"amplitude": 0.04, "frequency": 2}}
+  ]
+}

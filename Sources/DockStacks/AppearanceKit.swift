@@ -433,7 +433,8 @@ final class TypingSounds: ObservableObject {
             install(TypingSynth.renderPack(pack), for: pack)
         }
         guard !players.isEmpty, bank.count == TypingKeyClass.allCases.count else { return }
-        let variants = bank[kind.rawValue]
+        // A sound pack's key sounds, when chosen, in place of the built-in voice.
+        let variants = SoundPackRuntime.typingVariants(kind, format: format) ?? bank[kind.rawValue]
         // Never the same variant twice in a row: a machine-gun repeat is what gives synthesis away.
         var variant = Int.random(in: 0..<variants.count)
         if variant == lastVariant[kind.rawValue] { variant = (variant + 1) % variants.count }
@@ -511,6 +512,7 @@ struct TypingSoundsCard: View {
                     Chip("Preview") { typing.preview() }
                         .help("Types a short phrase in this pack, with a space, a backspace and Return.")
                 }
+                SoundPackPicker(typing: true)
             }
         }
     }

@@ -443,6 +443,8 @@ enum ThemeSounds {
         if let sound = sounds[event] {
             sound.stop()
             sound.play()
+        } else if event == .apply, SoundPackRuntime.play(.themeApply) {
+            // The sound pack in use has one.
         } else if let fallback {
             NSSound(named: NSSound.Name(fallback))?.play()
         }

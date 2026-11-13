@@ -349,6 +349,7 @@ struct DockEffectsCard: View {
                                   text: "\(Int((dock.design.volume * 100).rounded()))%")
                     DockPillButton(title: "Play", symbol: "speaker.wave.2") { DockSounds.play(.launch, prefs: dock.design) }
                 }
+                SoundPackPicker(typing: false).dockHubRow()
             }
             if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
                 Text("Reduce Motion is on, so effects that move play as fades or not at all.")

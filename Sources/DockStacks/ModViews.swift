@@ -13,6 +13,7 @@ enum ModsHue {
         case .plugin: DS.Spectrum.input
         case .theme: DS.Spectrum.sound
         case .native: danger
+        default: pack
         }
     }
 }
@@ -236,6 +237,7 @@ struct ModPage: View {
                     PluginSettingsForm(plugin: plugin).padding(.top, DS.Space.s)
                 }
             }
+            if entry.kind.isPack { PackPageSection(id: entry.id) }
 
             if entry.kind == .plugin, store.installedVersion(entry.id) != nil { inAtelier }
 
@@ -277,6 +279,8 @@ struct ModPage: View {
             case .installed:
                 if entry.kind == .theme, let theme = ThemeEngine.shared.theme(entry.id) {
                     Button("Apply") { ThemeEngine.shared.apply(theme) }.buttonStyle(ModPill())
+                } else if entry.kind.isPack, let pack = ModPackStore.shared.pack(entry.id) {
+                    PackUseButton(pack: pack)
                 } else {
                     ModChip(text: "Installed", symbol: "checkmark", hue: DS.Spectrum.input, strong: true)
                 }

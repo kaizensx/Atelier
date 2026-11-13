@@ -1,4 +1,5 @@
 import AppKit
+import DockCore
 import QuartzCore
 import SwiftUI
 
@@ -650,6 +651,14 @@ enum DockSounds {
 
     static func play(_ event: Event, prefs: DockDesignPrefs) {
         guard prefs.sounds else { return }
+        // A sound pack in use plays its own, at the same volume.
+        let slot: SoundSlot = switch event {
+        case .launch: .dockLaunch
+        case .drop: .dockDrop
+        case .trash: .dockTrash
+        case .minimize: .dockMinimize
+        }
+        if SoundPackRuntime.play(slot, volume: Float(prefs.volume)) { return }
         let name = name(event)
         let sound = cache[name] ?? NSSound(named: NSSound.Name(name))?.copy() as? NSSound
         guard let sound else { return }

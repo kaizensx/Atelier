@@ -1520,6 +1520,8 @@ struct LiveWallpaperChapter: View {
                 }
             }
 
+            ShaderPackGallery(hue: hue)
+
             SectionHeader("Adjust", symbol: "slider.horizontal.3", hue: hue)
             adjustCard
             RowGroup {

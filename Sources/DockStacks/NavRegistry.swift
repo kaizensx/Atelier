@@ -110,7 +110,8 @@ enum NavRegistry {
                 keywords: ["catalog", "marketplace", "community", "gallery", "browse", "download", "install", "plugins", "themes", "updates", "windhawk", "native",
                            "theme", "plugin", "import", "export", "json", "library", "create theme", "themes & plugins",
                            "plugin settings", "load plugin folder", "development", "safe mode",
-                           "hooks", "palette provider", "menu bar item", "live activity", "plugin window"]) {
+                           "hooks", "palette provider", "menu bar item", "live activity", "plugin window",
+                           "pack", "packs", "icon pack", "sound pack", "shader pack", "layout pack", "effect pack", "look pack"]) {
             ModsChapter(model: $0)
         },
         // Desktop

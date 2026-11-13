@@ -232,7 +232,7 @@ final class Effects: ObservableObject {
             MainActor.assumeIsolated {
                 Effects.shared.focusEnd = nil
                 Effects.shared.flash(.white)
-                NSSound(named: "Glass")?.play()
+                SoundPackRuntime.timerDone()
             }
         }
     }
