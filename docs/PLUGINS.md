@@ -5,13 +5,18 @@ tiles in the Atelier Dock, commands in the Command palette, actions for hot corn
 reactions to what happens on the Mac. Atelier draws everything natively; a plugin only
 describes what to show.
 
-Three complete examples are in [`examples/plugins/`](../examples/plugins):
+Plugins can also plug into Atelier's own features: the Command palette, the menu bar, their
+Dock tile's menu and drops, stacks on the Atelier Dock, live activities, Scenes and small HTML
+windows. See [Hooks into Atelier](#hooks-into-atelier).
+
+Four complete examples are in [`examples/plugins/`](../examples/plugins):
 
 | Example | Shows |
 |---|---|
 | `pomodoro.atelierplugin` | Dock tile with live text, progress and badge; widget; commands; corner action; timers; storage; notifications |
 | `github-notifications.atelierplugin` | `network` permission, `atelier.http.get`, `atelier.prompt` for a secret, a list widget |
 | `random-palette.atelierplugin` | `appearance` permission and `atelier.theme.apply` |
+| `github-hub.atelierplugin` | Every hook: a palette provider (`gh …`), a menu bar item, a Dock tile menu and link drops, a stack provider, an HTML panel |
 
 ## Five-minute plugin
 
@@ -92,6 +97,10 @@ never covers more than the manifest asks for. Calling an API without its permiss
 | `notifications` | `atelier.notify` | Notification Center; macOS asks once for Atelier itself |
 | `openURL` | `atelier.openURL` | `https:` and `mailto:` links, and `atelier://studio` |
 | `appearance` | `atelier.theme.apply` | Any theme key; validated like a theme; Revert in Looks undoes it |
+| `menuBar` | `atelier.menuBarItem` | Up to 2 items; Atelier owns the item, its menu names the plugin |
+| `liveActivities` | `atelier.liveActivity` | Pills under the menu bar; 3 show at once |
+| `scenes` | `atelier.scenes` | Lists Scene names and switches to one, which changes the Dock |
+| `panels` | `atelier.panel` | Its own small windows: the plugin's HTML, no network, no files outside its folder |
 
 An update that asks for more permissions than were granted is switched off until the owner
 allows them.
@@ -109,7 +118,7 @@ allows them.
 | `entry` | bundle path to a `.js` | The script to run. Default `main.js`. At most 512 KB. |
 | `icon` | SF Symbol name | Default `puzzlepiece.extension`. |
 | `homepage` | https link | Where to learn more. |
-| `permissions` | list of `network`, `notifications`, `openURL`, `appearance` | What it asks for. |
+| `permissions` | list of `network`, `notifications`, `openURL`, `appearance`, `menuBar`, `liveActivities`, `scenes`, `panels` | What it asks for. |
 | `network.hosts` | list of ≤ 8 host names | Hosts `http.get` may reach. No schemes, paths, ports, wildcards, local or private addresses. Required with `network`. |
 
 Plugins are installed in `~/Library/Application Support/Atelier/Plugins/<id>.atelierplugin`.
@@ -176,7 +185,8 @@ view: (d) => atelier.ui.hstack([
 
 ### `atelier.dockTile(spec)` → `{ id, update(changes) }`
 
-A tile for the Atelier Dock.
+A tile for the Atelier Dock. The owner puts it on the bar from the Dock chapter (**Tile ›
+From Plugins**) or from the plugin's page in Mods (**Add to Dock**).
 
 | Key | Type | |
 |---|---|---|
@@ -187,6 +197,8 @@ A tile for the Atelier Dock.
 | `tint` | colour | The tile's colour. |
 | `progress` | 0…1 | A ring around the tile. |
 | `onClick` | `() => void` | Runs when the tile is clicked. |
+| `menu` | menu items | Its right-click (and press-and-hold) menu. See [Dock tile menus and drops](#dock-tile-menus-and-drops). |
+| `accepts`, `onDrop` | `["url", "text"]`, `({ kind, value }) => void` | Links or text dropped on the tile. Never files. |
 
 `update(changes)` merges the changes into the tile and redraws it. Updating is cheap; a timer
 that updates every second is fine.
@@ -211,6 +223,7 @@ An action you can put on a hot corner or edge in Atelier's Corners chapter.
 | `wallpaperChanged` | `{ live }` or `{ mesh }` | Atelier changes the live or mesh wallpaper. A wallpaper picked in System Settings is not seen. |
 | `themeChanged` | `{ id, name }` | A theme or Look is applied, or reverted (`id` is `null`). |
 | `timer` | `{ date }` (ms since 1970) | Every `options.interval` seconds, 5…86400, default 60. Up to 4 per plugin. |
+| `panelMessage` | `{ id, message }` | One of the plugin's panels called `window.atelier.post(message)`. See [Panels](#panels). |
 
 ### `atelier.notify(title, body?)` — needs `notifications`
 
@@ -272,6 +285,137 @@ atelier.theme.apply({ colors: { accent: "#FF8A3D" }, wallpaper: { shader: "nebul
 `setTimeout`, `setInterval` (at least 1 s), `clearTimeout` and `clearInterval` work as in a
 browser; a plugin may have up to 64 at once. `console.log`, `info`, `warn`, `error` and `debug`
 write to the Console in Mods › Library.
+
+## Hooks into Atelier
+
+Hooks let a plugin plug into Atelier's own features rather than only add its own. They follow
+the same rules as everything else: the plugin describes, Atelier draws and decides, every call is
+plain JSON checked in `Sources/DockCore/PluginHooksBridge.swift`, and the JavaScript half lives
+in `PluginHooksPrelude.swift`. Functions you put in a menu or a list never cross the bridge:
+the prelude swaps each for a key, and Atelier calls the key back when the owner picks it. When a
+menu or a list is replaced, the functions of the old one are let go.
+
+| Hook | Permission | Limit |
+|---|---|---|
+| `atelier.paletteProvider` | none | 4 per plugin, 20 rows per answer, 1 s to answer |
+| `atelier.menuBarItem` | `menuBar` | 2 per plugin, text ≤ 16 characters, menu ≤ 40 items, 2 levels |
+| `dockTile` `menu`, `accepts`, `onDrop` | none | menu as above; drops ≤ 8 KB; files never |
+| `atelier.stackProvider` | none | 4 per plugin, 60 items, 4 s to answer |
+| `atelier.liveActivity` | `liveActivities` | 3 show at once |
+| `atelier.scenes` | `scenes` | |
+| `atelier.panel` | `panels` | 4 per plugin, html ≤ 512 KB, messages ≤ 64 KB |
+
+### Menu items
+
+Menus (for the menu bar and Dock tiles) are lists of:
+
+```js
+{ title, symbol?, action, checked?, enabled? }   // a choice; action is a function
+"separator"
+{ title, symbol?, submenu: [ … ] }               // one level of submenus
+```
+
+An item without an `action` shows greyed out, which suits a status line such as
+`"3 unread"`. Every menu ends with a grey line naming the plugin.
+
+### `atelier.paletteProvider({ id, prefix?, title, search })` → id
+
+Answers in Atelier's Command palette (⌥ Space) as the owner types. Atelier asks 120 ms after
+typing stops; an answer that comes after 1 s, or for a query that has since changed, is dropped.
+Each plugin's rows show in a section of their own, under Atelier's results, titled `title`.
+
+| Key | | |
+|---|---|---|
+| `prefix` | text, ≤ 12 characters, no spaces | Optional. With `"gh"`, the provider is asked only when the query starts with `gh ` and gets what follows: `gh atelier` asks for `"atelier"`. Atelier then keeps only its own best three rows. Without a prefix it is asked for every query. |
+| `search` | `async (query) => rows` | Up to 20 of `{ title, subtitle?, symbol?, image?, action }`. `image` is a PNG or JPEG in the plugin folder. `action` runs when the row is chosen. |
+
+```js
+atelier.paletteProvider({ id: "repos", title: "GitHub", prefix: "gh", search: async (q) =>
+  (await myRepos()).filter((r) => r.name.includes(q)).map((r) => ({
+    title: r.full_name, symbol: "book.closed", action: () => atelier.openURL(r.html_url) })) });
+```
+
+### `atelier.menuBarItem({ id, title?, symbol?, text?, menu })` → `{ id, update(changes), remove() }` — needs `menuBar`
+
+An item in the menu bar, owned by Atelier, showing `symbol`, `text` (≤ 16 characters) or both.
+Clicking it opens `menu`. `title` is its tooltip and accessibility name. `update` merges changes
+and redraws, menu included; `remove` takes it away. At most two per plugin.
+
+### Dock tile menus and drops
+
+`atelier.dockTile` takes three more keys:
+
+| Key | |
+|---|---|
+| `menu` | Menu items shown when the tile is right-clicked, or pressed and held, above Atelier's own (Open, Remove from Dock). |
+| `accepts` | `["url"]`, `["text"]` or both: what the tile takes when dragged onto it. |
+| `onDrop` | `({ kind, value }) => …`. `kind` is `"url"` (an http, https or mailto link) or `"text"`. The value is at most 8 KB. |
+
+Files are never handed to a plugin, not even as a path: a drag with files in it is refused by
+every plugin tile. `update({ menu, accepts, onDrop })` changes them later.
+
+### `atelier.stackProvider({ id, title, symbol, refresh?, items })` → `{ id, refresh() }`
+
+A stack the owner can put on the Atelier Dock from **Stacks › From Plugins** (or from the
+plugin's page in Mods). Clicking it asks `items` and opens the usual stack bubble with the answer.
+
+| Key | | |
+|---|---|---|
+| `items` | `async () => rows` | Up to 60 of `{ title, subtitle?, symbol?, image?, action }`, as for the palette. |
+| `refresh` | seconds, 0…86400, default 0 | How long an answer is reused. 0 asks every time the stack opens. |
+
+`refresh()` on the returned object makes the next opening ask again.
+
+### `atelier.liveActivity({ id, title, symbol, text, progress?, tint?, until?, onTap? })` → `{ id, update(changes), end() }` — needs `liveActivities`
+
+A small live pill under the menu bar, in the middle of the screen, drawn like Atelier HUD's pill:
+symbol, title, `text` (≤ 60 characters) and, with `progress` (0…1), a bar in `tint`. With
+`until` (a `Date`, an ISO date or milliseconds since 1970) it ends by itself then, and with no
+`text` it counts down to it. Clicking it runs `onTap`. At most three show at once; a fourth is
+refused with an error in the Console until one ends.
+
+### `atelier.scenes` — needs `scenes`
+
+| Function | |
+|---|---|
+| `list()` | Promise of `[{ name }]`, the owner's Scenes. |
+| `apply(name)` | Promise; switches to that Scene, as choosing it in the Scenes chapter does. A snapshot is kept, so Snapshots can undo it. |
+
+### Panels
+
+`atelier.panel({ id, title, width, height, html, resizable? })` → `{ id, show(), hide(), post(message) }` — needs `panels`.
+
+A small floating window showing your HTML. `width` 200…1200 and `height` 120…900 points;
+`html` at most 512 KB. The window's title names your plugin. Registering the same id again
+replaces the page. `show()` brings it up without taking focus from the app in front.
+
+The page is sealed off:
+
+* **No network at all.** A content rule list blocks every load except the page itself, inline
+  `data:` and `blob:` URLs, and files from your plugin's folder; a Content-Security-Policy
+  (`default-src 'none'`, `connect-src 'none'`, no frames, forms or workers) is sent with the page
+  and put first in its `<head>`. WebRTC is removed before your script runs. Your own CSP can only
+  narrow this.
+* **Files from your folder only**, read-only, by relative URL: `<img src="logo.png">` is served
+  as `atelier-asset://…/logo.png`. Images, CSS, JavaScript, JSON and fonts, up to 8 MB each.
+  No `file:` URLs, nothing outside the folder.
+* **No navigation, no popups**, no camera or microphone, no full screen. Links do nothing; post a
+  message and call `atelier.openURL` (with `openURL`) instead.
+* **Nothing kept**: every panel has its own ephemeral data store.
+
+Inside the page there is one object, `window.atelier`:
+
+```js
+window.atelier.post({ open: "https://github.com" });   // to the plugin, JSON ≤ 64 KB
+window.atelier.onMessage((message) => render(message)); // from panel.post(message)
+```
+
+In the plugin, messages arrive as the `panelMessage` event, and also to `onMessage` if you
+passed one to `atelier.panel`:
+
+```js
+atelier.on("panelMessage", ({ id, message }) => { if (message.open) atelier.openURL(message.open); });
+```
 
 ## Limits
 

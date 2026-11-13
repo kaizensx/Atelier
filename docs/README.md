@@ -6,8 +6,9 @@ Atelier is built to be restyled and extended by anyone. There are two ways in.
 menu bar, live wallpaper and its palette, Atelier's own window, macOS icon tint, the desktop
 clock and sounds. No code. → [THEMES.md](THEMES.md) · [JSON Schema](atelier-theme.schema.json)
 
-**Plugins** add new things, in JavaScript: widgets, Dock tiles, Command palette entries,
-hot-corner actions, and reactions to what happens on your Mac. Each runs sandboxed in its own
+**Plugins** add new things, in JavaScript: widgets, Dock tiles, Command palette entries and
+searches, hot-corner actions, menu bar items, stacks, live activities, small windows, and
+reactions to what happens on your Mac. Each runs sandboxed in its own
 engine, off the main thread, with nothing but what you allow. → [PLUGINS.md](PLUGINS.md)
 
 ## Try it

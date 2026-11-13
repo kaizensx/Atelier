@@ -158,6 +158,10 @@ const permInfo = {
   notifications: { name: "Notifications", text: "Posts notifications in Notification Center.", icon: icon.bell },
   openURL: { name: "Open links", text: "Opens https and mailto links.", icon: icon.link },
   appearance: { name: "Appearance", text: "Applies theme changes. Revert in Looks undoes them.", icon: icon.palette },
+  menuBar: { name: "Menu bar", text: "Shows an item in the menu bar, with its own menu. At most two.", icon: icon.toggle },
+  liveActivities: { name: "Live activities", text: "Shows small live updates at the top of the screen. At most three.", icon: icon.eye },
+  scenes: { name: "Scenes", text: "Lists your Scenes and switches to one, which changes your Dock.", icon: icon.undo },
+  panels: { name: "Windows", text: "Opens its own small windows, with no network and no access to your files.", icon: icon.doc },
 };
 const imgURL = (s) => s?.url || "";
 
