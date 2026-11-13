@@ -12,7 +12,7 @@ import Foundation
 // existing PluginRegistry and ThemeEngine, which install them exactly as a dropped file.
 //
 // Test hook: atelier://mods?catalog=http://127.0.0.1:<port>/index.json | catalog=default | check=1 |
-//            install=<id> | update=all | remove=<id> | report=1
+//            install=<id> [version=<v>] | rollback=<id> | update=all | remove=<id> | report=1
 // The override must be on 127.0.0.1 (http or https) and still be signed with the catalog key.
 // It lasts until Atelier quits and keeps its own cache, so it never touches the real catalog's.
 // install, update and remove act only while such a local catalog is in use, so a link on a web
@@ -72,6 +72,20 @@ final class ModStore: ObservableObject {
     @Published private(set) var fromCatalog: [String: String] { didSet { if !testing { store.set(fromCatalog, forKey: Key.installed) } } }
     @Published private(set) var nativeInstalled: [InstalledModInfo] = []
 
+    // Trust, rollback, review (see ModCommunity.swift).
+    /// The author key of each mod as installed from the catalog, to notice a mod changing hands.
+    @Published private(set) var authorKeys: [String: String] { didSet { if !testing { store.set(authorKeys, forKey: Key.authorKeys) } } }
+    /// The version each mod had before its last update or rollback: "Roll Back to" goes there.
+    @Published private(set) var previousVersions: [String: String] { didSet { if !testing { store.set(previousVersions, forKey: Key.previous) } } }
+    /// Mods the owner rolled back or pinned to an older version: Update All leaves them alone.
+    @Published private(set) var held: [String: String] { didSet { if !testing { store.set(held, forKey: Key.held) } } }
+    /// An install that needs the owner's yes first: new permissions, a new author key, an older version.
+    @Published var review: ModInstallReview?
+    /// A setup file the owner picked, waiting for the import sheet.
+    @Published var pendingImport: AtelierSetup?
+    /// Plugins waiting for their permission sheet, one after another (after an import).
+    private var permissionQueue: [String] = []
+
     private var client: ModClient
     private var override: URL?
     private var testing: Bool { override != nil }
@@ -82,12 +96,16 @@ final class ModStore: ObservableObject {
 
     private enum Key {
         static let lastCheck = "mods.lastCheck", autoCheck = "mods.autoCheck", accepted = "mods.acceptedGenerated", installed = "mods.installed"
+        static let authorKeys = "mods.authorKeys", previous = "mods.previousVersions", held = "mods.held"
     }
 
     private init() {
         autoCheck = store.object(forKey: Key.autoCheck) as? Bool ?? true
         lastCheck = store.object(forKey: Key.lastCheck) as? Date
         fromCatalog = store.dictionary(forKey: Key.installed) as? [String: String] ?? [:]
+        authorKeys = store.dictionary(forKey: Key.authorKeys) as? [String: String] ?? [:]
+        previousVersions = store.dictionary(forKey: Key.previous) as? [String: String] ?? [:]
+        held = store.dictionary(forKey: Key.held) as? [String: String] ?? [:]
         client = ModClient(config: .init(indexURL: ModsConfig.indexURL, publicKey: ModsConfig.publicKey,
                                          cacheFolder: ModsConfig.cacheFolder, allowLoopback: false))
     }
@@ -198,8 +216,10 @@ final class ModStore: ObservableObject {
         failures[entry.id] = nil
         work[entry.id] = .downloading
         defer { work[entry.id] = nil }
+        let before = installedVersion(entry.id)
+        let strict = index?.mod(entry.id)?.recordsPermissions(of: entry.version) ?? true
         let prepared: ModClient.Prepared
-        do { prepared = try await client.prepare(entry) } catch {
+        do { prepared = try await client.prepare(entry, strictPermissions: strict) } catch {
             failures[entry.id] = (error as? ModCatalogError)?.description ?? error.localizedDescription
             return
         }
@@ -224,6 +244,20 @@ final class ModStore: ObservableObject {
                 try installNative(prepared.folder, id: entry.id)
             }
             fromCatalog[entry.id] = entry.version
+            // Remember the author's key. Rolling back to a version from before they signed keeps
+            // it, so a later update signed by someone else still asks.
+            if let key = entry.authorKey {
+                authorKeys[entry.id] = key
+            } else if !(before.map { ModVersions.isNewer($0, than: entry.version) } ?? false) {
+                authorKeys[entry.id] = nil
+            }
+            if let before, before != entry.version { previousVersions[entry.id] = before }
+            // Installing the newest version lets updates flow again; an older one holds it there.
+            if let latest = index?.mod(entry.id)?.version, ModVersions.isNewer(latest, than: entry.version) {
+                held[entry.id] = entry.version
+            } else {
+                held[entry.id] = nil
+            }
             notice = "Installed \(entry.name) \(entry.version)."
         } catch {
             failures[entry.id] = error.localizedDescription
@@ -239,13 +273,143 @@ final class ModStore: ObservableObject {
         scanNative()
     }
 
-    /// One click: every compatible update, one after another.
+    /// One click: every compatible update, one after another. An update that asks for new
+    /// permissions or hosts, or comes with a different author key, is never installed this way:
+    /// it stays in the list marked Needs review until the owner looks at it. A mod the owner
+    /// rolled back stays where it is.
     func updateAll() async {
-        for update in updates where update.compatible { await install(update.entry) }
-        if needsReview.isEmpty, failures.isEmpty { notice = "Everything is up to date." }
+        for update in updates where update.compatible && held[update.id] == nil && reviewFor(update.entry).canInstallUnattended {
+            await install(update.entry)
+        }
+        let waiting = updatesNeedingReview.count
+        if waiting > 0 {
+            notice = waiting == 1 ? "1 update needs your review." : "\(waiting) updates need your review."
+        } else if needsReview.isEmpty, failures.isEmpty {
+            notice = "Everything is up to date."
+        }
     }
 
     func reviewed(_ id: String) { needsReview.removeAll { $0 == id } }
+
+    // MARK: Review, rollback, versions
+
+    func installedInfo(_ id: String) -> InstalledModInfo? { installed.first { $0.id == id } }
+
+    /// What installing `entry` (at its version) would change on this Mac.
+    func reviewFor(_ entry: ModEntry) -> ModInstallReview {
+        ModInstallReview(entry: entry, installed: installedInfo(entry.id), installedKey: authorKeys[entry.id])
+    }
+
+    /// Updates that Update All leaves for the owner: new permissions, new hosts, a new key.
+    var updatesNeedingReview: [String] {
+        updates.filter { !reviewFor($0.entry).canInstallUnattended }.map(\.id)
+    }
+
+    /// Every install button goes through here: anything the owner should see first goes to the
+    /// review sheet; everything else installs at once.
+    func requestInstall(_ entry: ModEntry) {
+        let review = reviewFor(entry)
+        if review.needsReview { self.review = review } else { Task { await install(entry) } }
+    }
+
+    /// The owner said yes on the review sheet.
+    func confirm(_ review: ModInstallReview) {
+        self.review = nil
+        Task { await install(review.entry) }
+    }
+
+    /// The version "Roll Back to" would install, if any.
+    func rollbackTarget(_ id: String) -> ModVersion? {
+        guard let mine = installedVersion(id), let entry = index?.mod(id) else { return nil }
+        return ModRollback.target(installed: mine, remembered: previousVersions[id], versions: entry.versions)
+    }
+
+    func rollBack(_ id: String) {
+        guard let target = rollbackTarget(id), let entry = index?.mod(id)?.at(version: target.version) else { return }
+        requestInstall(entry)
+    }
+
+    /// "Install this version" in a mod's history.
+    func install(_ entry: ModEntry, version: String) {
+        guard let pinned = entry.at(version: version) else { failures[entry.id] = "Version \(version) is no longer in the catalog."; return }
+        requestInstall(pinned)
+    }
+
+    /// Lets a held mod take updates again.
+    func release(_ id: String) { held[id] = nil }
+
+    /// Shows the next plugin's permission sheet, if an import queued more than one.
+    func nextPermission() {
+        guard pendingPermission == nil else { return }
+        while let id = permissionQueue.first {
+            permissionQueue.removeFirst()
+            let registry = PluginRegistry.shared
+            if let plugin = registry.installed.first(where: { $0.id == id }), !registry.enabled.contains(id) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    MainActor.assumeIsolated { ModStore.shared.pendingPermission = plugin }
+                }
+                return
+            }
+        }
+    }
+
+    // MARK: Export and import a setup
+
+    /// The setup on this Mac. Plugin storage only with `includeData`, and never a secret.
+    func currentSetup(includeData: Bool) -> AtelierSetup {
+        let registry = PluginRegistry.shared
+        let mods = installed.map { AtelierSetup.Mod(id: $0.id, kind: $0.kind.rawValue, version: $0.version, catalog: index?.mod($0.id) != nil) }
+            .sorted { $0.id < $1.id }
+        let plugins = registry.installed.map { plugin -> AtelierSetup.Plugin in
+            var data: [String: JSONValue]?
+            if includeData, let bytes = try? Data(contentsOf: PluginRuntime.dataFolder.appendingPathComponent(plugin.id + ".json")) {
+                data = AtelierSetup.stripSecrets(PluginStorage(data: bytes).values)
+            }
+            return AtelierSetup.Plugin(id: plugin.id, enabled: registry.enabled.contains(plugin.id), data: data)
+        }
+        .sorted { $0.id < $1.id }
+        return AtelierSetup(atelier: AtelierInfo.version, mods: mods, plugins: plugins, theme: ThemeEngine.shared.appliedID)
+    }
+
+    /// Installs what the setup lists from the catalog, puts plugin data back, turns plugins on
+    /// (each one with permissions asks on its own sheet) and applies the theme. Nothing is
+    /// granted without the owner.
+    func apply(_ setup: AtelierSetup) async {
+        guard let index else { notice = "Load the catalog first, then import again."; return }
+        var installedCount = 0
+        for step in setup.plan(index: index, installed: installed) {
+            let version: String
+            switch step.action {
+            case .install(let v), .change(_, let v): version = v
+            case .alreadyInstalled, .unavailable: continue
+            }
+            guard let entry = index.mod(step.id)?.at(version: version) else { continue }
+            if entry.kind == .native, !nativeAvailable { continue }
+            // A changed author key still needs the owner's yes on the mod's own page.
+            if reviewFor(entry).keyChange.needsConfirmation {
+                failures[entry.id] = "Skipped: this mod changed hands. Install it from its page."
+                continue
+            }
+            await install(entry)
+            if failures[entry.id] == nil { installedCount += 1 }
+        }
+        let registry = PluginRegistry.shared
+        for item in setup.plugins {
+            guard let plugin = registry.installed.first(where: { $0.id == item.id }) else { continue }
+            if let data = item.data {
+                registry.disable(plugin.id)
+                try? await Task.sleep(for: .milliseconds(300))
+                let url = PluginRuntime.dataFolder.appendingPathComponent(plugin.id + ".json")
+                try? FileManager.default.createDirectory(at: PluginRuntime.dataFolder, withIntermediateDirectories: true)
+                try? PluginStorage(values: AtelierSetup.stripSecrets(data)).data.write(to: url, options: .atomic)
+            }
+            guard item.enabled, !registry.enabled.contains(plugin.id) else { continue }
+            if plugin.manifest.permissions.isEmpty { registry.enable(plugin, granting: []) } else { permissionQueue.append(plugin.id) }
+        }
+        if let theme = setup.theme, let installedTheme = ThemeEngine.shared.theme(theme) { ThemeEngine.shared.apply(installedTheme) }
+        notice = "Imported the setup: \(installedCount) mod\(installedCount == 1 ? "" : "s") installed."
+        nextPermission()
+    }
 
     /// Removes cleanly: the package to the Trash, and for a plugin its permissions and its stored
     /// data too (to the Trash, so nothing is lost by accident).
@@ -265,6 +429,9 @@ final class ModStore: ObservableObject {
             scanNative()
         }
         fromCatalog[id] = nil
+        authorKeys[id] = nil
+        previousVersions[id] = nil
+        held[id] = nil
         needsReview.removeAll { $0 == id }
         failures[id] = nil
         objectWillChange.send()
@@ -294,7 +461,11 @@ final class ModStore: ObservableObject {
         Task {
             if let id = value("install") {
                 while refreshTask != nil { try? await Task.sleep(for: .milliseconds(100)) }
-                if let entry = index?.mod(id) { await install(entry) }
+                // version=<v> installs that version from the history, as Install This Version does.
+                if let entry = index?.mod(id).flatMap({ e in value("version").map { e.at(version: $0) } ?? e }) { await install(entry) }
+            }
+            if let id = value("rollback"), let target = rollbackTarget(id), let entry = index?.mod(id)?.at(version: target.version) {
+                await install(entry)
             }
             if value("update") == "all" { await updateAll() }
             if let id = value("remove") { remove(id) }
@@ -326,9 +497,12 @@ final class ModStore: ObservableObject {
         var lines = ["catalog \(client.config.indexURL.absoluteString)", "phase \(phase)",
                      "mods \(index?.mods.count ?? 0) generated \(index.map { ModDates.format($0.generated) } ?? "-")"]
         for mod in index?.mods ?? [] {
-            lines.append("  \(mod.id) \(mod.kind.rawValue) \(mod.version) installed=\(installedVersion(mod.id) ?? "-")")
+            lines.append("  \(mod.id) \(mod.kind.rawValue) \(mod.version) installed=\(installedVersion(mod.id) ?? "-")"
+                         + " signed=\(mod.signedByAuthor ? "author+catalog" : "catalog") downloads=\(mod.downloads.map(String.init) ?? "-")")
         }
         lines.append("updates " + updates.map { "\($0.id) \($0.from)->\($0.to)" }.joined(separator: ", "))
+        lines.append("review " + updatesNeedingReview.joined(separator: ", "))
+        lines.append("held " + held.map { "\($0.key)@\($0.value)" }.sorted().joined(separator: ", "))
         lines.append("failures " + failures.map { "\($0.key): \($0.value)" }.joined(separator: "; "))
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("atelier-mods.txt")
         try? lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)

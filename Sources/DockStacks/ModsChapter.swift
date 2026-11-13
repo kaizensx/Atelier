@@ -13,6 +13,8 @@ struct ModsChapter: View {
     @State private var tab: ModsTab = .browse
     @State private var selected: String?
     @State private var nativeAsk: ModEntry?
+    /// An author's page, by GitHub handle.
+    @State private var author: String?
 
     var body: some View {
         // The sheets hang off the whole chapter: on a zero-height view at the end of a long page
@@ -20,9 +22,13 @@ struct ModsChapter: View {
         VStack(alignment: .leading, spacing: DS.Space.l) {
             if let id = selected, let entry = store.index?.mod(id) {
                 ModPage(entry: entry, back: { withAnimation(DS.Motion.reveal) { selected = nil } }, install: install,
-                        go: { model.go($0) })
+                        go: { model.go($0) }, openAuthor: openAuthor)
+            } else if let handle = author, let index = store.index, let person = index.author(handle) {
+                ModAuthorPage(author: person, mods: index.mods(by: handle), back: { withAnimation(DS.Motion.reveal) { author = nil } },
+                              open: { id in withAnimation(DS.Motion.reveal) { selected = id } })
             } else {
-                ModsTabsView(model: model, tab: $tab, open: { id in withAnimation(DS.Motion.reveal) { selected = id } }, install: install)
+                ModsTabsView(model: model, tab: $tab, open: { id in withAnimation(DS.Motion.reveal) { selected = id } }, install: install,
+                             openAuthor: openAuthor)
             }
         }
         .background { sheets }
@@ -35,12 +41,24 @@ struct ModsChapter: View {
                     if let granted { PluginRegistry.shared.enable(plugin, granting: granted) }
                     store.reviewed(plugin.id)
                     store.pendingPermission = nil
+                    store.nextPermission()
+                }
+            }
+            .sheet(item: $store.review) { review in
+                ModReviewSheet(review: review) { go in
+                    if go { store.confirm(review) } else { store.review = nil }
+                }
+            }
+            .sheet(item: Binding(get: { store.pendingImport.map(ImportRequest.init) }, set: { if $0 == nil { store.pendingImport = nil } })) { request in
+                ModImportSheet(setup: request.setup) { go in
+                    store.pendingImport = nil
+                    if go { Task { await store.apply(request.setup) } }
                 }
             }
             .sheet(item: $nativeAsk) { entry in
                 NativeModWarningSheet(entry: entry) { go in
                     nativeAsk = nil
-                    if go { Task { await store.install(entry) } }
+                    if go { store.requestInstall(entry) }
                 }
             }
             .onAppear {
@@ -67,9 +85,21 @@ struct ModsChapter: View {
         }
     }
 
+    /// Every install goes through the review: new permissions, a changed author key or an older
+    /// version are shown before anything is downloaded.
     private func install(_ entry: ModEntry) {
-        if entry.kind == .native { nativeAsk = entry } else { Task { await store.install(entry) } }
+        if entry.kind == .native, store.installedVersion(entry.id) == nil { nativeAsk = entry } else { store.requestInstall(entry) }
     }
+
+    private func openAuthor(_ handle: String) {
+        withAnimation(DS.Motion.reveal) { selected = nil; author = handle }
+    }
+}
+
+/// A setup waiting for the import sheet, as a sheet item.
+private struct ImportRequest: Identifiable {
+    let setup: AtelierSetup
+    var id: Date { setup.created }
 }
 
 enum ModsTab: Hashable { case browse, installed, updates, library }
@@ -80,6 +110,7 @@ struct ModsTabsView: View {
     @Binding var tab: ModsTab
     let open: (String) -> Void
     let install: (ModEntry) -> Void
+    var openAuthor: (String) -> Void = { _ in }
     @ObservedObject private var store = ModStore.shared
 
     var body: some View {
@@ -99,7 +130,7 @@ struct ModsTabsView: View {
         }
 
         switch tab {
-        case .browse: ModsBrowse(open: open)
+        case .browse: ModsBrowse(open: open, openAuthor: openAuthor)
         case .installed: ModsInstalled(open: open)
         case .updates: ModsUpdates(open: open)
         // What used to be Themes & Plugins: making, importing and managing your own.
@@ -149,6 +180,7 @@ struct ModsStatusLine: View {
 /// The gallery: Featured, New and everything, or the results of a search.
 struct ModsBrowse: View {
     let open: (String) -> Void
+    var openAuthor: (String) -> Void = { _ in }
     @ObservedObject private var store = ModStore.shared
     @ObservedObject private var bridge = DockBridge.shared
     @State private var query = ""
@@ -162,8 +194,15 @@ struct ModsBrowse: View {
             if query.isEmpty, kind == nil {
                 let featured = index.featuredMods.filter { $0.kind != .native || native }
                 if !featured.isEmpty {
-                    SectionHeader("Featured", symbol: "star", hue: ModsHue.tint)
+                    SectionHeader("Featured this week", symbol: "star", detail: index.featuredNote, hue: ModsHue.tint)
                     grid(featured, featured: true)
+                }
+                // Collections the maintainers put together, one shelf each.
+                ForEach(index.collections) { collection in
+                    let mods = index.mods(in: collection).filter { $0.kind != .native || native }
+                    if !mods.isEmpty {
+                        ModShelf(title: collection.title, detail: collection.description, mods: mods, open: open)
+                    }
                 }
                 // New only earns its place once the catalog is bigger than a screenful.
                 let fresh = shown.count > 8 ? ModQuery.newest(shown.filter { !index.featured.contains($0.id) }, count: 4) : []
@@ -173,9 +212,12 @@ struct ModsBrowse: View {
                 }
                 SectionHeader("All mods", symbol: "square.grid.2x2", detail: "\(shown.count) in the catalog.", hue: ModsHue.tint)
                 grid(shown)
-            } else if shown.isEmpty {
+            } else if shown.isEmpty && authors(index).isEmpty {
                 ThemesEmptyShelf(symbol: "magnifyingglass", text: "Nothing matches. Try another word, or another kind.")
+            } else if shown.isEmpty {
+                ModAuthorRows(authors: authors(index), index: index, open: openAuthor)
             } else {
+                if kind == nil, !authors(index).isEmpty { ModAuthorRows(authors: authors(index), index: index, open: openAuthor) }
                 SectionHeader(kind == .native ? "Native mods" : "Results", symbol: kind?.symbol ?? "magnifyingglass",
                               detail: "\(shown.count) found.", hue: ModsHue.tint)
                 if kind == .native { NativeBanner() }
@@ -216,10 +258,23 @@ struct ModsBrowse: View {
         .padding(.top, DS.Space.s)
     }
 
+    /// Plugins and Themes always; any other kind once the catalog has one; Native with the Bridge.
     private var kinds: [(ModKind?, String)] {
         var list: [(ModKind?, String)] = [(nil, "All"), (.plugin, "Plugins"), (.theme, "Themes")]
+        let present = Set(store.index?.mods.map(\.kind) ?? [])
+        for k in ModKind.allCases where k != .plugin && k != .theme && k != .native && present.contains(k) { list.append((k, k.plural)) }
         if bridge.status.isReady { list.append((.native, "Native")) }
         return list
+    }
+
+    /// Authors whose name or handle has every word of the search.
+    private func authors(_ index: ModIndex) -> [ModAuthor] {
+        let words = query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !words.isEmpty else { return [] }
+        return index.allAuthors.filter { a in
+            let hay = (a.name + " " + a.github).lowercased()
+            return words.allSatisfy(hay.contains)
+        }
     }
 
     private func grid(_ mods: [ModEntry], featured: Bool = false) -> some View {
@@ -251,6 +306,7 @@ struct ModsInstalled: View {
 
     var body: some View {
         let mine = store.installed.sorted { name($0).localizedCaseInsensitiveCompare(name($1)) == .orderedAscending }
+        ModSetupRow().padding(.top, DS.Space.s)
         if mine.isEmpty {
             ThemesEmptyShelf(symbol: "shippingbox", text: "Nothing installed yet. Find plugins and themes in Browse.")
         } else {
@@ -279,8 +335,9 @@ struct ModsInstalled: View {
                           symbol: mod.kind.symbol, density: .compact) {
             HStack(spacing: DS.Space.s) {
                 if newer, let entry {
-                    Button("Update to \(entry.version)") { Task { await store.install(entry) } }.buttonStyle(ModPill())
+                    Button("Update to \(entry.version)") { store.requestInstall(entry) }.buttonStyle(ModPill())
                 }
+                if let held = store.held[mod.id] { ModChip(text: "Held at \(held)", symbol: "pin", hue: .orange) }
                 if store.work[mod.id] != nil { ProgressView().controlSize(.small) }
                 if let plugin {
                     // A plugin runs only while it is on; switching it on asks for its permissions first.
@@ -293,6 +350,7 @@ struct ModsInstalled: View {
                 }
                 // Short label so a plugin's switch, remove and chevron stay on one line.
                 ModHoldPill(title: "Remove") { store.remove(mod.id) }.help("Hold to remove")
+                if entry != nil { menu(mod) }
                 if entry != nil {
                     Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(DS.Ink.tertiary)
                 }
@@ -301,6 +359,25 @@ struct ModsInstalled: View {
         // The whole row opens the mod's page, not only a small button.
         .contentShape(Rectangle())
         .onTapGesture { if entry != nil { open(mod.id) } }
+    }
+}
+
+extension ModsInstalled {
+    /// More for a row: roll back, take updates again, open the page.
+    fileprivate func menu(_ mod: InstalledModInfo) -> some View {
+        Menu {
+            Button("Open Page") { open(mod.id) }
+            if let target = store.rollbackTarget(mod.id) {
+                Button("Roll Back to \(target.version)") { store.rollBack(mod.id) }
+            }
+            if store.held[mod.id] != nil {
+                Button("Allow Updates") { store.release(mod.id) }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle").font(.system(size: 14)).foregroundStyle(DS.Ink.secondary)
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .accessibilityLabel("More for \(name(mod))")
     }
 }
 
@@ -362,8 +439,14 @@ struct ModsUpdates: View {
                 HStack(spacing: DS.Space.s) {
                     if store.work[update.id] != nil { ProgressView().controlSize(.small) }
                     Button("Details") { open(update.id) }.buttonStyle(ModPill(prominent: false))
+                    if !store.reviewFor(update.entry).canInstallUnattended {
+                        ModChip(text: "Needs review", symbol: "hand.raised.fill", hue: .orange, strong: true)
+                    } else if let held = store.held[update.id] {
+                        ModChip(text: "Held at \(held)", symbol: "pin", hue: .orange)
+                    }
                     if update.compatible {
-                        Button("Update") { Task { await store.install(update.entry) } }.buttonStyle(ModPill())
+                        Button(store.reviewFor(update.entry).canInstallUnattended ? "Update" : "Review…") { store.requestInstall(update.entry) }
+                            .buttonStyle(ModPill())
                     } else {
                         ModChip(text: "Needs Atelier \(update.entry.minAtelier ?? "")", hue: .orange, strong: true)
                     }

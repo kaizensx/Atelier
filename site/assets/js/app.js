@@ -35,6 +35,7 @@ export const icon = {
   doc: P('<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>'),
   tag: P('<path d="M3 12V4h8l9 9-8 8z"/><circle cx="7.5" cy="8.5" r="1.2"/>'),
   users: P('<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/>'),
+  thumb: P('<path d="M7 11v9H4v-9zM7 11l4-7c1.5 0 2.5 1 2.2 2.6L12.6 10H19a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 17.8 20H7"/>'),
 };
 
 /* ---------- helpers ---------- */
@@ -152,7 +153,18 @@ function shell() {
 }
 
 /* ---------- shared renderers ---------- */
-const kindLabel = { plugin: "Plugin", theme: "Theme", native: "Native" };
+const kindLabel = { plugin: "Plugin", theme: "Theme", native: "Native", icons: "Icons", sounds: "Sounds", shader: "Shader", layouts: "Layouts", effects: "Effects", look: "Look" };
+/** "1.2k installs", the same rounding as Atelier: never above the real count. */
+export function installs(n) {
+  if (n == null) return "";
+  const short = n < 1000 ? String(n) : n < 10000 ? `${(Math.floor(n / 100) / 10).toString()}k` : n < 1e6 ? `${Math.floor(n / 1000)}k` : `${(Math.floor(n / 1e5) / 10).toString()}M`;
+  return n === 1 ? "1 install" : `${short} installs`;
+}
+const modStats = (m) => [
+  m.downloads > 0 ? `<span class="mstat" title="Installs from the catalog">${icon.down}${esc(installs(m.downloads))}</span>` : "",
+  m.likes > 0 ? `<span class="mstat" title="Likes on GitHub">${icon.thumb}${esc(installs(m.likes).replace(/ installs?$/, ""))}</span>` : "",
+].join("");
+const authorName = (m) => (m.author && typeof m.author === "object" ? m.author.name : m.author) || m.github || "";
 const permInfo = {
   network: { name: "Network", text: "Reaches only the hosts it lists, over https.", icon: icon.globe },
   notifications: { name: "Notifications", text: "Posts notifications in Notification Center.", icon: icon.bell },
@@ -176,7 +188,8 @@ export function modCard(m, { featured = false } = {}) {
         <p class="sum">${esc(m.summary)}</p>
         <div class="chips">${perms}</div>
         <div class="foot">
-          <span class="who">${m.github ? `<img class="avatar" src="${avatar(m.github, 44)}" alt="" width="22" height="22" loading="lazy">` : ""}<span>${esc(m.author || m.github || "")}</span></span>
+          <span class="who">${m.github ? `<img class="avatar" src="${avatar(m.github, 44)}" alt="" width="22" height="22" loading="lazy">` : ""}<span>${esc(authorName(m))}</span></span>
+          ${modStats(m)}
           <span class="v">v${esc(m.version)}</span>
         </div>
       </div>
@@ -228,19 +241,48 @@ pages.mods = async () => {
   const grid = $("[data-grid]"), count = $("[data-count]"), input = $("#q");
   const params = new URLSearchParams(location.search);
   let kind = params.get("kind") || "all", q = params.get("q") || "";
+  const author = (params.get("author") || "").toLowerCase();
   if (input) input.value = q;
   if (cat.seed) $("[data-seed]")?.removeAttribute("hidden");
-  const counts = { all: cat.mods.length, plugin: 0, theme: 0, native: 0 };
-  cat.mods.forEach((m) => (counts[m.kind] = (counts[m.kind] ?? 0) + 1));
+  // An author's page: mods.html?author=<github handle>.
+  const pool = author ? cat.mods.filter((m) => (m.github || "").toLowerCase() === author) : cat.mods;
+  const head = $("[data-author]");
+  if (author && head) {
+    const listed = (cat.authors ?? []).find((a) => a.github.toLowerCase() === author);
+    const handle = listed?.github ?? pool[0]?.github ?? author;
+    const name = listed?.name ?? (pool[0] ? authorName(pool[0]) : handle);
+    const total = pool.reduce((n, m) => n + (m.downloads ?? 0), 0);
+    const site = listed?.url ?? pool.find((m) => m.authorURL)?.authorURL;
+    document.title = `${name} · Atelier Mods`;
+    head.innerHTML = `<img class="avatar" src="${avatar(handle, 112)}" alt="" width="56" height="56">
+      <div style="display:grid;gap:4px;flex:1;min-width:0"><h2>${esc(name)}</h2><span class="faint small">@${esc(handle)} · ${pool.length} ${pool.length === 1 ? "mod" : "mods"}${total ? ` · ${esc(installs(total))}` : ""}</span></div>
+      <div class="btns">${btn(`https://github.com/${encodeURIComponent(handle)}`, "GitHub", "ghost sm")}${site && /^https:/.test(site) ? btn(site, "Website", "ghost sm") : ""}${btn("mods.html", "All mods", "ghost sm", icon.right)}</div>`;
+    head.removeAttribute("hidden");
+  }
+  const counts = { all: pool.length, plugin: 0, theme: 0, native: 0 };
+  pool.forEach((m) => (counts[m.kind] = (counts[m.kind] ?? 0) + 1));
   $$(".seg button").forEach((b) => { const n = b.querySelector(".n"); if (n) n.textContent = counts[b.dataset.kind] ?? 0; });
 
   const draw = () => {
     $$(".seg button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === kind)));
     const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-    const list = cat.mods.filter((m) => (kind === "all" || m.kind === kind) &&
-      words.every((w) => [m.name, m.summary, m.author, m.github, ...(m.tags ?? [])].join(" ").toLowerCase().includes(w)))
+    const list = pool.filter((m) => (kind === "all" || m.kind === kind) &&
+      words.every((w) => [m.name, m.summary, authorName(m), m.github, m.id, ...(m.tags ?? [])].join(" ").toLowerCase().includes(w)))
       .sort((a, b) => (cat.featured?.includes(b.id) - cat.featured?.includes(a.id)) || a.name.localeCompare(b.name));
     count.textContent = `${list.length} ${list.length === 1 ? "mod" : "mods"}`;
+    // Featured this week and the collections, on the plain gallery only.
+    const shelves = $("[data-shelves]");
+    if (shelves) {
+      const plain = !author && !q && kind === "all";
+      const byId = (id) => cat.mods.find((m) => m.id === id);
+      const featured = (cat.featured ?? []).map(byId).filter(Boolean);
+      const shelf = (title, note, mods, feat = false) => mods.length ? `<div class="shelf-head" data-reveal><h2>${esc(title)}</h2>${note ? `<p>${esc(note)}</p>` : ""}</div><div class="shelf">${mods.map((m) => modCard(m, { featured: feat })).join("")}</div>` : "";
+      shelves.innerHTML = plain
+        ? shelf("Featured this week", cat.featuredNote, featured, true) + (cat.collections ?? []).map((c) => shelf(c.title, c.description, (c.mods ?? []).map(byId).filter(Boolean))).join("")
+          + (featured.length || cat.collections?.length ? `<div class="shelf-head"><h2>All mods</h2></div>` : "")
+        : "";
+      reveal(shelves);
+    }
     if (list.length) grid.innerHTML = list.map((m) => modCard(m, { featured: cat.featured?.includes(m.id) })).join("");
     else if (kind === "native" && !q) grid.innerHTML = empty(icon.chip, "No native mods yet", "Native mods run inside the Dock through the Dock Bridge. They are reviewed by a maintainer, source and all, before they are listed.", btn(`https://github.com/${MODS_REPO}/blob/main/native/README.md`, "How native mods work", "ghost"));
     else grid.innerHTML = empty(icon.search, "Nothing matches", q ? `No mod matches “${esc(q)}”. Try a shorter word, or another kind.` : "No mods of this kind yet. Yours could be the first.", btn("#submit", "Submit a mod", "ghost", icon.right));
@@ -248,6 +290,7 @@ pages.mods = async () => {
     const url = new URL(location.href);
     kind === "all" ? url.searchParams.delete("kind") : url.searchParams.set("kind", kind);
     q ? url.searchParams.set("q", q) : url.searchParams.delete("q");
+    author ? url.searchParams.set("author", author) : url.searchParams.delete("author");
     history.replaceState(null, "", url);
   };
   $$(".seg button").forEach((b) => b.addEventListener("click", () => { kind = b.dataset.kind; draw(); }));
@@ -284,7 +327,8 @@ pages.mod = async () => {
           <h1 class="h2">${esc(m.name)}</h1>
           <p class="lead">${esc(m.summary)}</p>
           <a class="btn m-only" href="${esc(install)}" style="justify-self:start">Open in Atelier<span class="ico">${icon.arrow}</span></a>
-          <a class="who" href="https://github.com/${esc(m.github)}" rel="noopener"><img class="avatar" src="${avatar(m.github, 56)}" alt="" width="28" height="28" style="width:28px;height:28px"><span>${esc(m.author)} <span class="faint">@${esc(m.github)}</span></span></a>
+          <a class="who" href="mods.html?author=${encodeURIComponent(m.github)}"><img class="avatar" src="${avatar(m.github, 56)}" alt="" width="28" height="28" style="width:28px;height:28px"><span>${esc(authorName(m))} <span class="faint">@${esc(m.github)} · all their mods</span></span></a>
+          ${m.downloads > 0 || m.likes > 0 ? `<div class="chips faint small" style="gap:14px">${modStats(m)}</div>` : ""}
         </header>
         ${shots.length ? `<figure class="gallery shell" style="margin:0" data-reveal><div class="core"><img class="main" src="${esc(imgURL(shots[0]))}" alt="${esc(shots[0].caption || m.name)}" width="${shots[0].width || 1280}" height="${shots[0].height || 800}"><figcaption>${esc(shots[0].caption || "")}</figcaption></div></figure>
           ${shots.length > 1 ? `<div class="thumbs">${shots.map((s, i) => `<button type="button" aria-pressed="${i === 0}" aria-label="Screenshot ${i + 1}" data-i="${i}"><img src="${esc(imgURL(s))}" alt="" loading="lazy"></button>`).join("")}</div>` : ""}` : ""}
@@ -297,12 +341,16 @@ pages.mod = async () => {
           <div class="btns">
             ${m.package?.url ? `<a class="btn ghost sm" href="${esc(m.package.url)}" rel="noopener">Download<span class="ico">${icon.down}</span></a>` : ""}
             ${m.homepage ? `<a class="btn ghost sm" href="${esc(m.homepage)}" rel="noopener">Source<span class="ico">${icon.arrow}</span></a>` : ""}
+            ${m.discussion && /^https:\/\/github\.com\//.test(m.discussion) ? `<a class="btn ghost sm" href="${esc(m.discussion)}" rel="noopener">Discuss on GitHub<span class="ico">${icon.chat}</span></a>` : ""}
           </div>
         </div></div>
         <div class="shell" data-reveal><div class="core card"><h2 class="small faint" style="margin-bottom:6px;font-weight:600;letter-spacing:.1em;text-transform:uppercase">Asks for</h2>${perms}</div></div>
         <div class="shell" data-reveal><div class="core card">
           <dl class="kv">
             <dt>Version</dt><dd>v${esc(m.version)}</dd>
+            <dt>Signed</dt><dd>${m.authorKey && m.packageSignature ? "By the author and the catalog" : "By the catalog"}</dd>
+            ${m.downloads != null ? `<dt>Installs</dt><dd>${esc(num(m.downloads))}</dd>` : ""}
+            ${m.likes != null ? `<dt>Likes</dt><dd>${esc(num(m.likes))}</dd>` : ""}
             <dt>Updated</dt><dd>${date(m.updated)}</dd>
             ${m.minAtelier ? `<dt>Needs</dt><dd>Atelier ${esc(m.minAtelier)}+</dd>` : ""}
             <dt>Licence</dt><dd>${esc(m.license || "")}</dd>

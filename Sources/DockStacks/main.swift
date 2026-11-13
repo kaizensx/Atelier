@@ -451,6 +451,11 @@ if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--render-permi
     PermissionRenders.run(into: URL(fileURLWithPath: CommandLine.arguments[2]))
     exit(0)
 }
+// Offline renders of the Mods community pieces, from a made-up catalog.
+if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--render-mods" {
+    ModRenders.run(into: URL(fileURLWithPath: CommandLine.arguments[2]))
+    exit(0)
+}
 #endif
 
 // Command line, for scripts and Shortcuts. Prints the stack path.

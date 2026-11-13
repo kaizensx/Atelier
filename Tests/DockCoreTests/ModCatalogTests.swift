@@ -314,3 +314,108 @@ private func indexJSON(_ entries: [String], featured: [String] = ["com.example.p
     #expect(ModKind.theme.packageExtension == "ateliertheme")
     #expect(ModKind.native.packageExtension == "ateliermod")
 }
+
+// MARK: Community fields: authors, collections, installs, likes, discussion, release assets
+
+private let communityKey = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation.base64EncodedString()
+private let communitySig = Data(repeating: 7, count: 64).base64EncodedString()
+
+private func communityEntryJSON(id: String = "com.example.pomodoro", github: String = "kaizensx",
+                                key: String = communityKey, discussion: String = "https://github.com/kaizensx/atelier-mods/discussions/12",
+                                release: String = "https://github.com/kaizensx/atelier-mods/releases/download/com.example.pomodoro%401.2.0/1.2.0.zip",
+                                authorURL: String = "https://example.com", downloads: Int = 1234) -> String {
+    """
+    {"id":"\(id)","name":"Pomodoro","author":"Ana","github":"\(github)","kind":"plugin","version":"1.2.0",
+     "summary":"A focus timer.","permissions":["notifications"],"hosts":[],"tags":["focus"],
+     "updated":"2026-11-10T10:00:00Z","screenshots":[],
+     "authorKey":"\(key)","packageSignature":"\(communitySig)","authorURL":"\(authorURL)",
+     "downloads":\(downloads),"likes":9,"discussion":"\(discussion)",
+     "package":{"url":"https://raw.githubusercontent.com/kaizensx/atelier-mods/dist/p/1.2.0.zip","sha256":"\(digest)","size":4096,"release":"\(release)"},
+     "versions":[{"version":"1.2.0","authorKey":"\(key)","packageSignature":"\(communitySig)","permissions":["notifications"],"hosts":[],
+                  "package":{"url":"https://raw.githubusercontent.com/kaizensx/atelier-mods/dist/p/1.2.0.zip","sha256":"\(digest)","size":4096,"release":"\(release)"}},
+                 {"version":"1.0.0","package":{"url":"https://raw.githubusercontent.com/kaizensx/atelier-mods/dist/p/1.0.0.zip","sha256":"\(digest)","size":4000}}]}
+    """
+}
+
+private func communityIndex(_ entries: [String], extra: String) -> Data {
+    Data("""
+    {"format":1,"generated":"2026-11-11T12:00:00Z","featured":["com.example.pomodoro"],"mods":[\(entries.joined(separator: ","))],\(extra)}
+    """.utf8)
+}
+
+@Test func indexCarriesAuthorKeysCountsAndReleaseAssets() throws {
+    let index = try ModIndexParser.parse(communityIndex([communityEntryJSON()], extra: #""featuredNote":"Focus week.""#))
+    let mod = try #require(index.mod("com.example.pomodoro"))
+    #expect(mod.authorKey == communityKey)
+    #expect(mod.packageSignature == communitySig)
+    #expect(mod.signedByAuthor)
+    #expect(mod.downloads == 1234 && mod.likes == 9)
+    #expect(mod.discussion?.absoluteString == "https://github.com/kaizensx/atelier-mods/discussions/12")
+    #expect(mod.authorURL?.host() == "example.com")
+    #expect(mod.package.release?.host() == "github.com")
+    #expect(mod.package.sources.first == mod.package.release)                 // release asset first, counted
+    #expect(mod.package.sources.last == mod.package.url)                      // dist copy as the fallback
+    #expect(mod.versions.first?.permissions == ["notifications"])
+    #expect(mod.versions.last?.authorKey == nil)                              // an old unsigned version
+    #expect(index.featuredNote == "Focus week.")
+    // Round trip keeps every new field.
+    #expect(try ModIndexParser.parse(ModIndexParser.encoder.encode(index)) == index)
+}
+
+@Test func indexDropsUnsafeCommunityFields() throws {
+    let entry = communityEntryJSON(key: "not a key", discussion: "https://evil.example/discussions/1",
+                                   release: "http://github.com/x.zip", authorURL: "http://example.com", downloads: -5)
+    let mod = try #require(try ModIndexParser.parse(communityIndex([entry], extra: #""collections":[]"#)).mods.first)
+    #expect(mod.authorKey == nil && mod.packageSignature == nil)              // no key, no signature to check
+    #expect(!mod.signedByAuthor)
+    #expect(mod.signingLabel == "Signed by the catalog")
+    #expect(mod.discussion == nil)                                            // only github.com
+    #expect(mod.package.release == nil)                                       // only https
+    #expect(mod.authorURL == nil)
+    #expect(mod.downloads == nil)
+    #expect(mod.package.sources == [mod.package.url])
+}
+
+@Test func collectionsAndAuthorsAreCheckedAgainstTheCatalog() throws {
+    let extra = """
+    "collections":[{"id":"focus","title":"Focus","description":"Stay on task.","mods":["com.example.pomodoro","com.example.gone","com.example.pomodoro"]},
+                   {"id":"empty","title":"Nothing here","mods":["com.example.gone"]},
+                   {"id":"focus","title":"Duplicate","mods":["com.example.pomodoro"]},
+                   {"id":"untitled","title":" ","mods":["com.example.pomodoro"]}],
+    "authors":[{"github":"kaizensx","name":"Kaizen","url":"https://example.com","mods":["com.example.pomodoro","com.example.gone"]},
+               {"github":"-bad-","name":"Bad"},
+               {"github":"KAIZENSX","name":"Again"}]
+    """
+    let index = try ModIndexParser.parse(communityIndex([communityEntryJSON(), communityEntryJSON(id: "com.example.other", github: "someone")], extra: extra))
+    #expect(index.collections.map(\.id) == ["focus"])
+    #expect(index.collections.first?.mods == ["com.example.pomodoro"])       // unknown and repeated ids dropped
+    #expect(index.mods(in: index.collections[0]).map(\.id) == ["com.example.pomodoro"])
+    #expect(index.authors.map(\.github) == ["kaizensx"])
+    #expect(index.authors.first?.mods == ["com.example.pomodoro"])
+    // Author pages work for everyone, listed or not.
+    #expect(index.allAuthors.map(\.github) == ["kaizensx", "someone"])
+    #expect(index.author("SOMEONE")?.mods == ["com.example.other"])
+    #expect(index.mods(by: "kaizensx").map(\.id) == ["com.example.pomodoro"])
+    #expect(index.author("kaizensx")?.profile?.absoluteString == "https://github.com/kaizensx")
+}
+
+@Test func searchMatchesAuthorAndTags() throws {
+    let index = try ModIndexParser.parse(communityIndex([communityEntryJSON()], extra: #""authors":[]"#))
+    #expect(ModQuery.filter(index.mods, kind: nil, text: "ana", includeNative: false).count == 1)
+    #expect(ModQuery.filter(index.mods, kind: nil, text: "kaizensx", includeNative: false).count == 1)
+    #expect(ModQuery.filter(index.mods, kind: nil, text: "focus", includeNative: false).count == 1)
+    #expect(ModQuery.filter(index.mods, kind: nil, text: "nobody", includeNative: false).isEmpty)
+}
+
+@Test func installCountsReadShort() {
+    #expect(ModCounts.short(0) == "0")
+    #expect(ModCounts.short(950) == "950")
+    #expect(ModCounts.short(1000) == "1k")
+    #expect(ModCounts.short(1234) == "1.2k")
+    #expect(ModCounts.short(1299) == "1.2k")                                  // never rounds up past the real count
+    #expect(ModCounts.short(12_345) == "12k")
+    #expect(ModCounts.short(1_250_000) == "1.2M")
+    #expect(ModCounts.installs(1) == "1 install")
+    #expect(ModCounts.installs(1234) == "1.2k installs")
+    #expect(ModCounts.likes(3) == "3 likes")
+}

@@ -167,8 +167,12 @@ struct ModCard: View {
                     ModChip(text: entry.kind.title, symbol: entry.kind.symbol, hue: ModsHue.kind(entry.kind))
                     ForEach(entry.pluginPermissions) { p in ModChip(text: p.title, symbol: p.symbol) }
                 }
-                Text("By \(entry.author)" + (entry.github.isEmpty ? "" : " · @\(entry.github)"))
-                    .font(DS.caption).foregroundStyle(DS.Ink.tertiary).lineLimit(1)
+                HStack(spacing: 6) {
+                    Text("By \(entry.author)" + (entry.github.isEmpty ? "" : " · @\(entry.github)"))
+                        .font(DS.caption).foregroundStyle(DS.Ink.tertiary).lineLimit(1)
+                    Spacer(minLength: 4)
+                    ModStats(entry: entry)
+                }
             }
             .padding(DS.Space.s + 2)
             .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -203,6 +207,8 @@ struct ModPage: View {
     let install: (ModEntry) -> Void
     /// Opens another chapter, for the "In Atelier" shortcuts.
     var go: (Chapter) -> Void = { _ in }
+    /// Opens an author's page, by GitHub handle.
+    var openAuthor: (String) -> Void = { _ in }
     @ObservedObject private var store = ModStore.shared
     @ObservedObject private var registry = PluginRegistry.shared
     @State private var shot = 0
@@ -251,6 +257,16 @@ struct ModPage: View {
                     .font(DS.caption).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
                 Text(entry.summary).font(DS.body).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 2)
+                HStack(spacing: DS.Space.s) {
+                    if ModCommunity.isHandle(entry.github) {
+                        Button { openAuthor(entry.github) } label: {
+                            Label("More by \(entry.author)", systemImage: "person.crop.circle").font(DS.caption).foregroundStyle(ModsHue.tint)
+                        }
+                        .buttonStyle(Pressable())
+                    }
+                    ModStats(entry: entry)
+                }
+                .padding(.top, 2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             actions
@@ -281,8 +297,18 @@ struct ModPage: View {
                 }
             }
             if case .installed = state { removeButton } else if case .update = state { removeButton }
+            if let target = store.rollbackTarget(entry.id), store.work[entry.id] == nil {
+                Button("Roll Back to \(target.version)") { store.rollBack(entry.id) }.buttonStyle(ModPill(prominent: false))
+            }
+            if let held = store.held[entry.id] {
+                Button("Allow Updates") { store.release(entry.id) }.buttonStyle(ModPill(prominent: false))
+                    .help("Held at \(held) after a rollback. Update All leaves it there until you allow updates.")
+            }
             if let homepage = entry.homepage {
                 Button("Homepage") { NSWorkspace.shared.open(homepage) }.buttonStyle(ModPill(prominent: false))
+            }
+            if let discussion = entry.discussion {
+                Button("Discuss on GitHub") { NSWorkspace.shared.open(discussion) }.buttonStyle(ModPill(prominent: false))
             }
         }
     }
@@ -409,6 +435,10 @@ struct ModPage: View {
     private var details: some View {
         RowGroup {
             row("Version", entry.version)
+            row("Signed", entry.signedByAuthor ? "By the author and the catalog" : "By the catalog")
+            if let key = entry.authorKey { row("Author key", ModAuthorSignature.fingerprint(key)) }
+            if let n = entry.downloads { row("Installs", ModCounts.short(n)) }
+            if let n = entry.likes { row("Likes", ModCounts.short(n)) }
             if let need = entry.minAtelier { row("Needs Atelier", need + " or newer") }
             if let license = entry.license { row("Licence", license) }
             row("Size", ByteCountFormatter.string(fromByteCount: Int64(entry.package.size), countStyle: .file))
@@ -434,10 +464,18 @@ struct ModPage: View {
             SectionHeader("Version history", symbol: "clock.arrow.circlepath", hue: ModsHue.tint)
             RowGroup {
                 ForEach(entry.versions, id: \.version) { v in
-                    SettingRow(title: v.version + (v.version == entry.version ? " (latest)" : ""),
+                    let mine = store.installedVersion(entry.id)
+                    SettingRow(title: v.version + (v.version == entry.version ? " (latest)" : "") + (v.version == mine ? " · installed" : ""),
                                detail: v.notes ?? "No notes.", density: .compact) {
-                        Text(v.date.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "")
-                            .font(DS.Typo.value).foregroundStyle(DS.Ink.tertiary)
+                        HStack(spacing: DS.Space.s) {
+                            Text(v.date.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "")
+                                .font(DS.Typo.value).foregroundStyle(DS.Ink.tertiary)
+                            // Any version, older ones with a warning on the review sheet first.
+                            if v.version != mine, store.work[entry.id] == nil, entry.kind != .native || store.nativeAvailable {
+                                Button("Install This Version") { store.install(entry, version: v.version) }
+                                    .buttonStyle(ModPill(prominent: false))
+                            }
+                        }
                     }
                 }
             }

@@ -73,8 +73,14 @@ public struct ModFile: Codable, Equatable, Hashable, Sendable {
     public var url: URL
     public var sha256: String
     public var size: Int
+    /// The same bytes as a GitHub Release asset of the catalog (tag `<id>@<version>`). Downloaded
+    /// from there first, so the catalog can count installs without any tracking; `url` is the
+    /// fallback. The checks are the same either way: size and SHA-256 from the signed index.
+    public var release: URL?
 
-    public init(url: URL, sha256: String, size: Int) { self.url = url; self.sha256 = sha256; self.size = size }
+    public init(url: URL, sha256: String, size: Int, release: URL? = nil) {
+        self.url = url; self.sha256 = sha256; self.size = size; self.release = release
+    }
 }
 
 public struct ModScreenshot: Codable, Equatable, Hashable, Sendable {
@@ -96,9 +102,18 @@ public struct ModVersion: Codable, Equatable, Sendable {
     public var date: Date?
     public var notes: String?
     public var package: ModFile
+    /// The author's Ed25519 public key (base64) for this version, and their signature over the
+    /// package zip (base64). Both absent for a mod whose author does not sign.
+    public var authorKey: String?
+    public var packageSignature: String?
+    /// What this version asked for, when the index recorded it.
+    public var permissions: [String]?
+    public var hosts: [String]?
 
-    public init(version: String, date: Date? = nil, notes: String? = nil, package: ModFile) {
+    public init(version: String, date: Date? = nil, notes: String? = nil, package: ModFile,
+                authorKey: String? = nil, packageSignature: String? = nil, permissions: [String]? = nil, hosts: [String]? = nil) {
         self.version = version; self.date = date; self.notes = notes; self.package = package
+        self.authorKey = authorKey; self.packageSignature = packageSignature; self.permissions = permissions; self.hosts = hosts
     }
 }
 
@@ -126,6 +141,18 @@ public struct ModEntry: Codable, Equatable, Sendable, Identifiable {
     public var package: ModFile
     /// Newest first.
     public var versions: [ModVersion]
+    // Community and trust (see ModCommunity.swift). All optional: an older index has none.
+    /// The author's signing key and signature for the current version.
+    public var authorKey: String?
+    public var packageSignature: String?
+    /// The author's own page (`author.url` in mod.json), https only.
+    public var authorURL: URL?
+    /// Installs: the download counts of the catalog's release assets, summed over versions.
+    public var downloads: Int?
+    /// Thumbs-up reactions on the mod's GitHub Discussion.
+    public var likes: Int?
+    /// The mod's GitHub Discussion thread.
+    public var discussion: URL?
 
     public init(id: String, name: String, author: String, github: String, kind: ModKind, version: String,
                 summary: String, description: String = "", permissions: [String] = [], hosts: [String] = [],
@@ -142,6 +169,7 @@ public struct ModEntry: Codable, Equatable, Sendable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id, name, author, github, kind, version, summary, description, permissions, hosts, minAtelier
         case homepage, license, tags, added, updated, screenshots, package, versions
+        case authorKey, packageSignature, authorURL, downloads, likes, discussion
     }
 
     public init(from decoder: Decoder) throws {
@@ -165,6 +193,12 @@ public struct ModEntry: Codable, Equatable, Sendable, Identifiable {
         screenshots = (try? c.decodeIfPresent([ModScreenshot].self, forKey: .screenshots)) ?? []
         package = try c.decode(ModFile.self, forKey: .package)
         versions = (try? c.decodeIfPresent([ModVersion].self, forKey: .versions)) ?? []
+        authorKey = try? c.decodeIfPresent(String.self, forKey: .authorKey)
+        packageSignature = try? c.decodeIfPresent(String.self, forKey: .packageSignature)
+        authorURL = try? c.decodeIfPresent(URL.self, forKey: .authorURL)
+        downloads = try? c.decodeIfPresent(Int.self, forKey: .downloads)
+        likes = try? c.decodeIfPresent(Int.self, forKey: .likes)
+        discussion = try? c.decodeIfPresent(URL.self, forKey: .discussion)
     }
 
     /// Plugin permissions this mod asks for that Atelier knows.
@@ -181,6 +215,12 @@ public struct ModIndex: Codable, Equatable, Sendable {
     /// Ids shown under Featured, in order.
     public var featured: [String]
     public var mods: [ModEntry]
+    /// A line from the maintainers about this week's featured mods.
+    public var featuredNote: String?
+    /// Shelves curated by the maintainers (collections.json in the catalog).
+    public var collections: [ModCollection] = []
+    /// Everyone with a mod in the catalog, from their mod.json files.
+    public var authors: [ModAuthor] = []
 
     public init(format: Int = ModIndex.format, generated: Date, catalog: String? = nil, featured: [String] = [], mods: [ModEntry]) {
         self.format = format; self.generated = generated; self.catalog = catalog; self.featured = featured; self.mods = mods
@@ -260,6 +300,9 @@ public enum ModIndexParser {
             let catalog: String?
             let featured: [String]?
             let mods: [Lenient<ModEntry>]
+            let featuredNote: String?
+            let collections: [Lenient<ModCollection>]?
+            let authors: [Lenient<ModAuthor>]?
         }
         let raw: Raw
         do { raw = try decoder.decode(Raw.self, from: data) } catch {
@@ -272,7 +315,11 @@ public enum ModIndexParser {
             mods.append(clean)
         }
         let featured = (raw.featured ?? []).filter(seen.contains)
-        return ModIndex(format: raw.format, generated: raw.generated, catalog: raw.catalog, featured: featured, mods: mods)
+        var index = ModIndex(format: raw.format, generated: raw.generated, catalog: raw.catalog, featured: featured, mods: mods)
+        index.featuredNote = raw.featuredNote.map { String($0.prefix(200)) }.flatMap { $0.isEmpty ? nil : $0 }
+        index.collections = ModCommunity.sanitize(collections: raw.collections?.compactMap(\.value) ?? [], known: seen)
+        index.authors = ModCommunity.sanitize(authors: raw.authors?.compactMap(\.value) ?? [], known: seen)
+        return index
     }
 
     /// Keeps an entry only when everything Atelier will act on is sound.
@@ -295,6 +342,7 @@ public enum ModIndexParser {
                 && ModIntegrity.isDigest($0.package.sha256)
         }.sorted { (AppVersion($0.version) ?? AppVersion("0")!) > (AppVersion($1.version) ?? AppVersion("0")!) }
         if e.homepage.map({ $0.scheme != "https" }) == true { e.homepage = nil }
+        ModCommunity.sanitize(&e, allowLoopback: allowLoopback)
         return e
     }
 }

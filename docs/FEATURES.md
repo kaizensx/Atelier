@@ -58,11 +58,33 @@ to the whole Mac; **Revert** undoes the run.
 
 Community plugins and themes from the signed catalog at github.com/kaizensx/atelier-mods.
 
-- **Browse:** search, filter by Plugins or Themes, open a mod's page (screenshots, description,
-  permissions, version history) and install it. Plugins ask for their permissions right after.
+- **Browse:** search by name, author or tag, filter by kind, open a mod's page (screenshots,
+  description, permissions, version history) and install it. Plugins ask for their permissions
+  right after. **Featured this week** (with the maintainers' note), **collections** as shelves,
+  and install counts and likes on every card. A search that matches an author lists them too.
+- **Authors:** "More by" on a mod's page opens the author's page: all their mods, their total
+  installs, and links to their GitHub and their own site.
+- **Signed twice:** every mod is signed by the catalog; an author can sign their own packages too
+  ("Signed by the author and the catalog" on the page, with the key's fingerprint). Atelier checks
+  both. If an update is signed by a different key than the version you have, a sheet says **This
+  mod changed hands** and nothing installs until you tick that you trust the new publisher.
 - **Installed:** every mod on this Mac. Click a row to open its page; plugins have their on/off
-  switch in the row; hold **Remove** to take one out.
-- **Updates:** newer versions from the catalog, one at a time or all at once.
+  switch in the row; hold **Remove** to take one out. The row's **⋯** menu has **Roll Back to**
+  the previous version and **Allow Updates** for a mod held at an older version.
+- **Versions:** on a mod's page, **Roll Back to** the version you had before, or **Install This
+  Version** on any row of the history (an older one asks first, and Update All then leaves it
+  there until you allow updates).
+- **Updates:** newer versions from the catalog, one at a time or all at once. An update that asks
+  for new permissions or network hosts shows the difference and asks first; **Update All** never
+  installs those and marks them **Needs review**.
+- **Installs and likes, without tracking:** downloads come from the catalog's GitHub Release
+  assets, and the count shown is GitHub's own download count. Likes are the 👍 on the mod's GitHub
+  Discussion; **Discuss on GitHub** opens it in the browser. Atelier sends nothing else.
+- **Export Setup… / Import Setup…** (Installed): a `.ateliersetup` file with your installed mods
+  and versions, which plugins are on, and the applied theme or Look. Secrets are never saved;
+  plugin data only with **Include plugin data**, and even then without anything that looks like a
+  token or password. Importing shows what will be installed first, installs from the catalog,
+  and asks for each plugin's permissions on its own sheet.
 - **In Atelier:** on an installed plugin's page, where it shows up: its Dock tile, widgets, commands
   (with Run) and hot corner actions, each with a button to its place. The author's description
   stays as written.
