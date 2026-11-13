@@ -13,7 +13,7 @@
 //   const { view } = await p.render("hello");
 
 import vm from "node:vm";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 import { loadAPI, limit, cliRoot } from "./api.mjs";
 import { parseView, isSymbolName, isColor, ViewError } from "./views.mjs";
@@ -57,7 +57,7 @@ export async function loadPlugin(folder, options = {}) {
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   const entry = manifest.entry ?? "main.js";
   const source = options.source ?? readFileSync(join(folder, entry), "utf8");
-  const plugin = new Plugin(manifest, source, entry, options);
+  const plugin = new Plugin(manifest, source, entry, { folder, ...options });
   await plugin.start();
   return plugin;
 }
@@ -75,15 +75,16 @@ export class Plugin {
     this.hosts = (manifest.network?.hosts ?? []).map((h) => h.toLowerCase());
     this.now = options.now ?? Date.UTC(2026, 0, 1, 9, 0, 0);
     this.widgets = new Map(); this.tiles = new Map(); this.commands = new Map(); this.corners = new Map();
-    this.other = new Map();   // registrations of kinds this harness has no special case for
+    this.hooks = { palettes: new Map(), menuBars: new Map(), tiles: new Map(), stacks: new Map(), activities: new Map(), panels: new Map() };
+    this.asks = new Map();    // hooks.reply answers awaited by request number
+    this.values = new Map(Object.entries(options.settings ?? {}));  // settings the owner changed
+    this.folder = options.folder;
     this.events = new Map();  // event -> interval or null
     this.logs = [];           // { level, text }
     this.effects = [];        // notifications, opened links, theme changes, prompts, requests
     this.problems = [];       // errors the app would show: thrown exceptions, refused calls
     this.registered = new Set();
     this.storage = { ...(options.storage ?? {}) };
-    this.settings = Object.fromEntries((manifest.settings ?? []).map((s) => [s.key, s.default ?? null]));
-    Object.assign(this.settings, options.settings ?? {});
     this.timers = new Map();  // id -> { due, every, kind, target }
     this.jobs = [];
     this.pending = new Set();
@@ -196,6 +197,9 @@ export class Plugin {
       case "storage.keys": return Object.keys(this.storage).sort();
       case "storage.set": {
         const key = String(p.key ?? "");
+        if (key.startsWith("settings.") && (this.manifest.settings ?? []).some((s) => "settings." + s.key === key)) {
+          throw new PluginError(`storage: ${key} is a setting. Use atelier.settings.set.`);
+        }
         if (key.length < 1 || key.length > limit("storageKeyLength")) throw new PluginError(`storage: keys are 1 to ${limit("storageKeyLength")} characters.`);
         const next = { ...this.storage };
         if (p.value === null || p.value === undefined) delete next[key]; else next[key] = p.value;
@@ -240,7 +244,6 @@ export class Plugin {
         if (p.badge !== undefined && p.badge !== null) spec.badge = String(p.badge).slice(0, 4);
         if (isColor(p.tint)) spec.tint = p.tint;
         if (typeof p.progress === "number") spec.progress = Math.min(Math.max(p.progress, 0), 1);
-        for (const extra of ["menu", "accepts"]) if (p[extra] !== undefined) spec[extra] = p[extra];
         this.tiles.set(id, spec);
         return null;
       }
@@ -314,31 +317,171 @@ export class Plugin {
     }
   }
 
-  /** Kinds added to the API after this harness: registrations by their bridge name, else a recorded call. */
+  /** The engine's and the hooks' calls (PluginEngine.swift, PluginHooksBridge.swift), then anything newer. */
   generic(kind, p) {
-    const entry = this.api.api.find((e) => e.bridge === kind);
-    if (kind === "settings.get") return p && typeof p.key === "string" ? (this.settings[p.key] ?? null) : this.settings;
-    if (kind === "t") {
-      const strings = this.manifest.strings ?? {};
-      const text = strings[this.options.language ?? "en"]?.[p.key] ?? strings.en?.[p.key] ?? String(p.key ?? "");
-      return text.replace(/\{(\w+)\}/g, (m, k) => (p.values && k in p.values ? String(p.values[k]) : m));
-    }
-    if (kind === "asset") return `asset:${String(p.path ?? "")}`;
-    if (entry?.permission) this.need(entry.permission);
-    if (entry?.registers) {
-      const id = this.id(kind, p);
-      this.register(`${kind}:${id}`);
-      if (!this.other.has(kind)) this.other.set(kind, new Map());
-      this.other.get(kind).set(id, p);
+    if (kind === "httpSend") return this.http(p);
+    if (kind.startsWith("settings.")) return this.settingsCall(kind, p);
+    if (kind === "env.strings") return this.strings();
+    if (kind === "env.asset") return this.asset(p.path);
+    if (kind === "send") {
+      if (typeof p.to !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]*(\.[A-Za-z0-9][A-Za-z0-9_-]*)+$/.test(p.to)) {
+        throw new PluginError("send: the first argument is the other plugin's id, like com.example.timer.");
+      }
+      if (Buffer.byteLength(JSON.stringify(p.payload ?? null)) > limit("messagePayloadBytes")) throw new PluginError("send: a message may be at most 64 KB of JSON.");
+      this.effects.push({ kind: "send", to: p.to, payload: p.payload ?? null });
+      if (!(this.manifest.messages?.send ?? []).includes(p.to)) {
+        this.logs.push({ level: "warn", text: `Message to ${p.to} not delivered: ${p.to} is not listed under messages.send.` });
+      }
       return null;
     }
+    if (HOOKS.has(kind)) return this.hook(kind, p);
     this.effects.push({ kind, payload: p });
-    if (!entry) this.logs.push({ level: "debug", text: `atelier-mod test does not know the call "${kind}"; it was recorded.` });
+    this.logs.push({ level: "debug", text: `atelier-mod test does not know the call "${kind}"; it was recorded.` });
+    return null;
+  }
+
+  // --- Settings, strings, assets ---------------------------------------------------------
+
+  setting(key) {
+    const s = (this.manifest.settings ?? []).find((x) => x.key === key);
+    if (!s) throw new PluginError(`settings: "${key}" is not declared under settings in manifest.json.`);
+    return s;
+  }
+  settingValue(s) { return this.values.has(s.key) ? this.values.get(s.key) : (s.default ?? null); }
+  settingsCall(kind, p) {
+    if (kind === "settings.all") return Object.fromEntries((this.manifest.settings ?? []).map((s) => [s.key, this.settingValue(s)]));
+    const s = this.setting(String(p.key ?? ""));
+    if (kind === "settings.get") return this.settingValue(s);
+    if (kind !== "settings.set") throw new PluginError("Unknown settings call.");
+    const value = checkSetting(s, p.value ?? null);
+    if (value === null) this.values.delete(s.key); else this.values.set(s.key, value);
+    this.effects.push({ kind: "settings.set", key: s.key, value: s.type === "secret" ? "•••" : value });
+    return null;
+  }
+  strings() {
+    const tables = this.manifest.strings ?? {};
+    const norm = Object.fromEntries(Object.entries(tables).map(([k, v]) => [k.toLowerCase().replace(/_/g, "-"), v]));
+    const code = String(this.options.language ?? "en").toLowerCase().replace(/_/g, "-");
+    const mine = norm[code] ?? norm[code.split("-")[0]] ?? {};
+    return { ...(norm.en ?? {}), ...mine };
+  }
+  asset(path) {
+    path = String(path ?? "");
+    const ext = path.split(".").pop().toLowerCase();
+    const safe = path && !path.startsWith("/") && !path.split("/").some((part) => part === ".." || part.startsWith(".") || !part);
+    if (!safe || !["png", "jpg", "jpeg", "heic", "pdf"].includes(ext)) throw new PluginError(`asset: "${path}" is not a relative path to a png, jpg, jpeg, heic, pdf file.`);
+    const full = join(this.folder ?? ".", path);
+    if (!this.folder || !existsSync(full) || !lstatSync(full).isFile()) throw new PluginError(`asset: "${path}" is not in the plugin.`);
+    if (lstatSync(full).size > limit("assetBytes")) throw new PluginError(`asset: "${path}" is larger than 2 MB.`);
+    return path;
+  }
+
+  // --- Hooks ----------------------------------------------------------------------------
+
+  hook(kind, p) {
+    const permission = { menuBar: "menuBar", menuBarRemove: "menuBar", activity: "liveActivities", activityEnd: "liveActivities",
+      panel: "panels", panelShow: "panels", panelHide: "panels", panelPost: "panels", "scenes.list": "scenes", "scenes.apply": "scenes" }[kind];
+    const fail = (text) => { throw new PluginError(text); };
+    const id = () => (typeof p.id === "string" && ID.test(p.id) ? p.id : fail(`${kind}: an id of letters, digits, - _ or . is required, up to 64 characters.`));
+    const admit = (map, max, what) => { const key = id(); if (!map.has(key) && map.size >= max) fail(`A plugin may have at most ${max} ${what}.`); return key; };
+    const symbol = (s, path) => { if (s === undefined || s === null) return undefined; if (!isSymbolName(s)) fail(`${path}: "${s}" is not an SF Symbol name.`); return s; };
+    const title = (fallback) => String(p.title ?? "").slice(0, 60) || fallback;
+    if (permission) this.need(permission);
+    const h = this.hooks;
+    switch (kind) {
+      case "palette": {
+        const key = id();
+        let prefix;
+        if (typeof p.prefix === "string" && p.prefix) {
+          prefix = p.prefix.toLowerCase();
+          if (prefix.length > 12 || !/^[a-z0-9\-_.:/!?#@]+$/.test(prefix)) fail("paletteProvider: a prefix is 1 to 12 letters or digits, like \"gh\".");
+        }
+        admit(h.palettes, limit("paletteProviders"), "palette providers");
+        h.palettes.set(key, { id: key, title: title(key), ...(prefix ? { prefix } : {}) });
+        return null;
+      }
+      case "menuBar": {
+        const key = id();
+        const s = symbol(p.symbol, "menuBarItem");
+        const text = p.text === undefined || p.text === null || p.text === "" ? undefined : String(p.text).slice(0, 16);
+        if (!s && !text) fail("menuBarItem: give it a symbol, a text or both.");
+        const menu = checkMenu(p.menu, "menuBarItem.menu");
+        admit(h.menuBars, limit("menuBarItems"), "menu bar items");
+        h.menuBars.set(key, { id: key, title: title(key), ...(s ? { symbol: s } : {}), ...(text ? { text } : {}), menu });
+        return null;
+      }
+      case "menuBarRemove": h.menuBars.delete(id()); this.effects.push({ kind, id: p.id }); return null;
+      case "tileHooks": {
+        const accepts = (p.accepts ?? []).map((a) => (a === "url" || a === "text" ? a : fail("dockTile: accepts is a list of \"url\" and \"text\". Files are never handed to plugins.")));
+        h.tiles.set(id(), { id: p.id, menu: checkMenu(p.menu, "dockTile.menu"), accepts: [...new Set(accepts)] });
+        return null;
+      }
+      case "stack": {
+        const key = id();
+        const stackSymbol = symbol(p.symbol, "stackProvider") ?? "square.stack.3d.up";
+        admit(h.stacks, limit("stackProviders"), "stack providers");
+        h.stacks.set(key, { id: key, title: title(key), symbol: stackSymbol,
+          refresh: Math.min(Math.max(typeof p.refresh === "number" ? p.refresh : 0, 0), 86400) });
+        return null;
+      }
+      case "activity": {
+        const key = id();
+        h.activities.set(key, { id: key, title: title(key), symbol: symbol(p.symbol, "liveActivity") ?? "bolt.fill",
+          text: String(p.text ?? "").slice(0, 60), ...(typeof p.progress === "number" ? { progress: Math.min(Math.max(p.progress, 0), 1) } : {}),
+          ...(isColor(p.tint) ? { tint: p.tint } : {}), ...(p.until !== undefined ? { until: p.until } : {}) });
+        return null;
+      }
+      case "panel": {
+        const key = id();
+        if (typeof p.html !== "string") fail("panel: html is required, as a string.");
+        if (Buffer.byteLength(p.html) > limit("panelHTMLBytes")) fail("panel: html may be at most 512 KB.");
+        admit(h.panels, limit("panels"), "panels");
+        h.panels.set(key, { id: key, title: title(key), width: Math.min(Math.max(p.width ?? 420, 200), 1200),
+          height: Math.min(Math.max(p.height ?? 320, 120), 900), resizable: Boolean(p.resizable), htmlBytes: Buffer.byteLength(p.html) });
+        return null;
+      }
+      case "panelPost":
+        id();
+        if (Buffer.byteLength(JSON.stringify(p.message ?? null)) > limit("panelMessageBytes")) fail("panel.post: a message may be at most 64 KB of JSON.");
+        this.effects.push({ kind, id: p.id, message: p.message ?? null });
+        return null;
+      case "stackChanged": case "activityEnd": case "panelShow": case "panelHide":
+        id();
+        if (kind === "activityEnd") h.activities.delete(p.id);
+        this.effects.push({ kind, id: p.id });
+        return null;
+      case "scenes.list": {
+        const scenes = (this.options.fixtures?.scenes ?? []).map((s) => (typeof s === "string" ? { name: s } : s));
+        this.effects.push({ kind });
+        this.jobs.push(() => this.enter("settle", p.request, true, JSON.stringify({ scenes })));
+        return null;
+      }
+      case "scenes.apply": {
+        if (typeof p.name !== "string" || !p.name || p.name.length > 120) fail("scenes.apply: pass a Scene's name.");
+        const known = (this.options.fixtures?.scenes ?? []).map((s) => (typeof s === "string" ? s : s.name));
+        const ok = !known.length || known.includes(p.name);
+        this.effects.push({ kind, name: p.name });
+        this.jobs.push(() => this.enter("settle", p.request, ok, JSON.stringify(ok ? {} : { error: `There is no Scene called ${p.name}.` })));
+        return null;
+      }
+      case "hooks.reply": {
+        const waiting = this.asks.get(p.request);
+        if (waiting) { this.asks.delete(p.request); waiting(p); }
+        return null;
+      }
+    }
     return null;
   }
 
   http(p) {
-    if (typeof p.request !== "number" || typeof p.url !== "string") throw new PluginError("http.get: pass a URL string.");
+    const verb = String(p.method ?? "GET").toLowerCase();
+    if (p.method !== undefined && !["POST", "PUT", "PATCH", "DELETE"].includes(String(p.method).toUpperCase())) {
+      throw new PluginError("http: the method must be one of POST, PUT, PATCH, DELETE.");
+    }
+    if (typeof p.request !== "number" || typeof p.url !== "string") throw new PluginError(`http.${verb}: pass a URL string.`);
+    if (p.json === null && p.body !== null && p.body !== undefined && typeof p.body !== "string") {
+      throw new PluginError(`http.${verb}: body must be a string. Pass objects as json.`);
+    }
     this.need("network");
     let url;
     try { url = new URL(p.url); } catch { throw new PluginError("http.get: pass a URL string."); }
@@ -355,7 +498,12 @@ export class Plugin {
       if (["cookie", "host", "origin", "referer", "content-length", "connection"].includes(k.toLowerCase()) || !/^[A-Za-z0-9-]+$/.test(k) || v.length >= 2048) continue;
       headers[k] = v;
     }
-    const record = { kind: "http", method, url: p.url };
+    let body = null;
+    if (p.json !== undefined && p.json !== null) {
+      body = JSON.stringify(p.json);
+      if (!Object.keys(headers).some((k) => k.toLowerCase() === "content-type")) headers["Content-Type"] = "application/json";
+    } else if (typeof p.body === "string") body = p.body;
+    const record = { kind: "http", method, url: p.url, ...(body !== null ? { body } : {}) };
     this.effects.push(record);
     const settle = (ok, payload) => this.jobs.push(() => this.enter("settle", p.request, ok, JSON.stringify(payload)));
     const fixtures = this.options.fixtures?.http ?? {};
@@ -376,7 +524,7 @@ export class Plugin {
     const job = (async () => {
       const started = Date.now();
       try {
-        const response = await fetch(p.url, { method, headers, body: p.body, redirect: "follow", signal: AbortSignal.timeout(limit("requestSeconds") * 1000) });
+        const response = await fetch(p.url, { method, headers, body: body ?? undefined, redirect: "follow", signal: AbortSignal.timeout(limit("requestSeconds") * 1000) });
         const finalHost = new URL(response.url).hostname.toLowerCase();
         if (!this.hosts.includes(finalHost)) return settle(false, { error: `Redirected to ${finalHost}, which is not listed in network.hosts.` });
         const buffer = Buffer.from(await response.arrayBuffer());
@@ -433,8 +581,87 @@ export class Plugin {
   async click(idOrTitle) { const t = this.find(this.tiles, idOrTitle, "Dock tile"); await this.invoke(`tile:${t.id}:onClick`); }
   /** Fires a corner action. */
   async corner(idOrTitle) { const c = this.find(this.corners, idOrTitle, "corner action"); await this.invoke(`corner:${c.id}:run`); }
-  /** Runs a named action (atelier.action), as a button or toggle would. */
-  async action(id, payload = {}) { await this.invoke(`action:${id}:run`, payload); }
+  /** Runs an action by id (atelier.action, or an inline one from a view), as a tap would. */
+  async action(id, payload) { await this.invoke(`action:${id}`, payload); }
+
+  /** Taps the button or toggle titled `label` in any drawn widget. A toggle flips. */
+  async tap(label) {
+    const lower = String(label).toLowerCase();
+    for (const w of this.widgets.values()) {
+      const hit = findNode(w.view, (n) => (n.type === "button" && n.title?.toLowerCase() === lower) || (n.type === "toggle" && n.label?.toLowerCase() === lower));
+      if (hit) return this.action(hit.action, hit.type === "toggle" ? { on: !hit.on } : undefined);
+    }
+    throw new PluginError(`No button or toggle "${label}" in any widget.`);
+  }
+
+  /** Asks every palette provider for `query`, as the Command palette does. Returns their answers. */
+  async palette(query) {
+    const out = [];
+    for (const provider of this.hooks.palettes.values()) {
+      const asked = paletteQuery(provider, query);
+      if (asked === null) continue;
+      const answer = await this.ask(`palette:${provider.id}:search`, asked, limit("paletteRows"));
+      out.push({ provider: provider.id, query: asked, ...answer });
+    }
+    this.effects.push({ kind: "palette", query, answers: out });
+    return out;
+  }
+
+  /** Opens a stack from a stack provider, as clicking it on the Dock does. */
+  async openStack(idOrTitle) {
+    const stack = this.find(this.hooks.stacks, idOrTitle, "stack provider");
+    const answer = await this.ask(`stack:${stack.id}:items`, null, limit("stackItems"));
+    this.effects.push({ kind: "stack", id: stack.id, ...answer });
+    return answer;
+  }
+
+  /** __atelier.ask, as PluginHooks.swift calls it; the answer comes back through hooks.reply. */
+  async ask(key, payload, max) {
+    const request = (this.nextAsk = (this.nextAsk ?? 1000000) + 1);
+    let reply = null;
+    this.asks.set(request, (r) => { reply = r; });
+    this.enter("ask", key, request, payload === null ? "" : JSON.stringify(payload));
+    await this.idle();
+    this.asks.delete(request);
+    if (!reply) return { ok: false, error: "No answer." };
+    if (!reply.ok) { this.problem(`${key}: ${reply.error}`); return { ok: false, error: reply.error }; }
+    const rows = (Array.isArray(reply.value) ? reply.value : []).map((r) => (typeof r === "string" ? { title: r } : r)).filter((r) => r && r.title).slice(0, max);
+    return { ok: true, rows };
+  }
+
+  /** Chooses the item titled `title` in a menu bar item's or a tile's menu, or a palette or stack row. */
+  async menu(title) {
+    const lower = String(title).toLowerCase();
+    const menus = [...this.hooks.menuBars.values(), ...this.hooks.tiles.values()].map((x) => x.menu);
+    const rows = this.effects.filter((e) => e.kind === "palette" || e.kind === "stack")
+      .flatMap((e) => (e.answers ? e.answers.flatMap((a) => a.rows ?? []) : e.rows ?? []));
+    const item = menus.map((m) => findMenuItem(m, lower)).find(Boolean) ?? rows.find((r) => r.title.toLowerCase() === lower);
+    if (!item) throw new PluginError(`No menu item or row "${title}".`);
+    if (!item.action) throw new PluginError(`"${title}" has no action.`);
+    await this.invoke(item.action);
+  }
+
+  /** Drops a link or text on a tile: "url:https://…" or "text:…", optionally "tileId@url:…". */
+  async drop(spec) {
+    const m = /^(?:([^@:]+)@)?(url|text):(.*)$/s.exec(String(spec));
+    if (!m) throw new PluginError("--drop takes url:<link> or text:<text>, optionally <tile>@ first.");
+    const [, tileId, kind, value] = m;
+    const candidates = [...this.hooks.tiles.values()].filter((t) => (!tileId || t.id === tileId) && t.accepts.includes(kind));
+    if (!candidates.length) throw new PluginError(`No tile${tileId ? ` "${tileId}"` : ""} accepts ${kind}.`);
+    if (Buffer.byteLength(value) > limit("dropBytes")) throw new PluginError("A drop is at most 8 KB.");
+    if (kind === "url" && !/^(https?|mailto):/i.test(value)) throw new PluginError("Only http, https and mailto links are dropped as url.");
+    await this.invoke(`tile:${candidates[0].id}:onDrop`, { kind, value });
+  }
+
+  /** Clicks a live activity. */
+  async tapActivity(id) { this.find(this.hooks.activities, id, "live activity"); await this.invoke(`activity:${id}:onTap`); }
+
+  /** A panel's page posts a message: its onMessage runs and the panelMessage event fires. */
+  async panelMessage(id, message) {
+    this.find(this.hooks.panels, id, "panel");
+    await this.invoke(`panel:${id}:onMessage`, message);
+    await this.emit("panelMessage", { id, message });
+  }
   /** Sends an event, as Atelier would. */
   async emit(event, payload = {}) { this.enter("emit", event, JSON.stringify(payload)); await this.idle(); }
 
@@ -454,7 +681,7 @@ export class Plugin {
 
   /** Everything the plugin registered and did, as plain JSON. */
   report() {
-    const other = Object.fromEntries([...this.other].map(([k, m]) => [k, [...m.values()]]));
+    const hooks = Object.fromEntries(Object.entries(this.hooks).map(([k, m]) => [k, [...m.values()]]).filter(([, list]) => list.length));
     return {
       plugin: { id: this.manifest.id, name: this.manifest.name, version: this.manifest.version },
       permissions: { asked: this.manifest.permissions ?? [], granted: [...this.granted] },
@@ -463,11 +690,96 @@ export class Plugin {
       commands: [...this.commands.values()],
       cornerActions: [...this.corners.values()],
       events: Object.fromEntries(this.events),
-      ...(Object.keys(other).length ? { other } : {}),
+      ...(Object.keys(hooks).length ? { hooks } : {}),
+      ...((this.manifest.settings ?? []).length ? { settings: Object.fromEntries((this.manifest.settings ?? []).map((s) => [s.key, s.type === "secret" && this.values.has(s.key) ? "•••" : this.settingValue(s)])) } : {}),
       effects: this.effects,
       storage: this.storage,
       console: this.logs,
       problems: this.problems,
     };
+  }
+}
+
+// --- Helpers mirroring the app's checks ----------------------------------------------------
+
+const HOOKS = new Set(["palette", "menuBar", "menuBarRemove", "tileHooks", "stack", "stackChanged", "activity", "activityEnd",
+  "panel", "panelShow", "panelHide", "panelPost", "scenes.list", "scenes.apply", "hooks.reply"]);
+
+/** PluginMenuEntry.parse: 40 entries in all, one level of submenus, titles up to 80. */
+function checkMenu(list, path) {
+  if (list === undefined || list === null) return [];
+  if (!Array.isArray(list)) throw new PluginError(`${path}: a menu is a list of items.`);
+  let budget = limit("menuItems");
+  const walk = (items, depth, where) => items.map((entry, i) => {
+    if (--budget < 0) throw new PluginError(`${path}: a menu may hold at most ${limit("menuItems")} items in all.`);
+    const here = `${where}[${i}]`;
+    if (entry === "separator" || entry === "-") return "separator";
+    if (!entry || typeof entry !== "object") throw new PluginError(`${here}: a menu item is an object or "separator".`);
+    const title = String(entry.title ?? "").slice(0, 80);
+    if (!title) throw new PluginError(`${here}: a menu item needs a title.`);
+    if (entry.symbol !== undefined && entry.symbol !== null && !isSymbolName(entry.symbol)) throw new PluginError(`${here}: "${entry.symbol}" is not an SF Symbol name.`);
+    if (entry.submenu !== undefined) {
+      if (depth >= 2) throw new PluginError(`${here}: menus nest at most 2 deep.`);
+      if (!Array.isArray(entry.submenu)) throw new PluginError(`${here}: submenu is a list of items.`);
+      return { title, submenu: walk(entry.submenu, depth + 1, here + ".submenu") };
+    }
+    return { title, ...(entry.symbol ? { symbol: entry.symbol } : {}), ...(entry.action ? { action: entry.action } : {}),
+      checked: Boolean(entry.checked), enabled: entry.enabled ?? true };
+  });
+  return walk(list, 1, path);
+}
+
+function findMenuItem(menu, lower) {
+  for (const entry of menu ?? []) {
+    if (typeof entry !== "object") continue;
+    if (entry.title?.toLowerCase() === lower && !entry.submenu) return entry;
+    const inner = entry.submenu && findMenuItem(entry.submenu, lower);
+    if (inner) return inner;
+  }
+  return null;
+}
+
+function findNode(node, test) {
+  if (!node || typeof node !== "object") return null;
+  if (test(node)) return node;
+  for (const child of node.children ?? []) { const hit = findNode(child, test); if (hit) return hit; }
+  return null;
+}
+
+/** PluginPaletteSpec.query: without a prefix, any non-empty query; with one, "<prefix> rest" gives rest. */
+function paletteQuery(provider, text) {
+  const trimmed = String(text).trim();
+  if (!provider.prefix) return trimmed || null;
+  if (!trimmed.toLowerCase().startsWith(provider.prefix + " ")) return null;
+  return trimmed.slice(provider.prefix.length).trim() || null;
+}
+
+/** PluginSetting.check: the value for a setting, normalised, or a thrown PluginError. null resets. */
+export function checkSetting(s, value) {
+  if (value === null) return null;
+  const wrong = () => new PluginError(`settings: "${s.key}" is a ${s.type} setting; ${JSON.stringify(value)} does not fit.`);
+  switch (s.type) {
+    case "text": if (typeof value !== "string" || value.length > 1000) throw wrong(); return value;
+    case "secret": if (typeof value !== "string" || value.length > 4096) throw wrong(); return value;
+    case "number":
+      if (typeof value !== "number" || !Number.isFinite(value)) throw wrong();
+      if (typeof s.min === "number" && value < s.min) throw new PluginError(`settings: "${s.key}" is at least ${s.min}.`);
+      if (typeof s.max === "number" && value > s.max) throw new PluginError(`settings: "${s.key}" is at most ${s.max}.`);
+      return value;
+    case "toggle": if (typeof value !== "boolean") throw wrong(); return value;
+    case "choice": {
+      const options = (s.options ?? []).map((o) => (typeof o === "string" ? o : o.value));
+      if (!options.includes(value)) throw new PluginError(`settings: "${s.key}" is one of ${options.join(", ")}.`);
+      return value;
+    }
+    case "color": if (typeof value !== "string" || !/^#?[0-9A-Fa-f]{6}$/.test(value)) throw wrong(); return (value.startsWith("#") ? value : "#" + value).toUpperCase();
+    case "hotkeyHint": {
+      if (typeof value !== "string") throw wrong();
+      if (!value) return null;
+      const normal = normaliseShortcut(value);
+      if (!normal) throw new PluginError(`settings: "${value}" is not a shortcut. Use something like "cmd+shift+p".`);
+      return normal;
+    }
+    default: throw wrong();
   }
 }

@@ -1,0 +1,29 @@
+{
+  "format": 1,
+  "id": "io.github.you.my-look.theme",
+  "name": "My Look",
+  "version": "1.0.0",
+  "author": "You",
+  "description": "Warm glass at night.",
+  "appearance": "dark",
+  "colors": {
+    "accent": "#C7A6FF",
+    "secondary": "#3FC1B0",
+    "glassTint": "#1A1430"
+  },
+  "dock": {
+    "style": "glass",
+    "accent": "purple",
+    "indicator": "dot",
+    "roundness": 0.7
+  },
+  "widgets": {
+    "material": "glass",
+    "tint": "purple",
+    "accent": "purple"
+  },
+  "studio": {
+    "backdrop": "midnight",
+    "accent": "#C7A6FF"
+  }
+}

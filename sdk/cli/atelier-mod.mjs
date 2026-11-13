@@ -3,8 +3,11 @@
 //
 //   atelier-mod new <kind> <id> [--template hello|timer|feed] [--name "…"] [--author "…"] [--dir path]
 //   atelier-mod validate [dir]
-//   atelier-mod test [dir] [--run <command>] [--click <tile>] [--corner <id>] [--action <id>[=json]]
-//                          [--emit <event>[=json]] [--advance <seconds>] [--grant all|none|a,b]
+//   atelier-mod test [dir] [--run <command>] [--click <tile>] [--corner <id>] [--tap <button or toggle>]
+//                          [--action <id>[=json]] [--emit <event>[=json]] [--advance <seconds>]
+//                          [--palette <query>] [--stack <id>] [--menu <item title>] [--drop [tile@]url:<link>|text:<text>]
+//                          [--activity <id>] [--panel-post <id>=json]
+//                          [--setting key=json] [--language <code>] [--grant all|none|a,b]
 //                          [--fixtures file] [--answer text] [--network] [--json]
 //   atelier-mod pack [dir] [--out folder]
 //   atelier-mod catalog-entry [dir] [--out folder] [--github handle]
@@ -52,9 +55,11 @@ const HELP = `${bold("atelier-mod")}: make, check, test and share mods for Ateli
                            --template ${pluginTemplates().map((t) => t.name).join("|")}  --name  --author  --dir
   ${cyan("validate")} [dir]         The checks Atelier and the catalog run
   ${cyan("test")} [dir]             Run a plugin here, with a recording stand-in for Atelier
-                           --run <command>  --click <tile>  --corner <id>  --action <id>[=json]
-                           --emit <event>[=json]  --advance <seconds>  --grant all|none|a,b
-                           --fixtures <file>  --answer <text>  --network  --json
+                           --run <command>  --click <tile>  --corner <id>  --tap <button>  --action <id>[=json]
+                           --emit <event>[=json]  --advance <seconds>  --palette <query>  --stack <id>
+                           --menu <item>  --drop [tile@]url:<link>|text:<text>  --activity <id>
+                           --panel-post <id>=json  --setting key=json  --language <code>
+                           --grant all|none|a,b  --fixtures <file>  --answer <text>  --network  --json
   ${cyan("pack")} [dir]             A zip, byte for byte as the catalog makes it   --out <folder>
   ${cyan("catalog-entry")} [dir]    mods/<id>/ ready for a pull request            --out  --github
   ${cyan("api")} [name]             Look something up in the API
@@ -122,15 +127,21 @@ async function cmdTest([dir], args) {
   const fixtures = fixturesPath && existsSync(fixturesPath) ? JSON.parse(readFileSync(fixturesPath, "utf8")) : {};
   const grant = flag(args, "grant");
   const asked = manifest.permissions ?? [];
+  // Settings as the owner left them: --setting key=json, repeatable.
+  const settings = {};
+  for (const item of flags(args, "setting")) {
+    const [key, json] = String(item).split(/=(.*)/s);
+    settings[key] = parsePayload(json);
+  }
   const plugin = await loadPlugin(pkg.dir, {
-    fixtures, network: Boolean(flag(args, "network")), answer: flag(args, "answer"),
+    fixtures, network: Boolean(flag(args, "network")), answer: flag(args, "answer"), settings, language: flag(args, "language"),
     grant: grant === undefined || grant === "all" ? asked : grant === "none" ? [] : String(grant).split(",").map((s) => s.trim()),
   });
 
   // The steps, in the order given on the command line.
   const steps = [];
   for (let i = 0; i < argv.length; i++) {
-    const m = /^--(run|click|corner|action|emit|advance)(?:=(.*))?$/s.exec(argv[i]);
+    const m = /^--(run|click|corner|tap|action|emit|advance|palette|stack|menu|drop|activity|panel-post)(?:=(.*))?$/s.exec(argv[i]);
     if (m) steps.push([m[1], m[2] ?? argv[++i]]);
   }
   const done = [];
@@ -140,9 +151,17 @@ async function cmdTest([dir], args) {
       if (kind === "click") await plugin.click(value);
       if (kind === "corner") await plugin.corner(value);
       if (kind === "advance") await plugin.advance(Number(value) * 1000);
-      if (kind === "emit" || kind === "action") {
+      if (kind === "tap") { await plugin.renderAll(); await plugin.tap(value); }
+      if (kind === "palette") await plugin.palette(value);
+      if (kind === "stack") await plugin.openStack(value);
+      if (kind === "menu") await plugin.menu(value);
+      if (kind === "drop") await plugin.drop(value);
+      if (kind === "activity") await plugin.tapActivity(value);
+      if (kind === "emit" || kind === "action" || kind === "panel-post") {
         const [name, json] = String(value).split(/=(.*)/s);
-        if (kind === "emit") await plugin.emit(name, parsePayload(json)); else await plugin.action(name, parsePayload(json));
+        if (kind === "emit") await plugin.emit(name, parsePayload(json));
+        else if (kind === "action") await plugin.action(name, json === undefined ? undefined : parsePayload(json));
+        else await plugin.panelMessage(name, parsePayload(json));
       }
       done.push(`${kind} ${value}`);
     } catch (error) {
@@ -162,7 +181,16 @@ async function cmdTest([dir], args) {
   for (const w of report.widgets) rows.push(["Widget", w.id, w.title, `${w.size}, every ${w.refresh} s`]);
   for (const c of report.commands) rows.push(["Command", c.id, c.title, c.shortcut ?? ""]);
   for (const c of report.cornerActions) rows.push(["Corner", c.id, c.title, c.symbol]);
-  for (const [kind, list] of Object.entries(report.other ?? {})) for (const x of list) rows.push([kind, x.id, x.title ?? "", ""]);
+  const hookNames = { palettes: "Palette", menuBars: "Menu bar", tiles: "Tile hooks", stacks: "Stack", activities: "Activity", panels: "Panel" };
+  for (const [kind, list] of Object.entries(report.hooks ?? {})) for (const x of list) {
+    const detail = kind === "palettes" ? (x.prefix ? `prefix "${x.prefix}"` : "every query")
+      : kind === "menuBars" ? [x.symbol, x.text && `"${x.text}"`, `${x.menu.length} menu items`].filter(Boolean).join(" · ")
+      : kind === "tiles" ? [`${x.menu.length} menu items`, x.accepts.length && `accepts ${x.accepts.join(", ")}`].filter(Boolean).join(" · ")
+      : kind === "stacks" ? `${x.symbol}, refresh ${x.refresh} s`
+      : kind === "activities" ? [x.symbol, x.text && `"${x.text}"`, x.progress != null && `${Math.round(x.progress * 100)}%`].filter(Boolean).join(" · ")
+      : `${x.width}×${x.height}, ${x.htmlBytes} bytes of html`;
+    rows.push([hookNames[kind] ?? kind, x.id, x.title ?? "", detail]);
+  }
   if (rows.length) {
     console.log(`  Registered (${rows.length})`);
     const w = [0, 1, 2].map((i) => Math.max(...rows.map((r) => String(r[i]).length)));
@@ -185,7 +213,11 @@ async function cmdTest([dir], args) {
         : e.kind === "theme" ? `theme.apply ${JSON.stringify(e.patch)}`
         : e.kind === "http" ? `${e.method} ${e.url} → ${e.status ?? "failed"} ${dim(`(${e.source})`)}`
         : e.kind === "prompt" ? `prompt "${e.title}" → ${JSON.stringify(e.answer)}`
-        : `${e.kind} ${JSON.stringify(e.payload)}`;
+        : e.kind === "send" ? `send to ${e.to} ${JSON.stringify(e.payload)}`
+        : e.kind === "settings.set" ? `settings.set ${e.key} = ${JSON.stringify(e.value)}`
+        : e.kind === "palette" ? `palette "${e.query}" → ${e.answers.map((a) => `${a.provider}: ${a.ok ? (a.rows ?? []).map((r) => r.title).join(" | ") || "no rows" : "failed"}`).join("; ") || "no provider asked"}`
+        : e.kind === "stack" ? `stack ${e.id} → ${e.ok ? (e.rows ?? []).map((r) => r.title).join(" | ") || "no items" : "failed"}`
+        : `${e.kind} ${JSON.stringify(Object.fromEntries(Object.entries(e).filter(([k]) => k !== "kind")))}`;
       console.log(`    ${text}`);
     }
   }
@@ -196,6 +228,7 @@ async function cmdTest([dir], args) {
       console.log(`    ${tag} ${l.text}`);
     }
   }
+  if (report.settings) console.log(`\n  ${bold("Settings")}  ${dim(JSON.stringify(report.settings))}`);
   if (Object.keys(report.storage).length) console.log(`\n  ${bold("Storage")}  ${dim(JSON.stringify(report.storage))}`);
   console.log("");
   if (report.problems.length) { console.log(red(`✗ ${report.problems.length} problem(s).`)); return 1; }

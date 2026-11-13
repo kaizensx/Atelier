@@ -10,12 +10,11 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join, extname, basename, dirname } from "node:path";
 import {
-  KINDS, ALLOWED, PERMISSIONS, isReverseDNS, parseVersion, walk, binaryKind, scanPermissions, checkSchema, zipFolder, readJSON,
+  KINDS, ALLOWED, PERMISSIONS, PERMISSION_CALLS, isReverseDNS, parseVersion, walk, binaryKind, scanPermissions, checkSchema, zipFolder, readJSON,
 } from "../vendor/atelier-mods/scripts/lib.mjs";
 import { loadAPI, cliRoot, sdkRoot, limit } from "./api.mjs";
 import { readManifest } from "./package.mjs";
 
-const SCAN_API = { network: "http", notifications: "notify", openURL: "openURL", appearance: "theme" };
 const manifestSchema = () => {
   for (const p of [join(sdkRoot, "manifest.schema.json"), join(cliRoot, "runtime/manifest.schema.json")]) if (existsSync(p)) return readJSON(p);
   return null;
@@ -59,9 +58,10 @@ export async function validate(pkg) {
     const schema = join(cliRoot, "vendor/atelier-mods/schema/atelier-theme.schema.json");
     for (const problem of checkSchema(readJSON(schema), manifest)) err(problem, mfile);
   } else {
-    if (manifest.format !== 1) err("manifest.json needs \"format\": 1.", mfile);
-    if (manifest.kind !== undefined && manifest.kind !== kind) err(`manifest.json says kind "${manifest.kind}" but the folder is a ${pkg.kind.ext}.`, mfile);
-    if (files.some((f) => f.path.endsWith(".js"))) err(`A ${pkg.kind.title.toLowerCase()} is data only: scripts are not allowed.`);
+    // Packs: the catalog's own rules (scripts/packs.mjs), the same limits the app applies.
+    const { validatePack } = await import("../vendor/atelier-mods/scripts/packs.mjs");
+    const themeSchema = readJSON(join(cliRoot, "vendor/atelier-mods/schema/atelier-theme.schema.json"));
+    for (const problem of validatePack(kind, pkg.dir, files, themeSchema).errors) err(problem);
   }
 
   if (pkg.catalog) issues.push(...await validateCatalogFolder(pkg.catalog));
@@ -97,7 +97,7 @@ function checkPlugin(pkg, manifest, files, err, warn, mfile) {
     dynamic ||= scan.dynamicAccess;
     if (/\beval\s*\(|\bnew\s+Function\s*\(/.test(code)) warn(`${f.path}: eval or new Function makes review harder. Reviewers will look closely.`);
   }
-  for (const p of used) if (!asked.has(p)) err(`The script calls atelier.${SCAN_API[p]} but does not ask for "${p}".`);
+  for (const p of used) if (!asked.has(p)) err(`The script calls ${PERMISSION_CALLS[p]} but does not ask for "${p}".`);
   for (const p of asked) if (!used.has(p)) (dynamic ? warn : err)(`It asks for "${p}" but the script never uses it. Ask only for what it needs.`);
   if (dynamic) warn("The script reaches atelier dynamically (atelier[...] or passes atelier around), so the permission scan cannot follow it.");
 }

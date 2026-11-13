@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "id": "io.github.you.my-icons",
+  "name": "My Icons",
+  "version": "1.0.0",
+  "author": "You",
+  "description": "Ink tiles for Safari, folders and the Trash. Add a 1024 px PNG per app and map its bundle identifier to it.",
+  "icons": {
+    "com.apple.Safari": "icons/safari.png",
+    "folder": "icons/folder.png",
+    "trash": "icons/trash.png"
+  }
+}

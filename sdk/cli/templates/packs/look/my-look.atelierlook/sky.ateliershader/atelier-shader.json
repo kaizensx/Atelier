@@ -1,0 +1,22 @@
+{
+  "format": 1,
+  "id": "io.github.you.my-look.sky",
+  "name": "My Look Sky",
+  "version": "1.0.0",
+  "author": "You",
+  "description": "Nebula in warm colours, slow and a little grainy.",
+  "base": "nebula",
+  "palette": [
+    "#140A1F",
+    "#4A1D3F",
+    "#C2503A",
+    "#FFC27A"
+  ],
+  "speed": 0.6,
+  "intensity": 0.55,
+  "grain": 0.1,
+  "scale": 1.0,
+  "dim": 0.05,
+  "cycle": "clock",
+  "pointer": true
+}

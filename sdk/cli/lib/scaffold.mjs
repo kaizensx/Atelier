@@ -7,7 +7,7 @@
 //   ├── test/fixtures.json       canned network answers for `atelier-mod test` (plugins)
 //   └── my-mod.atelierplugin/    the package itself: what Atelier installs and the catalog ships
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, copyFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, copyFileSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 import { cliRoot, sdkRoot, kinds, kindNamed } from "./api.mjs";
 import { UsageError } from "./package.mjs";
@@ -55,6 +55,7 @@ export function scaffold({ kind: kindName, id, dir, name, author = "You", templa
     const manifest = { format: 1, id, name: vars.name, version: "1.0.0", author, description: chosen.description, icon: chosen.icon ?? "puzzlepiece.extension", entry: "main.js" };
     if (chosen.permissions?.length) manifest.permissions = chosen.permissions;
     if (chosen.hosts?.length) manifest.network = { hosts: chosen.hosts };
+    Object.assign(manifest, chosen.manifest ?? {}); // settings, strings, …
     write(join(pkg, "manifest.json"), manifest);
     write(join(pkg, "main.js"), "// @ts-check\n" + chosen.source);
     write(join(project, "jsconfig.json"), {
@@ -68,11 +69,24 @@ export function scaffold({ kind: kindName, id, dir, name, author = "You", templa
     copyFileSync(themeSchema, join(project, "types/atelier-theme.schema.json"));
     schemas.push({ fileMatch: ["*.ateliertheme/atelier-theme.json"], url: "./types/atelier-theme.schema.json" });
   } else {
-    const file = join(templates, "data", kind.kind + ".json");
-    const { files } = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : { files: { "manifest.json": { format: 1, kind: kind.kind, id: "{{id}}", name: "{{name}}", version: "1.0.0", author: "{{author}}" } } };
-    for (const [path, content] of Object.entries(files)) {
-      write(join(pkg, path), fill(typeof content === "string" ? content : JSON.stringify(content, null, 2) + "\n", vars));
-    }
+    // A pack that passes Atelier's and the catalog's checks as it is: the template's own id and
+    // name are swapped for the new ones, every file is copied byte for byte.
+    const dir = join(templates, "packs", kind.kind);
+    const source = existsSync(dir) ? readdirSync(dir).find((n) => n.endsWith(kind.ext)) : null;
+    if (!source) throw new UsageError(`There is no template for ${kind.kind} packs.`);
+    const oldID = `io.github.you.my-${kind.kind}`;
+    const copy = (from, to) => {
+      for (const name of readdirSync(from)) {
+        const src = join(from, name), dst = join(to, name);
+        if (lstatSync(src).isDirectory()) { mkdirSync(dst, { recursive: true }); copy(src, dst); continue; }
+        if (!name.endsWith(".json")) { copyFileSync(src, dst); continue; }
+        const json = JSON.parse(readFileSync(src, "utf8"));
+        if (typeof json.id === "string" && json.id.startsWith(oldID)) json.id = id + json.id.slice(oldID.length);
+        if (from === join(dir, source)) { json.name = vars.name; json.author = author; }
+        write(dst, json);
+      }
+    };
+    copy(join(dir, source), pkg);
   }
   write(join(project, ".vscode/settings.json"), { "json.schemas": schemas, "js/ts.implicitProjectConfig.checkJs": true });
   return { project, pkg };

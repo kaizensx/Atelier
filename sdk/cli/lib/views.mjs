@@ -77,9 +77,51 @@ export function parseView(value) {
       case "vstack": case "hstack": case "zstack": case "stack": {
         const axis = type === "stack" ? "vstack" : type;
         const align = ["leading", "center", "trailing", "top", "bottom"].includes(v.align) ? v.align : axis === "hstack" ? "center" : "leading";
-        return { type: axis, spacing: clamp(v.spacing, 0, 40, 6), align, children: kids(v.children) };
+        const stack = { type: axis, spacing: clamp(v.spacing, 0, 40, 6), align, children: kids(v.children) };
+        if (["fade", "slide", "scale"].includes(v.transition)) stack.transition = v.transition;
+        return stack;
       }
       case "spacer": return { type };
+      // Interactive and richer views (parseMore in Sources/DockCore/PluginEngine.swift).
+      case "button": case "toggle": {
+        const action = typeof v.action === "string" && /^[A-Za-z0-9\-_.:]{1,128}$/.test(v.action) ? v.action : null;
+        if (type === "button") {
+          const title = clip(asText(v.title ?? v.label));
+          if (v.symbol !== undefined && !isSymbolName(v.symbol)) throw new ViewError(`${path}: "${v.symbol}" is not an SF Symbol name.`);
+          if (!title && v.symbol === undefined) throw new ViewError(`${path}: a button needs a title or a symbol.`);
+          if (!action) throw new ViewError(`${path}: a button needs an action: a function, or an id registered with atelier.action.`);
+          return { type, title, ...(v.symbol ? { symbol: v.symbol } : {}), style: v.style === "plain" ? "plain" : "prominent", action };
+        }
+        if (!action) throw new ViewError(`${path}: a toggle needs an action: a function, or an id registered with atelier.action.`);
+        return { type, label: clip(asText(v.label ?? v.title)), on: v.on === true, action };
+      }
+      case "image": {
+        const size = (n) => (typeof n === "number" ? clamp(n, 4, 600, 4) : undefined);
+        const common = { width: size(v.width), height: size(v.height), fit: v.fit === "fill" ? "fill" : "fit", radius: clamp(v.radius, 0, 60, 0) };
+        if (typeof v.asset === "string") {
+          const ext = v.asset.split(".").pop().toLowerCase();
+          if (v.asset.startsWith("/") || v.asset.split("/").some((p) => p === ".." || p.startsWith(".") || !p) || !["png", "jpg", "jpeg", "heic", "pdf"].includes(ext)) {
+            throw new ViewError(`${path}: "${v.asset}" is not an image in the plugin's folder. Use a relative path to a png, jpg, jpeg, heic, pdf file.`);
+          }
+          return { type, asset: v.asset, ...common };
+        }
+        if (typeof v.url === "string" && /^https:\/\/[^/]+/.test(v.url)) return { type, url: v.url, ...common };
+        throw new ViewError(`${path}: an image needs an asset (a file in the plugin) or an https url.`);
+      }
+      case "chart": {
+        const nums = (x) => (Array.isArray(x) ? x : []).filter((n) => typeof n === "number" && Number.isFinite(n)).slice(-limit("chartValues"));
+        let series;
+        if (Array.isArray(v.series)) {
+          if (v.series.length > limit("chartSeries")) throw new ViewError(`${path}: a chart shows at most ${limit("chartSeries")} series.`);
+          series = v.series.map((s) => ({ label: asText(s?.label).slice(0, 40), values: nums(s?.values), ...(isColor(s?.color) ? { color: s.color } : {}) }));
+        } else series = [{ label: "", values: nums(v.values), ...(isColor(v.color) ? { color: v.color } : {}) }];
+        return { type, kind: ["bar", "line", "area"].includes(v.kind) ? v.kind : "bar", series,
+          labels: (Array.isArray(v.labels) ? v.labels : []).slice(0, limit("chartValues")).map((l) => asText(l).slice(0, 24)),
+          ...(typeof v.max === "number" && Number.isFinite(v.max) && v.max > 0 ? { max: v.max } : {}) };
+      }
+      case "grid": return { type, columns: Math.trunc(clamp(v.columns, 1, 6, 2)), children: kids(v.children) };
+      case "progress": return { type, value: clamp(v.value, 0, 1, 0), ...(v.label !== undefined ? { label: clip(asText(v.label)) } : {}), ...(isColor(v.color) ? { color: v.color } : {}) };
+      case "divider": return { type };
       default: {
         // Views added after this checker was written: keep their keys, walk their children.
         const out = { type };

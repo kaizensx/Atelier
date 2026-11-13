@@ -1,0 +1,44 @@
+{
+  "format": 1,
+  "id": "io.github.you.my-layouts",
+  "name": "My Layouts",
+  "version": "1.0.0",
+  "author": "You",
+  "description": "A golden split and a centred focus window.",
+  "layouts": [
+    {
+      "name": "Golden Split",
+      "zones": [
+        {
+          "x": 0,
+          "y": 0,
+          "width": 0.618,
+          "height": 1
+        },
+        {
+          "x": 0.618,
+          "y": 0,
+          "width": 0.382,
+          "height": 0.5
+        },
+        {
+          "x": 0.618,
+          "y": 0.5,
+          "width": 0.382,
+          "height": 0.5
+        }
+      ]
+    },
+    {
+      "name": "Focus",
+      "zones": [
+        {
+          "x": 0.15,
+          "y": 0.08,
+          "width": 0.7,
+          "height": 0.84
+        }
+      ]
+    }
+  ]
+}

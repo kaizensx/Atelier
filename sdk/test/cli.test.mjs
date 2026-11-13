@@ -109,7 +109,7 @@ test("views are checked like Atelier checks them", () => {
   let deep = "x";
   for (let i = 0; i < 10; i++) deep = [deep];
   assert.throws(() => parseView(deep), /nest more than 8 deep/);
-  assert.throws(() => parseView(Array.from({ length: 200 }, () => "x")), /more than 160 views/);
+  assert.throws(() => parseView(Array.from({ length: 300 }, () => "x")), /more than 240 views/);
 });
 
 test("a widget whose view is wrong reports the error, not a crash", async () => {

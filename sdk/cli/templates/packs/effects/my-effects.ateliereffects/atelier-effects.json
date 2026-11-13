@@ -1,0 +1,51 @@
+{
+  "format": 1,
+  "id": "io.github.you.my-effects",
+  "name": "My Effects",
+  "version": "1.0.0",
+  "author": "You",
+  "description": "A misty fade into the Dock.",
+  "effects": [
+    {
+      "id": "mist",
+      "name": "Mist",
+      "base": "scale",
+      "duration": 0.45,
+      "curve": "easeInOut",
+      "opacity": [
+        [
+          0,
+          1
+        ],
+        [
+          0.6,
+          0.85
+        ],
+        [
+          1,
+          0
+        ]
+      ],
+      "blur": [
+        [
+          0,
+          0
+        ],
+        [
+          1,
+          5
+        ]
+      ],
+      "shade": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          1.25
+        ]
+      ]
+    }
+  ]
+}

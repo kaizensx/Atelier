@@ -1,0 +1,18 @@
+{
+  "title": "Controls",
+  "description": "Buttons, a toggle, a progress bar, settings and translated text.",
+  "icon": "slider.horizontal.3",
+  "permissions": [],
+  "order": 4,
+  "manifest": {
+    "settings": [
+      { "key": "step", "type": "number", "title": "Step", "detail": "How much Add adds.", "default": 1, "min": 1, "max": 10 },
+      { "key": "goal", "type": "number", "title": "Goal", "default": 20, "min": 1, "max": 1000 },
+      { "key": "color", "type": "color", "title": "Colour", "default": "#5FD3FF" }
+    ],
+    "strings": {
+      "en": { "title": "Counter", "count": "{n} so far", "goal": "Goal" },
+      "pt": { "title": "Contador", "count": "{n} até agora", "goal": "Objetivo" }
+    }
+  }
+}
