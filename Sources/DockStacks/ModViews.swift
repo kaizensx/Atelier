@@ -350,7 +350,7 @@ struct ModPage: View {
                             }.buttonStyle(ModPill())
                         }
                     }
-                } else if tiles.isEmpty && widgets.isEmpty && commands.isEmpty && corners.isEmpty {
+                } else if tiles.isEmpty && widgets.isEmpty && commands.isEmpty && corners.isEmpty && !PluginHooks.shared.hasAny(id) {
                     SettingRow(title: "Nothing to open", detail: "This plugin works in the background and adds nothing you can open.",
                                symbol: "gearshape.2", density: .compact) { EmptyView() }
                 }
@@ -358,7 +358,11 @@ struct ModPage: View {
                     ForEach(tiles) { tile in
                         SettingRow(title: tile.spec.title, detail: "Dock tile, on your Atelier Dock.",
                                    symbol: "dock.rectangle", density: .compact) {
-                            Button("Dock") { go(.dock) }.buttonStyle(ModPill(prominent: false))
+                            if OwnDock.shared.hasPlugin(.tile, key: tile.id) {
+                                Button("Dock") { go(.dock) }.buttonStyle(ModPill(prominent: false))
+                            } else {
+                                Button("Add to Dock") { OwnDock.shared.addPlugin(.tile, key: tile.id) }.buttonStyle(ModPill())
+                            }
                         }
                     }
                     ForEach(widgets) { widget in
@@ -379,6 +383,7 @@ struct ModPage: View {
                             Button("Hot Corners") { go(.corners) }.buttonStyle(ModPill(prominent: false))
                         }
                     }
+                    PluginHookRows(plugin: id, go: go)
                 }
             }
             .padding(.top, DS.Space.s)

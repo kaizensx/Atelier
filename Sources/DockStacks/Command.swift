@@ -23,14 +23,65 @@ struct CommandResult: Identifiable {
     @MainActor var icon: NSImage { makeIcon() }
 }
 
+/// One plugin's answer in the palette.
+struct CommandPluginSection: Identifiable {
+    let id: String
+    let title: String
+    let results: [CommandResult]
+}
+
 @MainActor
 final class CommandModel: ObservableObject {
     @Published var open = false
-    @Published var query = "" { didSet { selection = 0; recompute() } }
+    @Published var query = "" { didSet { selection = 0; recompute(); askPlugins() } }
     @Published var selection = 0
     /// Worked out once per keystroke, from lists read once per opening. Before, every keystroke
     /// and every arrow key read the stacks folder and the scenes file again and drew every icon.
     @Published private(set) var results: [CommandResult] = []
+    /// Rows from plugins' palette providers, a section per plugin, below Atelier's own.
+    @Published private(set) var pluginSections: [CommandPluginSection] = []
+    private var pluginAsk: Task<Void, Never>?
+    private var pluginGeneration = 0
+
+    /// Everything that can be chosen, in the order drawn.
+    var choices: [CommandResult] { results + pluginSections.flatMap(\.results) }
+
+    /// Palette providers are asked 120 ms after typing stops. An answer for an older query, or
+    /// one that comes after 1 s, is dropped.
+    private func askPlugins() {
+        pluginAsk?.cancel()
+        pluginGeneration += 1
+        let generation = pluginGeneration, text = query
+        let hooks = PluginHooks.shared
+        guard hooks.palettes.contains(where: { $0.spec.query(for: text) != nil }) else { pluginSections = []; return }
+        pluginAsk = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard let self, !Task.isCancelled, generation == self.pluginGeneration else { return }
+            let asked = hooks.search(text) { [weak self] palette, rows in
+                guard let self, generation == self.pluginGeneration else { return }
+                self.pluginSections.removeAll { $0.id == palette.id }
+                guard !rows.isEmpty else { return }
+                let section = CommandPluginSection(id: palette.id, title: palette.spec.title == palette.spec.id ? palette.pluginName : palette.spec.title,
+                                                   results: rows.map { Self.result($0, palette: palette) })
+                self.pluginSections.append(section)
+                self.pluginSections.sort { $0.title < $1.title }
+            }
+            // Providers this query no longer fits lose their rows now.
+            let keep = Set(asked.map(\.id))
+            self.pluginSections.removeAll { !keep.contains($0.id) }
+        }
+    }
+
+    private static func result(_ row: PluginResultItem, palette: PluginPalette) -> CommandResult {
+        let plugin = palette.plugin, action = row.action
+        let folder = PluginRegistry.shared.installed.first { $0.id == plugin }?.folder
+        let image = row.image.flatMap { image in folder.flatMap { PluginHookIcons.resolve(image, in: $0) } }
+        return CommandResult(title: row.title, subtitle: row.subtitle ?? palette.pluginName,
+                             icon: PluginHookIcons.image(PluginStackValue(plugin: plugin, action: action, symbol: row.symbol, imagePath: image))) {
+            CommandController.shared.close()
+            if let action { PluginHooks.shared.perform(plugin, action) }
+        }
+    }
 
     private var stacks: [CommandResult] = []
     private var actions: [CommandResult] = []
@@ -107,7 +158,9 @@ final class CommandModel: ObservableObject {
             return (result, Fuzzy.score(query, in: entry.title) ?? 1)
         }
         let found = everything.compactMap { result in Fuzzy.score(query, in: result.title).map { (result, $0) } }
-        results = (found + settings).sorted { $0.1 > $1.1 }.prefix(7).map(\.0)
+        // A plugin asked by its prefix (`gh …`) gets the room: Atelier keeps its best three.
+        let prefixed = PluginHooks.shared.palettes.contains { $0.spec.prefix != nil && $0.spec.query(for: query) != nil }
+        results = (found + settings).sorted { $0.1 > $1.1 }.prefix(prefixed ? 3 : 7).map(\.0)
     }
 }
 
@@ -124,7 +177,8 @@ struct CommandView: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        let results = model.results
+        let results = model.choices
+        let sections = model.pluginSections
         VStack(spacing: 6) {
             HStack(spacing: 10) {
                 Image(systemName: "sparkle.magnifyingglass").font(.system(size: 19, weight: .medium)).foregroundStyle(.secondary)
@@ -136,21 +190,35 @@ struct CommandView: View {
             }
             .padding(.horizontal, 14)
             .frame(height: 50)
-            ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
-                Button { result.run() } label: {
-                    HStack(spacing: 11) {
-                        Image(nsImage: result.icon).resizable().frame(width: 30, height: 30)
-                        Text(result.title).font(.system(size: 14, weight: .medium, design: .rounded))
-                        Spacer()
-                        Text(result.subtitle).font(.system(size: 12)).foregroundStyle(.secondary)
+            if sections.isEmpty {
+                ForEach(Array(results.enumerated()), id: \.element.id) { index, result in row(result, index: index) }
+            } else {
+                // Plugins answered: their rows, a section each, scroll under Atelier's own.
+                let own = model.results.count
+                let lines = own + sections.reduce(0) { $0 + $1.results.count }
+                ScrollViewReader { reader in
+                    ScrollView {
+                        VStack(spacing: 6) {
+                            ForEach(Array(model.results.enumerated()), id: \.element.id) { index, result in row(result, index: index).id(index) }
+                            ForEach(Array(sections.enumerated()), id: \.element.id) { number, section in
+                                let start = own + sections.prefix(number).reduce(0) { $0 + $1.results.count }
+                                HStack(spacing: 6) {
+                                    Image(systemName: "puzzlepiece.extension").font(.system(size: 10, weight: .semibold))
+                                    Text(section.title.uppercased()).font(.system(size: 10.5, weight: .semibold)).tracking(0.6)
+                                    Spacer()
+                                }
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 12).padding(.top, 4)
+                                ForEach(Array(section.results.enumerated()), id: \.element.id) { offset, result in
+                                    row(result, index: start + offset).id(start + offset)
+                                }
+                            }
+                        }
                     }
-                    .padding(.horizontal, 12)
-                    .frame(height: 42)
-                    .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(.white.opacity(index == model.selection ? 0.15 : 0)))
-                    .contentShape(Rectangle())
+                    .scrollIndicators(.never)
+                    .frame(height: min(CGFloat(lines) * 48 + CGFloat(sections.count) * 26, 7 * 48 + 26))
+                    .onChange(of: model.selection) { _, selected in reader.scrollTo(selected) }
                 }
-                .buttonStyle(PressStyle())
             }
         }
         .padding(10)
@@ -163,6 +231,23 @@ struct CommandView: View {
         .padding(10)
         .frame(maxHeight: .infinity, alignment: .top)
         .onChange(of: model.open) { _, open in focused = open }
+    }
+
+    private func row(_ result: CommandResult, index: Int) -> some View {
+        Button { result.run() } label: {
+            HStack(spacing: 11) {
+                Image(nsImage: result.icon).resizable().frame(width: 30, height: 30)
+                Text(result.title).font(.system(size: 14, weight: .medium, design: .rounded)).lineLimit(1)
+                Spacer()
+                Text(result.subtitle).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 42)
+            .background(RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(.white.opacity(index == model.selection ? 0.15 : 0)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressStyle())
     }
 }
 
@@ -179,7 +264,7 @@ final class CommandController {
     private func show() {
         guard let screen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main else { return }
         BubbleController.shared.close()
-        let size = NSSize(width: 580, height: 410)
+        let size = NSSize(width: 580, height: 520)
         let area = screen.visibleFrame
         let frame = NSRect(x: area.midX - size.width / 2, y: area.maxY - size.height - area.height * 0.18,
                            width: size.width, height: size.height)
@@ -205,7 +290,7 @@ final class CommandController {
 
     private func handle(_ event: NSEvent) -> Bool {
         guard panel?.isKeyWindow == true else { return false }
-        let count = model.results.count
+        let count = model.choices.count
         switch event.keyCode {
         case 53: close()
         case 125: if count > 0 { model.selection = (model.selection + 1) % count }

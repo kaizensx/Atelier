@@ -910,7 +910,8 @@ private final class DockInputView: NSView {
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        registerForDraggedTypes([.fileURL])
+        // Links and text only for plugin tiles that take them (PluginHooks.swift).
+        registerForDraggedTypes([.fileURL, .URL, .string])
         setAccessibilityElement(false)
     }
 
@@ -932,21 +933,40 @@ private final class DockInputView: NSView {
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        OwnDock.shared.dragOver(convert(sender.draggingLocation, from: nil))
+        OwnDock.shared.dragOver(convert(sender.draggingLocation, from: nil), offer: Self.offer(sender.draggingPasteboard))
     }
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        OwnDock.shared.dragOver(convert(sender.draggingLocation, from: nil))
+        OwnDock.shared.dragOver(convert(sender.draggingLocation, from: nil), offer: Self.offer(sender.draggingPasteboard))
     }
     override func draggingExited(_ sender: (any NSDraggingInfo)?) { OwnDock.shared.dragOver(nil) }
     override func draggingEnded(_ sender: any NSDraggingInfo) { OwnDock.shared.dragOver(nil) }
 
+    /// A link or text being dragged, for a plugin tile; nil when files are in the drag.
+    static func offer(_ board: NSPasteboard) -> DockTextOffer? {
+        let files: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
+        if let found = board.readObjects(forClasses: [NSURL.self], options: files) as? [URL], !found.isEmpty { return nil }
+        let link = (board.readObjects(forClasses: [NSURL.self], options: nil) as? [URL])?.first { !$0.isFileURL }
+        let text = board.string(forType: .string)
+        guard link != nil || text != nil else { return nil }
+        return DockTextOffer(url: link?.absoluteString, text: text)
+    }
+
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        if let offer = Self.offer(sender.draggingPasteboard) {
+            return OwnDock.shared.dropText(offer, at: convert(sender.draggingLocation, from: nil))
+        }
         let options: [NSPasteboard.ReadingOptionKey: Any] = [.urlReadingFileURLsOnly: true]
         guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL],
               !urls.isEmpty else { return false }
         OwnDock.shared.drop(urls, at: convert(sender.draggingLocation, from: nil))
         return true
     }
+}
+
+/// A dragged link or text, never a file.
+struct DockTextOffer {
+    var url: String?
+    var text: String?
 }
 
 /// Stacks open from the tile that was clicked, on whichever edge the dock is on. The
@@ -3475,6 +3495,7 @@ final class OwnDock: ObservableObject {
         pressPoint = point
         field.setPressed(hit.id, true)
         field.peekTarget = false
+        if hit.slot.kind == .plugin, !arranging { holdForPluginMenu(hit.slot, at: point) }
         wake()
     }
 
@@ -3568,10 +3589,24 @@ final class OwnDock: ObservableObject {
 
     /// A file is held over the bar: the tile that would take it grows a little.
     @discardableResult
-    fileprivate func dragOver(_ point: CGPoint?) -> NSDragOperation {
+    fileprivate func dragOver(_ point: CGPoint?, offer: DockTextOffer? = nil) -> NSDragOperation {
         let hit = point.flatMap(tileAt)
-        let takes = hit.map { [.app, .stack, .trash].contains($0.slot.kind) } ?? false
+        let takes: Bool
+        if let offer {
+            // A link or text: only a plugin tile that asked for it takes it.
+            takes = hit.map { pluginDrop(offer, on: $0.slot) != nil } ?? false
+        } else {
+            takes = hit.map { [.app, .stack, .trash].contains($0.slot.kind) } ?? false
+        }
         let target = takes ? hit?.id : nil
+        if offer != nil {
+            if field.dropID != target {
+                field.dropID = target
+                if target != nil { NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now) }
+                wake()
+            }
+            return takes ? .copy : []
+        }
         if field.dropID != target {
             field.dropID = target
             if target != nil { NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now) }
@@ -3581,9 +3616,44 @@ final class OwnDock: ObservableObject {
         return .copy
     }
 
+    /// Press and hold a plugin tile for its menu, as with a right-click. Moving first drags it.
+    private func holdForPluginMenu(_ slot: DockSlot, at point: CGPoint) {
+        let id = slot.id
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(550))
+            guard let self, self.pressID == id, self.field.dragID == nil, let input = self.input else { return }
+            self.pressID = nil
+            self.field.setPressed(id, false)
+            let menu = self.menu(for: slot)
+            self.menuOpen = true
+            menu.popUp(positioning: nil, at: NSPoint(x: point.x, y: point.y), in: input)
+            self.menuOpen = false
+            self.wake()
+        }
+    }
+
+    /// What a plugin tile would be handed for this drag, or nil when it takes nothing.
+    private func pluginDrop(_ offer: DockTextOffer, on slot: DockSlot) -> (PluginDropKind, String)? {
+        guard slot.kind == .plugin, let found = PluginDockPath.parse(slot.id), found.role == .tile,
+              PluginRegistry.shared.tile(found.key) != nil else { return nil }
+        return PluginHookCheck.dropValue(url: offer.url, text: offer.text, fileCount: 0, accepts: PluginHooks.shared.accepts(found.key))
+    }
+
+    /// A link or text dropped on the bar: only a plugin tile that accepts it takes it.
+    fileprivate func dropText(_ offer: DockTextOffer, at point: CGPoint) -> Bool {
+        field.dropID = nil
+        guard let hit = tileAt(point), let (kind, value) = pluginDrop(offer, on: hit.slot),
+              let found = PluginDockPath.parse(hit.slot.id) else { wake(); return false }
+        PluginHooks.shared.drop(on: found.key, kind: kind, value: value)
+        dropped(hit.id)
+        return true
+    }
+
     fileprivate func drop(_ urls: [URL], at point: CGPoint) {
         field.dropID = nil
         let hit = tileAt(point)
+        // Files are never handed to plugins, and a plugin tile is not a place to keep them.
+        if hit?.slot.kind == .plugin { wake(); return }
         if let hit, hit.slot.kind == .trash {
             NSWorkspace.shared.recycle(urls)
             if design.trash == .none { field.pulse(hit.id, strength: 0.4, tile: field.fitted(metrics).tile) }
