@@ -178,7 +178,7 @@ permission each one needs, and its `atelier://` test hook.
 |---|---|---|
 | **Home** | A live replica of your Mac, and a shelf of tiles for what a stock Mac cannot do. Hover a tile to play it on the stage. | No equivalent. |
 | **Looks** | Curated themes in one click: Dock, menu bar, wallpaper, widgets and icon tint together. **Change with the Day** hands over from one Look to the next at the hour you set. Revert undoes the run. | No themes beyond Light, Dark and accent colour. |
-| **Mods** | Community plugins, themes and data-only packs (icons, sounds, shaders, snap layouts, minimise effects, Looks) from a signed catalog on GitHub: browse, install, update and remove in one place. A mod's page shows where it lives once installed: its Dock tile, widgets, commands and corner actions, one click away. **Library** holds your own: create a theme from your Mac, import, and manage plugins and packs. A theme is one JSON file that restyles everything Atelier reaches; plugins add widgets (with buttons, charts and images), Dock tiles, commands, corner actions and their own settings in sandboxed JavaScript, and plug into the Command palette, the menu bar, Stacks, Scenes, live activities and small windows of their own. See [docs/README.md](docs/README.md). | No theme or plugin system. |
+| **Mods** | Community plugins, themes and data-only packs (icons, sounds, shaders, snap layouts, minimise effects, Looks) from a signed catalog on GitHub: browse, install, update and remove in one place. Featured mods, collections, author pages, install counts and likes; authors can sign their own packages, updates that ask for more show the difference first, any version can be rolled back to, and your whole setup exports to one file. A mod's page shows where it lives once installed: its Dock tile, widgets, commands and corner actions, one click away. **Library** holds your own: create a theme from your Mac, import, and manage plugins and packs; **Create** is a playground for writing a plugin with its result live beside the code. A theme is one JSON file that restyles everything Atelier reaches; plugins add widgets (with buttons, charts and images), Dock tiles, commands, corner actions and their own settings in sandboxed JavaScript, and plug into the Command palette, the menu bar, Stacks, Scenes, live activities and small windows of their own. See [docs/README.md](docs/README.md). | No theme or plugin system. |
 
 </details>
 
@@ -356,7 +356,9 @@ is in [COMPATIBILITY.md](COMPATIBILITY.md).
 Open **Mods** in Atelier to browse plugins and themes made by the community, from the catalog at
 [kaizensx/atelier-mods](https://github.com/kaizensx/atelier-mods) and on
 [the website](https://kaizensx.github.io/Atelier/mods.html). Every index is signed and every
-package is checked before it is unpacked; plugins still ask for each permission. Packs are data
+package is checked before it is unpacked (and against its author's own signature when they sign);
+plugins still ask for each permission, and an update that asks for more shows the difference first.
+Roll back any mod, or carry your setup to another Mac with **Export Setup…**. Packs are data
 only: icon packs, sound packs, shader packs, snap layout packs, minimise effect packs and Looks,
 each checked file by file before use. Your own live in **Mods › Library**: drop a
 `.ateliertheme`, an `.atelierplugin` or a pack there to install it. The formats are in

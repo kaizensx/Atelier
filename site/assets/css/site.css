@@ -497,6 +497,21 @@ a.stat:hover { background: var(--surface-2); }
 .chip svg { width: 12px; height: 12px; opacity: 0.8; }
 .chip.none { color: var(--text-3); }
 
+/* Mods: installs and likes, collections shelves, author heads */
+.mstat { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mstat svg { width: 13px; height: 13px; opacity: 0.8; }
+.shelf-head { display: grid; gap: 4px; margin: 8px 0 14px; }
+.shelf-head h2 { font-size: 1.25rem; letter-spacing: -0.02em; }
+.shelf-head p { color: var(--text-2); font-size: 0.92rem; }
+.shelf { display: grid; grid-auto-flow: column; grid-auto-columns: min(82vw, 320px); gap: 16px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 36px; scroll-snap-type: x proximity; scrollbar-width: thin; }
+.shelf > * { scroll-snap-align: start; min-width: 0; }
+.mod .foot .who { flex: 1 1 auto; }
+
+.mod .foot .v { flex: none; }
+.author-head { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-bottom: 28px; }
+.author-head .avatar { width: 56px; height: 56px; }
+.author-head h2 { font-size: 1.6rem; letter-spacing: -0.02em; }
+
 /* Toolbar: search and segmented filter */
 .toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 28px; }
 .search { position: relative; flex: 1 1 280px; }

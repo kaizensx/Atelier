@@ -100,15 +100,22 @@ final class ModClient: @unchecked Sendable {
         func discard() { try? FileManager.default.removeItem(at: work) }
     }
 
-    func prepare(_ entry: ModEntry, progress: (@Sendable (Double) -> Void)? = nil) async throws -> Prepared {
+    /// `strictPermissions` holds a plugin's manifest to the permissions the index shows. An older
+    /// version whose permissions the index did not record is checked by its own manifest, which
+    /// the permission sheet asks for anyway.
+    func prepare(_ entry: ModEntry, strictPermissions: Bool = true, progress: (@Sendable (Double) -> Void)? = nil) async throws -> Prepared {
         let manager = FileManager.default
         let work = manager.temporaryDirectory.appendingPathComponent("atelier-mod-" + UUID().uuidString, isDirectory: true)
         try manager.createDirectory(at: work, withIntermediateDirectories: true)
         do {
             let zip = try await download(entry.package, kind: entry.kind, into: work, progress: progress)
+            // The catalog vouched for the bytes; when the author signs, their signature must hold too.
+            if case .failure(let failure) = ModAuthorSignature.check(fileAt: zip, key: entry.authorKey, signature: entry.packageSignature) {
+                throw failure
+            }
             let out = work.appendingPathComponent("out", isDirectory: true)
             try Self.unzip(zip, to: out)
-            let (folder, plugin) = try Self.check(unpacked: out, entry: entry)
+            let (folder, plugin) = try Self.check(unpacked: out, entry: entry, strictPermissions: strictPermissions)
             return Prepared(entry: entry, folder: folder, work: work, plugin: plugin)
         } catch {
             try? manager.removeItem(at: work)
@@ -117,13 +124,23 @@ final class ModClient: @unchecked Sendable {
     }
 
     /// Downloads a file the index vouches for: size and SHA-256 must match before it is used.
+    /// The catalog's release asset first (that is how installs are counted, with nothing sent
+    /// about the person), then the copy on the dist branch.
     func download(_ file: ModFile, kind: ModKind, into folder: URL, progress: (@Sendable (Double) -> Void)? = nil) async throws -> URL {
-        guard ModURLPolicy.isAllowed(file.url, allowLoopback: config.allowLoopback) else {
+        var lastError: Error = ModCatalogError.network("The download address is not allowed.")
+        for source in file.sources {
+            do { return try await download(file, from: source, kind: kind, into: folder, progress: progress) } catch { lastError = error }
+        }
+        throw lastError
+    }
+
+    private func download(_ file: ModFile, from source: URL, kind: ModKind, into folder: URL, progress: (@Sendable (Double) -> Void)?) async throws -> URL {
+        guard ModURLPolicy.isAllowed(source, allowLoopback: config.allowLoopback) else {
             throw ModCatalogError.network("The download address is not allowed.")
         }
         guard file.size <= kind.maxPackageBytes else { throw ModCatalogError.tooLarge(file.size) }
         let temp: URL, response: URLResponse
-        do { (temp, response) = try await session.download(from: file.url) } catch {
+        do { (temp, response) = try await session.download(from: source) } catch {
             throw ModCatalogError.network(Self.describe(error))
         }
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
@@ -172,7 +189,7 @@ final class ModClient: @unchecked Sendable {
 
     /// Finds the one package folder in what was unpacked and checks it is exactly the mod the
     /// signed index describes: same id, same version, and for a plugin the same permissions.
-    static func check(unpacked out: URL, entry: ModEntry) throws -> (URL, PluginManifest?) {
+    static func check(unpacked out: URL, entry: ModEntry, strictPermissions: Bool = true) throws -> (URL, PluginManifest?) {
         let manager = FileManager.default
         let top = (try? manager.contentsOfDirectory(at: out, includingPropertiesForKeys: nil))?
             .filter { !$0.lastPathComponent.hasPrefix(".") && $0.lastPathComponent != "__MACOSX" } ?? []
@@ -192,7 +209,7 @@ final class ModClient: @unchecked Sendable {
                 throw ModCatalogError.package(validation.errors.map(\.description).joined(separator: " "))
             }
             if let problem = ModPackageCheck.matches(entry: entry, packageID: manifest.id, packageVersion: manifest.version)
-                ?? ModPackageCheck.permissionsMatch(entry: entry, manifest: manifest) {
+                ?? (strictPermissions ? ModPackageCheck.permissionsMatch(entry: entry, manifest: manifest) : nil) {
                 throw ModCatalogError.package(problem)
             }
             return (folder, manifest)
