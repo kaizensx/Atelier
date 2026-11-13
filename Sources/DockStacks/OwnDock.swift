@@ -1120,6 +1120,9 @@ final class OwnDock: ObservableObject {
         static let large = "ownDock.large", magnify = "ownDock.magnify", autoHide = "ownDock.autoHide"
         static let vitals = "ownDock.vitals", look = "ownDock.followLook", running = "ownDock.showRunning"
         static let items = "ownDock.items", screen = "ownDock.screen"
+        /// Plugin tiles and stacks, kept apart from `items` with their places: a build without
+        /// plugin tiles still reads the Dock (it would refuse the whole list over one unknown kind).
+        static let pluginItems = "ownDock.pluginItems"
         static let hideSystem = "ownDock.hideSystem", systemBefore = "ownDock.systemAutoHideBefore"
         static let replaceSystem = "ownDock.replaceSystem", appearance = "ownDock.appearance"
         static let customs = "ownDock.customs", recents = "ownDock.recents", display = "ownDock.display"
@@ -1352,7 +1355,7 @@ final class OwnDock: ObservableObject {
         design = (store.data(forKey: Key.design)).flatMap { try? JSONDecoder().decode(DockDesignPrefs.self, from: $0) } ?? DockDesignPrefs()
         reserve = (store.data(forKey: Key.reserve)).flatMap { try? JSONDecoder().decode(DockReservePrefs.self, from: $0) } ?? DockReservePrefs()
         if let data = store.data(forKey: Key.items), let saved = try? JSONDecoder().decode([OwnDockItem].self, from: data) {
-            items = saved
+            items = Self.withPluginItems(saved, from: store.data(forKey: Key.pluginItems))
         } else {
             items = Self.seed()
             persist()
@@ -1492,7 +1495,32 @@ final class OwnDock: ObservableObject {
     }
 
     private func persist() {
-        if let data = try? JSONEncoder().encode(items) { store.set(data, forKey: Key.items) }
+        let (plain, placed) = Self.splitPluginItems(items)
+        if let data = try? JSONEncoder().encode(plain) { store.set(data, forKey: Key.items) }
+        if placed.isEmpty { store.removeObject(forKey: Key.pluginItems) }
+        else if let data = try? JSONEncoder().encode(placed) { store.set(data, forKey: Key.pluginItems) }
+    }
+
+    /// A plugin tile and where it sat in the full list.
+    struct PlacedPluginItem: Codable, Equatable { var index: Int; var item: OwnDockItem }
+
+    /// The list without plugin tiles, and the plugin tiles with their places in the full list.
+    nonisolated static func splitPluginItems(_ all: [OwnDockItem]) -> ([OwnDockItem], [PlacedPluginItem]) {
+        var plain: [OwnDockItem] = [], placed: [PlacedPluginItem] = []
+        for (index, item) in all.enumerated() {
+            if item.kind == .plugin { placed.append(PlacedPluginItem(index: index, item: item)) } else { plain.append(item) }
+        }
+        return (plain, placed)
+    }
+
+    /// Puts plugin tiles back at their places. Also accepts an older list that still holds them.
+    nonisolated static func withPluginItems(_ plain: [OwnDockItem], from data: Data?) -> [OwnDockItem] {
+        guard let data, let placed = try? JSONDecoder().decode([PlacedPluginItem].self, from: data) else { return plain }
+        var all = plain.filter { $0.kind != .plugin }
+        for entry in placed.sorted(by: { $0.index < $1.index }) where !all.contains(where: { $0.path == entry.item.path }) {
+            all.insert(entry.item, at: min(max(entry.index, 0), all.count))
+        }
+        return all
     }
 
     func add(_ url: URL) {
