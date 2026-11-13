@@ -257,7 +257,8 @@ final class DockReserveEngine: @unchecked Sendable {
         guard (Self.string(window, kAXSubroleAttribute) ?? kAXStandardWindowSubrole) == kAXStandardWindowSubrole,
               Self.bool(window, "AXFullScreen") != true, Self.bool(window, kAXMinimizedAttribute) != true else { return }
         let resized = before.map { abs($0.width - frame.width) > 1 || abs($0.height - frame.height) > 1 } ?? false
-        guard let target = DockReserveMath.fit(frame, on: screen, resized: resized) else { return }
+        let framed = Self.element(window, kAXZoomButtonAttribute) != nil || Self.element(window, kAXCloseButtonAttribute) != nil
+        guard let target = DockReserveMath.fit(frame, on: screen, resized: resized, framed: framed) else { return }
         // An app that refuses the size would answer every fit with another event.
         let now = CFAbsoluteTimeGetCurrent()
         var record = adjusted[key] ?? (0, now)

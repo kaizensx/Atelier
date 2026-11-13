@@ -53,7 +53,10 @@ enum DockReserveMath {
 
     /// The frame `window` should have, or nil to leave it. `resized` says the window's size
     /// changed during the drag that just ended, so it is shrunk rather than moved.
-    static func fit(_ window: CGRect, on screen: DockReserveScreen, resized: Bool = false) -> CGRect? {
+    /// `framed` says the window has a title bar's buttons: a framed window as big as the screen
+    /// was maximised (with the menu bar set to hide, the visible frame is the whole screen),
+    /// while a frameless one that big is a game or player filling the screen on purpose.
+    static func fit(_ window: CGRect, on screen: DockReserveScreen, resized: Bool = false, framed: Bool = true) -> CGRect? {
         let edge = screen.edge
         let w = canon(window, edge), full = canon(screen.full, edge), visible = canon(screen.visible, edge)
         let bandTop = full.maxY - screen.thickness
@@ -61,8 +64,8 @@ enum DockReserveMath {
         // Clear of the band, or wholly in it: nothing to fit.
         guard w.maxY > bandTop + 0.5, w.minY < bandTop else { return nil }
         guard full.contains(CGPoint(x: w.midX, y: w.midY)) else { return nil }
-        // A window as big as the screen is full screen in all but name.
-        if w.width >= full.width - 1, w.height >= full.height - 1 { return nil }
+        // A frameless window as big as the screen is full screen in all but name.
+        if !framed, w.width >= full.width - 1, w.height >= full.height - 1 { return nil }
         // Pushed past the screen edge on purpose: parked, not maximised.
         if w.maxY > full.maxY + flushTolerance { return nil }
         let top = visible.minY

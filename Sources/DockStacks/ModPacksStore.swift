@@ -197,7 +197,9 @@ final class ModPackStore: ObservableObject {
             }
         case .layouts: LayoutPackRuntime.remove(pack)
         case .effects: if MinimizeEffectSetting.packEffect?.pack == pack.id { MinimizeEffectSetting.packEffect = nil }
-        case .look: if ThemeEngine.shared.canRevert { ThemeEngine.shared.revert() }
+        case .look:
+            if ThemeEngine.shared.canRevert { ThemeEngine.shared.revert() }
+            notice = nil
         }
         objectWillChange.send()
     }
