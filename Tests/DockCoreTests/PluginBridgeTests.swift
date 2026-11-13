@@ -54,7 +54,7 @@ private func manifest(_ json: String) -> (PluginManifest?, ThemeValidation) {
     let folder = repository.appendingPathComponent("examples/plugins")
     let bundles = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
         .filter { $0.pathExtension == PluginManifest.bundleExtension }
-    #expect(bundles.count == 3)
+    #expect(bundles.count == 4)
     for bundle in bundles {
         let data = try Data(contentsOf: bundle.appendingPathComponent(PluginManifest.fileName))
         let (parsed, result) = PluginManifest.parse(data, files: ["main.js"])
