@@ -569,6 +569,14 @@ struct OwnDockTileView: View {
             } else {
                 DockSmartGlyph(symbol: tile.slot.symbol ?? "sparkles", size: shown, accent: theme.accent, face: tile.slot.face)
             }
+        case .plugin:
+            if let icon = tile.slot.icon {
+                BitmapIcon(image: DockIcons.custom(icon))
+            } else if let found = PluginDockPath.parse(tile.slot.id), found.role == .tile {
+                PluginDockTileView(key: found.key, size: shown)
+            } else {
+                DockSmartGlyph(symbol: tile.slot.symbol ?? "square.stack.3d.up", size: shown, accent: theme.accent, face: tile.slot.face)
+            }
         case .divider, .spacer, .spacerLarge, .section:
             EmptyView()
         case .app, .stack, .file, .folder:
@@ -1494,6 +1502,28 @@ final class OwnDock: ObservableObject {
 
     func hasTile(_ kind: OwnDockItem.Kind) -> Bool { items.contains { $0.kind == kind } }
 
+    // MARK: Plugin tiles and stacks (PluginHooks.swift)
+
+    /// Puts a plugin's Dock tile or stack on the bar, once.
+    func addPlugin(_ role: PluginDockPath.Role, key: String) {
+        let path = PluginDockPath.make(role, key: key)
+        guard !items.contains(where: { $0.id == path }) else { return }
+        items.append(OwnDockItem(kind: .plugin, path: path))
+        persist()
+        refresh()
+    }
+
+    func hasPlugin(_ role: PluginDockPath.Role, key: String) -> Bool {
+        let path = PluginDockPath.make(role, key: key)
+        return items.contains { $0.id == path }
+    }
+
+    /// A plugin started, stopped or renamed its stack: titles and symbols are read again.
+    func refreshPluginTiles() {
+        guard items.contains(where: { $0.kind == .plugin }) else { return }
+        refresh()
+    }
+
     func removeTiles(_ kind: OwnDockItem.Kind) {
         items.removeAll { $0.kind == kind }
         persist()
@@ -1609,7 +1639,17 @@ final class OwnDock: ObservableObject {
     func displayTitle(_ item: OwnDockItem) -> String {
         if let label = customs[item.id]?.label { return label }
         if item.kind == .smart, let stack = smart[item.id] { return stack.name }
+        if item.kind == .plugin, let title = Self.pluginTitle(item.path) { return title }
         return item.title
+    }
+
+    /// A plugin tile's or stack's own title while its plugin runs.
+    static func pluginTitle(_ path: String) -> String? {
+        guard let found = PluginDockPath.parse(path) else { return nil }
+        switch found.role {
+        case .tile: return PluginRegistry.shared.tile(found.key)?.spec.title
+        case .stack: return PluginHooks.shared.stack(found.key)?.spec.title
+        }
     }
 
     func options(for id: String) -> DockTileOptions { options[id] ?? DockTileOptions() }
@@ -1862,6 +1902,12 @@ final class OwnDock: ObservableObject {
             var slot = DockSlot(id: item.id, kind: item.slotKind, path: item.isTile ? "" : item.path, title: item.title,
                                 pinned: true, running: app != nil, frontmost: item.path == front, hidden: app?.isHidden ?? false,
                                 launching: launching[item.path] != nil)
+            if item.kind == .plugin {
+                if let title = Self.pluginTitle(item.path) { slot.title = title }
+                if let found = PluginDockPath.parse(item.path), found.role == .stack {
+                    slot.symbol = PluginHooks.shared.stack(found.key)?.spec.symbol
+                }
+            }
             if item.kind == .smart, let stack = smart[item.id] {
                 slot.title = stack.name
                 slot.symbol = stack.source.symbol
@@ -2624,6 +2670,14 @@ final class OwnDock: ObservableObject {
             }
         case .orbit:
             peek.status = "Click to open Orbit"
+        case .plugin:
+            peek.path = ""
+            let found = PluginDockPath.parse(slot.id)
+            let plugin = found.flatMap { found in PluginRegistry.shared.installed.first { found.key.hasPrefix($0.id + "/") } }
+            let running = plugin.map { PluginRegistry.shared.isRunning($0.id) } ?? false
+            let from = plugin.map { "From \($0.manifest.name)" } ?? "Plugin"
+            peek.status = !running ? from + ". The plugin is off."
+                : found?.role == .stack ? from + ". Click to see what it holds." : from + ". Right-click for its menu."
         case .window:
             let app = runningApps().first { $0.processIdentifier == slot.pid }
             peek.status = "Minimised" + (app?.localizedName.map { " · " + $0 } ?? "") + ". Click to bring it back."
@@ -2960,6 +3014,17 @@ final class OwnDock: ObservableObject {
             wake()
         case .orbit:
             Orbit.shared.toggle()
+        case .plugin:
+            guard let found = PluginDockPath.parse(slot.id) else { return }
+            switch found.role {
+            case .tile:
+                guard PluginRegistry.shared.tile(found.key) != nil else { NSSound.beep(); return }
+                PluginRegistry.shared.click(tile: found.key)
+                field.pulse(id, strength: 0.3, tile: field.fitted(metrics).tile)
+                wake()
+            case .stack:
+                showPluginStack(slot, key: found.key)
+            }
         case .divider, .spacer, .spacerLarge: break
         }
     }
@@ -3104,6 +3169,22 @@ final class OwnDock: ObservableObject {
                 return
             }
             OwnDock.shared.present(url, id: id, title: stack.name, items: found, style: stack.style)
+        }
+    }
+
+    /// A plugin's stack asks the plugin for its items as it opens, in the stack's own bubble.
+    private func showPluginStack(_ slot: DockSlot, key: String) {
+        guard let stack = PluginHooks.shared.stack(key) else { NSSound.beep(); return }
+        let url = URL(fileURLWithPath: "/atelier-plugin-stack/" + key)
+        if bubble.isShowing(url) { bubble.close(); return }
+        field.pulse(slot.id, strength: 0.3, tile: field.fitted(metrics).tile)
+        wake()
+        let id = slot.id
+        PluginHooks.shared.items(forStack: key) { result in
+            guard case .success(let items) = result, !items.isEmpty else { NSSound.beep(); return }
+            var style = StackStyle()
+            style.layout = .list
+            OwnDock.shared.present(url, id: id, title: stack.spec.title, items: items, style: style)
         }
     }
 
@@ -3738,8 +3819,30 @@ final class OwnDock: ObservableObject {
         case .clipboard: "Clipboard"
         case .orbit: "Orbit"
         case .smart: "Smart Stack"
+        case .plugin: "Plugin"
         default: "Tile"
         }
+    }
+
+    /// A plugin tile's own menu, then Open and a line naming the plugin.
+    private func pluginMenu(_ slot: DockSlot, into menu: NSMenu) {
+        guard let found = PluginDockPath.parse(slot.id) else { return }
+        let registry = PluginRegistry.shared
+        let plugin = registry.installed.first { found.key.hasPrefix($0.id + "/") }
+        if found.role == .tile, let tile = registry.tile(found.key) {
+            let entries = PluginHooks.shared.tileMenu(found.key)
+            PluginMenus.items(entries, plugin: tile.plugin).forEach(menu.addItem)
+            if !entries.isEmpty { menu.addItem(.separator()) }
+        }
+        let running = plugin.map { registry.isRunning($0.id) } ?? false
+        menu.addItem(item("Open", enabled: running) { OwnDock.shared.click(slot.id) })
+        if let plugin {
+            menu.addItem(item("About \(plugin.manifest.name)…") {
+                NavFocus.shared.open(chapter: "mods", focus: nil)
+            })
+            if !running { menu.addItem(PluginMenus.footer(plugin.manifest.name + " (off)")) }
+        }
+        menu.addItem(.separator())
     }
 
     func hasOwnIcon(_ id: String) -> Bool { customs[id]?.icon != nil }
@@ -3844,6 +3947,10 @@ final class OwnDock: ObservableObject {
             menu.addItem(item("Open Orbit") { Orbit.shared.toggle() })
             menu.addItem(.separator())
             removeTile()
+        case .plugin:
+            pluginMenu(slot, into: menu)
+            removeTile()
+            if let section = sectionMenu(for: slot) { menu.addItem(section) }
         case .spacer, .spacerLarge:
             menu.addItem(item("Remove Spacer") { OwnDock.shared.remove(id: slot.id) })
             if let section = sectionMenu(for: slot) { menu.addItem(section) }

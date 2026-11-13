@@ -1,7 +1,9 @@
 import Foundation
 
 public struct StackItem: Codable, Hashable, Identifiable, Sendable {
-    public enum Kind: String, Codable, Sendable { case app, file, url, shortcut, group }
+    /// `plugin`: an item a plugin's stack provider listed. Shown only while its stack is open,
+    /// never saved; `value` is a `PluginStackValue`.
+    public enum Kind: String, Codable, Sendable { case app, file, url, shortcut, group, plugin }
 
     public var id = UUID()
     public var kind: Kind

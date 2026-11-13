@@ -485,6 +485,7 @@ struct DockHubItemsCard: View {
         case .file: "File"
         case .folder: "Folder"
         case .smart: "Smart Stack"
+        case .plugin: "Plugin"
         case .spacer: "Small Spacer"
         case .spacerLarge: "Spacer"
         default: "Tile"
@@ -798,6 +799,7 @@ struct DockHubItemIcon: View {
         case .clipboard: "doc.on.clipboard"
         case .orbit: "circle.hexagongrid"
         case .smart: OwnDock.shared.smart[item.id]?.source.symbol ?? "sparkles"
+        case .plugin: "puzzlepiece.extension"
         case .spacer, .spacerLarge: "space"
         default: "square"
         }

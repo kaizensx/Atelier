@@ -201,6 +201,8 @@ public struct PluginCornerSpec: Equatable, Sendable {
 
 public enum PluginEvent: String, CaseIterable, Sendable {
     case appActivated, spaceChanged, wallpaperChanged, themeChanged, timer
+    /// A message from one of the plugin's HTML panels (`atelier.panel`).
+    case panelMessage
 }
 
 /// One call from a plugin's script into Atelier, decoded and checked. Everything a script

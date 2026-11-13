@@ -554,6 +554,11 @@ public enum ModScan {
         (.notifications, #"\batelier\s*\.\s*notify\b"#),
         (.openURL, #"\batelier\s*\.\s*openURL\b"#),
         (.appearance, #"\batelier\s*\.\s*theme\b"#),
+        // Hooks into Atelier.
+        (.menuBar, #"\batelier\s*\.\s*menuBarItem\b"#),
+        (.liveActivities, #"\batelier\s*\.\s*liveActivity\b"#),
+        (.scenes, #"\batelier\s*\.\s*scenes\b"#),
+        (.panels, #"\batelier\s*\.\s*panel\b"#),
     ]
 
     public static func scan(_ source: String) -> Result {

@@ -211,6 +211,8 @@ final class PluginRegistry: ObservableObject {
     }
 
     func isRunning(_ id: String) -> Bool { runtimes[id] != nil }
+    /// A running plugin, for the hooks (PluginHooks.swift) to call back into.
+    func runtime(_ id: String) -> PluginRuntime? { runtimes[id] }
 
     private func launch(_ plugin: InstalledPlugin) {
         let id = plugin.id
@@ -230,6 +232,7 @@ final class PluginRegistry: ObservableObject {
         dockTiles.removeAll { $0.plugin == id }
         commands.removeAll { $0.plugin == id }
         cornerActions.removeAll { $0.plugin == id }
+        PluginHooks.shared.clear(id)
     }
 
     // MARK: Signals from runtimes
@@ -248,6 +251,8 @@ final class PluginRegistry: ObservableObject {
             append(id, level, text)
         case .message(let message):
             handle(message, from: id, name: name)
+        case .hook(let message):
+            PluginHooks.shared.handle(message, from: id, name: name)
         }
     }
 

@@ -110,6 +110,7 @@ enum ItemIcon {
         case .url: return symbol("globe", .systemBlue)
         case .shortcut: return symbol("square.2.layers.3d.fill", .systemPink)
         case .group: return group(item.children)
+        case .plugin: return PluginStackValue(item.value).map(PluginHookIcons.image) ?? symbol("puzzlepiece.extension", .systemGray)
         }
     }
 
@@ -140,6 +141,8 @@ enum Launcher {
             if let url = URL(string: "shortcuts://run-shortcut?name=\(name)") { NSWorkspace.shared.open(url) }
         case .group:
             break
+        case .plugin:
+            if let value = PluginStackValue(item.value), let action = value.action { PluginHooks.shared.perform(value.plugin, action) }
         }
     }
 }

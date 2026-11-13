@@ -56,7 +56,7 @@ public enum StackKind: String, Codable, CaseIterable, Identifiable, Sendable {
     public static func of(_ item: StackItem, isFolder: Bool = false) -> StackKind {
         switch item.kind {
         case .app: return .apps
-        case .url, .shortcut: return .links
+        case .url, .shortcut, .plugin: return .links
         case .group: return .folders
         case .file:
             let ext = (item.value as NSString).pathExtension.lowercased()

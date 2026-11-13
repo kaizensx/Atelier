@@ -9,6 +9,8 @@ enum PluginSignal: Sendable {
     /// The script could not start, or stopped responding.
     case failed(String)
     case started
+    /// A call into one of Atelier's features (PluginHooksRuntime.swift).
+    case hook(PluginHookMessage)
 }
 
 /// One plugin's JavaScript world: its own virtual machine and context, on its own serial queue.
@@ -22,7 +24,7 @@ final class PluginRuntime: @unchecked Sendable {
     let folder: URL
     let granted: Set<PluginPermission>
     private let queue: DispatchQueue
-    private let signal: @Sendable (PluginSignal) -> Void
+    let signal: @Sendable (PluginSignal) -> Void
 
     private var machine: JSVirtualMachine?
     private var context: JSContext?
@@ -36,6 +38,8 @@ final class PluginRuntime: @unchecked Sendable {
     private var stopped = false
     /// Consecutive calls that hit the time limit. Three in a row and the plugin is stopped.
     private var timeouts = 0
+    /// Counts of menu bar items, panels and the other hooks. Read and written on `queue`.
+    var hookLimits = PluginHookLimits()
     private lazy var session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 15
@@ -156,11 +160,14 @@ final class PluginRuntime: @unchecked Sendable {
     func emit(_ event: PluginEvent, payload: JSONValue) { enter("emit", [event.rawValue, payload.text()]) }
     /// Answers a pending promise, such as `atelier.prompt`.
     func settle(_ request: Int, ok: Bool, payload: JSONValue) { enter("settle", [request, ok, payload.text()]) }
+    /// Asks a palette or stack provider; it answers with a `hooks.reply` call.
+    func ask(_ key: String, request: Int, payload: JSONValue) { enter("ask", [key, request, payload.text()]) }
 
     // MARK: Calls out (always on `queue`, from inside the script)
 
     private func handle(kind: String, payload: String) -> String {
         if kind.hasPrefix("storage.") { return handleStorage(kind, payload) }
+        if PluginHookMessage.handles(kind) { return handleHook(kind: kind, payload: payload) }
         let message: PluginMessage
         do { message = try PluginMessage.decode(kind: kind, payload: payload) } catch {
             return Self.error(error.description)
