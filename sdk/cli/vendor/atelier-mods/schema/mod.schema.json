@@ -10,10 +10,23 @@
   "properties": {
     "id": { "type": "string", "maxLength": 120, "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*(\\.[A-Za-z0-9][A-Za-z0-9_-]*)+$", "description": "Reverse-DNS id. Must equal the folder name and the package's own id." },
     "name": { "type": "string", "minLength": 1, "maxLength": 60, "description": "Shown on the card. Must equal the package's name." },
-    "author": { "type": "string", "minLength": 1, "maxLength": 80, "description": "Who made it, as shown." },
+    "author": {
+      "anyOf": [
+        { "type": "string", "minLength": 1, "maxLength": 80 },
+        {
+          "type": "object", "required": ["name"], "additionalProperties": false,
+          "properties": {
+            "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+            "key": { "type": "string", "pattern": "^[A-Za-z0-9+/]{43}=$", "description": "Your Ed25519 public key (base64). With it, package.sig must be your signature over the package." },
+            "url": { "type": "string", "maxLength": 300, "pattern": "^https://", "description": "Your own page, shown on your author page." }
+          }
+        }
+      ],
+      "description": "Who made it, as shown: a name, or { name, key, url }."
+    },
     "github": { "type": "string", "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$", "description": "Your GitHub handle. Only this account (or a maintainer) may update the mod." },
     "version": { "type": "string", "maxLength": 20, "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$", "description": "Semantic version. Must equal the package's version." },
-    "kind": { "enum": ["plugin", "theme", "native"], "description": "plugin and theme live in mods/, native in native/." },
+    "kind": { "enum": ["plugin", "theme", "native", "icons", "sounds", "shader", "layouts", "effects", "look"], "description": "plugin, theme and the data-only packs (icons, sounds, shader, layouts, effects, look) live in mods/, native in native/." },
     "summary": { "type": "string", "minLength": 10, "maxLength": 400, "description": "One or two sentences for the card." },
     "description": { "type": "string", "maxLength": 20000, "description": "Markdown for the mod page. Or put it in description.md beside mod.json." },
     "screenshots": {
@@ -33,8 +46,8 @@
       "description": "PNG or JPEG files in screenshots/, at least 640 px wide, at most 1.5 MB each. 16:10 looks best."
     },
     "permissions": {
-      "type": "array", "maxItems": 4,
-      "items": { "enum": ["network", "notifications", "openURL", "appearance"] },
+      "type": "array", "maxItems": 8,
+      "items": { "enum": ["network", "notifications", "openURL", "appearance", "menuBar", "liveActivities", "scenes", "panels"] },
       "description": "Plugins only: exactly the permissions in the plugin's manifest.json."
     },
     "hosts": {

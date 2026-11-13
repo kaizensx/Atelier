@@ -1,11 +1,13 @@
 {
   "repository": "https://github.com/kaizensx/atelier-mods",
-  "commit": "d32266f68fd6ce00b8fd7a140eaec0d567b1d5bc",
+  "commit": "20a37286cba0fdb64c708dd4e98c473a02d27322",
   "files": [
     "scripts/lib.mjs",
+    "scripts/packs.mjs",
     "scripts/validate.mjs",
     "schema/mod.schema.json",
     "schema/atelier-theme.schema.json",
+    "schema/collections.schema.json",
     "catalog.json"
   ]
 }

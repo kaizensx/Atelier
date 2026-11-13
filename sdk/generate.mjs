@@ -91,11 +91,13 @@ function uiBlock(indent) {
   let out = "";
   for (const v of api.views) {
     const name = viewInterfaceName(v.type);
-    const omit = ["type", v.main, v.second].filter(Boolean).map((k) => `"${k}"`).join(" | ");
-    const params = [];
-    if (v.main) params.push({ name: v.main, type: v.mainType, description: v.props.find((p) => p.name === v.main)?.description });
-    if (v.second) params.push({ name: v.second, type: v.secondType, description: v.props.find((p) => p.name === v.second)?.description });
-    const hasStyle = v.props.some((p) => p.name !== v.main && p.name !== v.second);
+    // The helper's positional arguments: `args`, or the older `main` and `second`.
+    const args = v.args ?? [v.main, v.second].filter(Boolean);
+    const typeOf = (name) => v.argTypes?.[name] ?? (name === v.main ? v.mainType : name === v.second ? v.secondType : null)
+      ?? v.props.find((p) => p.name === name)?.type ?? "any";
+    const omit = ["type", ...args].map((k) => `"${k}"`).join(" | ");
+    const params = args.map((name) => ({ name, type: typeOf(name), description: v.props.find((p) => p.name === name)?.description }));
+    const hasStyle = v.props.some((p) => !args.includes(p.name));
     if (hasStyle) params.push({ name: "style", type: `Partial<Omit<${name}, ${omit}>>`, optional: true, description: "The view's other keys." });
     out += jsdoc(indent, { description: `Builds a ${v.type} view. ${v.description}`, params, since: v.since, example: v.example });
     out += `${indent}${v.helper}(${paramList(params)}): ${name};\n`;
@@ -195,19 +197,30 @@ function manifestSchema() {
 // ---------------------------------------------------------------------------------------------
 // The prelude, lifted from the app
 
+/** The body of a Swift multi-line raw string (#"""…"""#), its indentation stripped as Swift does. */
+function swiftRawString(text, file) {
+  const start = text.indexOf('#"""'), end = text.lastIndexOf('"""#');
+  if (start < 0 || end < 0) throw new Error(`${file}: could not find the raw string.`);
+  const lines = text.slice(start + 4, end).split("\n").slice(1);
+  const indent = lines.pop().length; // the closing delimiter's indentation
+  return lines.map((l) => l.slice(Math.min(indent, l.length - l.trimStart().length))).join("\n");
+}
+
 function prelude() {
   const swift = join(root, "Sources/DockCore/PluginPrelude.swift");
   if (!existsSync(swift)) return null;
   const text = readFileSync(swift, "utf8");
   const version = /apiVersion\s*=\s*"([^"]+)"/.exec(text)?.[1];
-  const start = text.indexOf('#"""'), end = text.lastIndexOf('"""#');
-  if (start < 0 || end < 0 || !version) throw new Error("PluginPrelude.swift: could not find the prelude source.");
-  // Swift raw string: drop the delimiter lines and the common indentation, fill \#(apiVersion).
-  const lines = text.slice(start + 4, end).split("\n").slice(1, -1);
-  const indent = Math.min(...lines.filter((l) => l.trim()).map((l) => l.length - l.trimStart().length));
-  const body = lines.map((l) => l.slice(indent)).join("\n").replace(/\\#\(apiVersion\)/g, version);
+  if (!version) throw new Error("PluginPrelude.swift: could not find apiVersion.");
+  let body = swiftRawString(text, "PluginPrelude.swift").replace(/\\#\(apiVersion\)/g, version);
+  // The hooks' half is interpolated into the prelude, exactly as the app builds it.
+  const hooksMark = "\\#(PluginHooksPrelude.source)";
+  if (body.includes(hooksMark)) {
+    const hooks = swiftRawString(readFileSync(join(root, "Sources/DockCore/PluginHooksPrelude.swift"), "utf8"), "PluginHooksPrelude.swift");
+    body = body.replace(hooksMark, () => hooks);
+  }
   if (/\\#\(/.test(body)) throw new Error("PluginPrelude.swift: the prelude interpolates something generate.mjs does not know.");
-  return `// Atelier's plugin prelude, API ${version}. Lifted from Sources/DockCore/PluginPrelude.swift by\n// sdk/generate.mjs. Do not edit by hand.\n${body}\n`;
+  return `// Atelier's plugin prelude, API ${version}. Lifted from Sources/DockCore/PluginPrelude.swift and\n// PluginHooksPrelude.swift by sdk/generate.mjs. Do not edit by hand.\n${body}\n`;
 }
 
 // ---------------------------------------------------------------------------------------------

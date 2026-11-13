@@ -13,6 +13,8 @@ struct PlaygroundTemplate: Identifiable, Equatable {
     let permissions: [PluginPermission]
     let hosts: [String]
     let source: String
+    /// Manifest keys the script needs beyond permissions, such as `settings` and `strings`.
+    var manifest: [String: JSONValue] = [:]
 
     static let hello = PlaygroundTemplate(
         id: "hello", title: "Hello", detail: "A widget and a command.", permissions: [], hosts: [],
@@ -59,7 +61,7 @@ struct PlaygroundTemplate: Identifiable, Equatable {
             let template = PlaygroundTemplate(
                 id: name, title: json["title"]?.string ?? name, detail: json["description"]?.string ?? "",
                 permissions: (json["permissions"]?.array ?? []).compactMap { $0.string.flatMap(PluginPermission.init(rawValue:)) },
-                hosts: (json["hosts"]?.array ?? []).compactMap(\.string), source: source)
+                hosts: (json["hosts"]?.array ?? []).compactMap(\.string), source: source, manifest: json["manifest"]?.object ?? [:])
             return (Int(json["order"]?.number ?? 99), template)
         }
         .sorted { $0.0 == $1.0 ? $0.1.id < $1.1.id : $0.0 < $1.0 }.map(\.1)
@@ -80,6 +82,8 @@ final class PlaygroundModel: ObservableObject {
     @Published var name = "My Plugin"
     @Published var permissions: Set<PluginPermission> = []
     @Published var hosts = ""
+    /// The template's extra manifest keys (`settings`, `strings`, …), kept when saving.
+    @Published var extraManifest: [String: JSONValue] = [:]
     @Published private(set) var running = false
     @Published private(set) var status: String?
     @Published private(set) var widgets: [PluginWidget] = []
@@ -91,8 +95,8 @@ final class PlaygroundModel: ObservableObject {
     @Published var notice: String?
 
     private var runtime: PluginRuntime?
-    private var runID = ""
-    private var folder: URL?
+    private(set) var runID = ""
+    private(set) var folder: URL?
     private(set) var granted: Set<PluginPermission> = []
 
     init(source: String = PlaygroundTemplate.all().first?.source ?? PlaygroundTemplate.hello.source) {
@@ -107,9 +111,31 @@ final class PlaygroundModel: ObservableObject {
     /// The manifest the script runs under.
     func manifest(id: String) -> PluginManifest {
         let asked = PluginPermission.allCases.filter(permissions.contains)
-        return PluginManifest(id: id, name: name.isEmpty ? "Playground" : name, version: "1.0.0", author: nil,
-                              summary: "Written in the Mods Playground.", permissions: asked,
-                              hosts: asked.contains(.network) ? hostList : [])
+        let plain = PluginManifest(id: id, name: name.isEmpty ? "Playground" : name, version: "1.0.0", author: nil,
+                                   summary: "Written in the Mods Playground.", permissions: asked,
+                                   hosts: asked.contains(.network) ? hostList : [])
+        guard !extraManifest.isEmpty else { return plain }
+        // Settings and strings are checked the way an installed plugin's are.
+        var full = plain
+        if let data = try? JSONValue.object(manifestRoot(id: id, manifest: plain)).data(pretty: false),
+           let parsed = PluginManifest.parse(data, files: [plain.entry]).0 {
+            full.settings = parsed.settings
+            full.strings = parsed.strings
+            full.messages = parsed.messages
+        }
+        return full
+    }
+
+    /// manifest.json as Save as Plugin writes it.
+    func manifestRoot(id: String, manifest: PluginManifest) -> [String: JSONValue] {
+        var root: [String: JSONValue] = [
+            "format": .number(1), "id": .string(id), "name": .string(manifest.name), "version": .string("1.0.0"),
+            "description": .string("Written in the Mods Playground."), "icon": .string("puzzlepiece.extension"), "entry": .string("main.js"),
+        ]
+        if !manifest.permissions.isEmpty { root["permissions"] = .array(manifest.permissions.map { .string($0.rawValue) }) }
+        if !manifest.hosts.isEmpty { root["network"] = .object(["hosts": .array(manifest.hosts.map(JSONValue.string))]) }
+        for key in ["settings", "strings", "messages"] { if let value = extraManifest[key] { root[key] = value } }
+        return root
     }
 
     /// The plugin the permission sheet asks about before a run with permissions.
@@ -122,6 +148,7 @@ final class PlaygroundModel: ObservableObject {
         source = template.source
         permissions = Set(template.permissions)
         hosts = template.hosts.joined(separator: ", ")
+        extraManifest = template.manifest
         name = template.title
         notice = nil
     }
@@ -167,7 +194,9 @@ final class PlaygroundModel: ObservableObject {
         // The runtime saves its storage as it stops; the throwaway files go after that.
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
             if let dir { try? FileManager.default.removeItem(at: dir) }
-            try? FileManager.default.removeItem(at: PluginRuntime.dataFolder.appendingPathComponent(id + ".json"))
+            for suffix in [".json", ".meta.json"] {
+                try? FileManager.default.removeItem(at: PluginRuntime.dataFolder.appendingPathComponent(id + suffix))
+            }
         }
     }
 
@@ -181,6 +210,10 @@ final class PlaygroundModel: ObservableObject {
         for model in live where model.runID == id { model.receive(signal) }
     }
     private static var live: [PlaygroundModel] { [shared] + extra.compactMap(\.value) }
+    /// A tap in a Playground widget, to whichever Playground runs `plugin`.
+    static func tap(plugin: String, _ action: String, payload: JSONValue) {
+        for model in live where model.runID == plugin { model.tap(action, payload: payload) }
+    }
     private static var extra: [WeakModel] = []
     private struct WeakModel { weak var value: PlaygroundModel? }
     /// For models other than `shared` (offscreen renders) so their signals arrive.
@@ -261,6 +294,11 @@ final class PlaygroundModel: ObservableObject {
     func click(_ tile: PluginDockTile) { runtime?.invoke("tile:\(tile.spec.id):onClick") }
     func run(_ command: PluginCommand) { runtime?.invoke("command:\(command.spec.id):run") }
     func fire(_ corner: PluginCornerAction) { runtime?.invoke("corner:\(corner.spec.id):run") }
+    /// A tap on a button or toggle in one of the script's widgets (routed here by PluginRegistry.action).
+    func tap(_ action: String, payload: JSONValue) {
+        guard PluginNode.isActionID(action) else { return }
+        runtime?.invoke("action:" + action, payload: payload)
+    }
     func send(_ event: PluginEvent) {
         let payload: JSONValue = switch event {
         case .appActivated: .object(["name": .string("Finder"), "bundleID": .string("com.apple.finder")])
@@ -281,13 +319,7 @@ final class PlaygroundModel: ObservableObject {
         let slug = id.split(separator: ".").last.map(String.init) ?? "plugin"
         let dir = parent.appendingPathComponent("\(slug).\(PluginManifest.bundleExtension)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        var root: [String: JSONValue] = [
-            "format": .number(1), "id": .string(id), "name": .string(manifest.name), "version": .string("1.0.0"),
-            "description": .string("Written in the Mods Playground."), "icon": .string("puzzlepiece.extension"), "entry": .string("main.js"),
-        ]
-        if !manifest.permissions.isEmpty { root["permissions"] = .array(manifest.permissions.map { .string($0.rawValue) }) }
-        if !manifest.hosts.isEmpty { root["network"] = .object(["hosts": .array(manifest.hosts.map(JSONValue.string))]) }
-        try JSONValue.object(root).data(pretty: true).write(to: dir.appendingPathComponent(PluginManifest.fileName))
+        try JSONValue.object(manifestRoot(id: id, manifest: manifest)).data(pretty: true).write(to: dir.appendingPathComponent(PluginManifest.fileName))
         try Data(source.utf8).write(to: dir.appendingPathComponent("main.js"))
         return try PluginRegistry.shared.install(from: dir)
     }
@@ -435,7 +467,7 @@ struct PlaygroundResults: View {
             }
             ForEach(model.widgets) { widget in
                 label("Widget", widget.spec.title)
-                PlaygroundWidget(widget: widget)
+                PlaygroundWidget(widget: widget, host: PluginViewHost(plugin: model.runID, folder: model.folder))
                     .frame(height: widget.spec.size == .small ? 150 : widget.spec.size == .medium ? 170 : 260)
                     .onTapGesture(count: 2) { model.render(widget) }
                     .help("Double-click to run data and view again")
@@ -488,6 +520,7 @@ struct PlaygroundResults: View {
 /// A widget as the board draws it: the real PluginNodeView inside a widget-like plate.
 private struct PlaygroundWidget: View {
     let widget: PluginWidget
+    let host: PluginViewHost
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -504,6 +537,7 @@ private struct PlaygroundWidget: View {
         .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .environment(\.pluginAccent, DS.Ink.accent)
+        .environment(\.pluginHost, host)
         .background(.ultraThinMaterial, in: .rect(cornerRadius: 18, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(DS.Ink.hairline, lineWidth: 0.5) }
     }
@@ -795,11 +829,17 @@ enum PlaygroundRenders {
         for template in PlaygroundTemplate.all() where template.permissions.isEmpty {
             let model = PlaygroundModel(source: template.source)
             model.register()
-            model.name = template.title
+            model.use(template)
             model.run()
             RunLoop.main.run(until: Date().addingTimeInterval(1.5))
             if let command = model.commands.first { model.run(command); RunLoop.main.run(until: Date().addingTimeInterval(0.6)) }
             if let tile = model.tiles.first { model.click(tile); RunLoop.main.run(until: Date().addingTimeInterval(1.2)) }
+            // A tap on the first button, through the same route the widget's Button takes.
+            if let action = model.widgets.first?.view?.actions.first {
+                PluginRegistry.shared.action(model.runID, action)
+                RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+                print("tapped", action)
+            }
             // The Studio is dark; so is the render.
             for scheme in [ColorScheme.dark] {
                 let view = PlaygroundView(model: model, templates: [template], editorHeight: 320)

@@ -21,8 +21,8 @@ The guide is [docs/MAKING-MODS.md](../docs/MAKING-MODS.md); the API reference is
 | `atelier.d.ts`, `manifest.schema.json` | Generated from [docs/plugin-api.json](../docs/plugin-api.json) by `generate.mjs`. |
 | `cli/atelier-mod.mjs` | The command. `cli/lib/harness.mjs` is the test runner, also importable as `atelier-mod/harness`. |
 | `cli/runtime/` | Generated: a copy of plugin-api.json and the prelude lifted from `Sources/DockCore/PluginPrelude.swift`. |
-| `cli/templates/` | The starting points `new` and Atelier's Mods › Create playground share. |
-| `cli/vendor/atelier-mods/` | The catalog's own `scripts/lib.mjs` and `scripts/validate.mjs`, byte for byte. |
+| `cli/templates/` | The starting points: plugins (shared with Atelier's Mods › Create playground), a theme, and one working pack of each kind. |
+| `cli/vendor/atelier-mods/` | The catalog's own `scripts/lib.mjs`, `scripts/packs.mjs` and `scripts/validate.mjs`, with their schemas, byte for byte. |
 
 ## Keeping it in step
 

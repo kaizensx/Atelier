@@ -3,7 +3,7 @@
 //
 // The limits mirror Sources/DockCore/ModCatalog.swift in the Atelier app. Change both together.
 
-import { createHash } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey, sign as edSign, verify as edVerify } from "node:crypto";
 import { readFileSync, readdirSync, lstatSync, existsSync } from "node:fs";
 import { join, extname, relative, sep } from "node:path";
 import { deflateRawSync, crc32 as zlibCrc32 } from "node:zlib";
@@ -12,6 +12,13 @@ export const KINDS = {
   plugin: { ext: ".atelierplugin", maxZip: 2 * 1024 * 1024, folder: "mods" },
   theme: { ext: ".ateliertheme", maxZip: 40 * 1024 * 1024, folder: "mods" },
   native: { ext: ".ateliermod", maxZip: 20 * 1024 * 1024, folder: "native" },
+  // Data-only packs (scripts/packs.mjs has their rules). Sizes mirror ModPackKind in the app.
+  icons: { ext: ".ateliericons", maxZip: 60 * 1024 * 1024, folder: "mods", pack: true },
+  sounds: { ext: ".ateliersounds", maxZip: 20 * 1024 * 1024, folder: "mods", pack: true },
+  shader: { ext: ".ateliershader", maxZip: 1024 * 1024, folder: "mods", pack: true },
+  layouts: { ext: ".atelierlayouts", maxZip: 256 * 1024, folder: "mods", pack: true },
+  effects: { ext: ".ateliereffects", maxZip: 256 * 1024, folder: "mods", pack: true },
+  look: { ext: ".atelierlook", maxZip: 80 * 1024 * 1024, folder: "mods", pack: true },
 };
 
 export const LIMITS = {
@@ -25,13 +32,19 @@ export const LIMITS = {
   pluginScript: 512 * 1024,
 };
 
-export const PERMISSIONS = ["network", "notifications", "openURL", "appearance"];
+export const PERMISSIONS = ["network", "notifications", "openURL", "appearance", "menuBar", "liveActivities", "scenes", "panels"];
 
 // Files a package may hold, by kind. Anything else is refused: no executables, no archives.
 export const ALLOWED = {
-  plugin: [".js", ".json", ".md", ".txt", ".png", ".jpg", ".jpeg"],
+  plugin: [".js", ".json", ".md", ".txt", ".png", ".jpg", ".jpeg", ".css", ".svg", ".webp", ".woff2"],
   theme: [".json", ".md", ".txt", ".png", ".jpg", ".jpeg", ".heic", ".tiff", ".aiff", ".aif", ".wav", ".caf", ".m4a", ".mp3"],
   native: [".json", ".md", ".txt", ".png", ".jpg", ".jpeg", ".dylib"],
+  icons: [".json", ".md", ".txt", ".png", ".heic", ".heif", ".icns"],
+  sounds: [".json", ".md", ".txt", ".wav", ".caf", ".m4a"],
+  shader: [".json", ".md", ".txt"],
+  layouts: [".json", ".md", ".txt"],
+  effects: [".json", ".md", ".txt"],
+  look: [".json", ".md", ".txt", ".png", ".jpg", ".jpeg", ".heic", ".heif", ".icns", ".wav", ".caf", ".m4a", ".aiff", ".aif", ".mp3", ".tiff"],
 };
 
 export const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
@@ -167,7 +180,18 @@ const SCAN = [
   ["notifications", /\batelier\s*\.\s*notify\b/],
   ["openURL", /\batelier\s*\.\s*openURL\b/],
   ["appearance", /\batelier\s*\.\s*theme\b/],
+  // Hooks into Atelier.
+  ["menuBar", /\batelier\s*\.\s*menuBarItem\b/],
+  ["liveActivities", /\batelier\s*\.\s*liveActivity\b/],
+  ["scenes", /\batelier\s*\.\s*scenes\b/],
+  ["panels", /\batelier\s*\.\s*panel\b/],
 ];
+
+// The call each permission is for, for error messages.
+export const PERMISSION_CALLS = {
+  network: "atelier.http", notifications: "atelier.notify", openURL: "atelier.openURL", appearance: "atelier.theme",
+  menuBar: "atelier.menuBarItem", liveActivities: "atelier.liveActivity", scenes: "atelier.scenes", panels: "atelier.panel",
+};
 
 export function scanPermissions(src) {
   const code = stripComments(src);
@@ -312,3 +336,53 @@ export function findPackage(dir, kind) {
 }
 
 export const readJSON = (path) => JSON.parse(readFileSync(path, "utf8"));
+
+// --- Author keys: Ed25519, 32 raw bytes, base64 (the same format as the catalog key) --------
+
+const PKCS8_PREFIX = Buffer.from("302e020100300506032b657004220420", "hex");
+const SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+
+const publicKeyObject = (base64) => createPublicKey({ key: Buffer.concat([SPKI_PREFIX, Buffer.from(base64, "base64")]), format: "der", type: "spki" });
+const privateKeyObject = (base64) => {
+  const raw = Buffer.from(String(base64).trim(), "base64");
+  if (raw.length !== 32) throw new Error("The private key must be 32 raw bytes, base64 (44 characters).");
+  return createPrivateKey({ key: Buffer.concat([PKCS8_PREFIX, raw]), format: "der", type: "pkcs8" });
+};
+
+/** Whether `base64` is 32 raw bytes of an Ed25519 public key, as mod.json's author.key holds it. */
+export function isEd25519Key(base64) {
+  if (typeof base64 !== "string" || !/^[A-Za-z0-9+/]{43}=$/.test(base64)) return false;
+  try { publicKeyObject(base64); return true; } catch { return false; }
+}
+
+/** Signs `data` with a raw private key (base64); returns the 64-byte signature, base64. */
+export function ed25519Sign(data, privateBase64) {
+  return edSign(null, data, privateKeyObject(privateBase64)).toString("base64");
+}
+
+/** The public key (base64) of a private key (base64). */
+export function ed25519PublicOf(privateBase64) {
+  return createPublicKey(privateKeyObject(privateBase64)).export({ format: "der", type: "spki" }).subarray(SPKI_PREFIX.length).toString("base64");
+}
+
+export function ed25519Verify(data, signatureBase64, publicBase64) {
+  if (!isEd25519Key(publicBase64)) return false;
+  const sig = Buffer.from(String(signatureBase64 ?? "").trim(), "base64");
+  if (sig.length !== 64) return false;
+  return edVerify(null, data, publicKeyObject(publicBase64), sig);
+}
+
+/** mod.json's author: a name ("Ana") or an object ({ "name", "key", "url" }). */
+export function authorOf(mod) {
+  const a = mod?.author;
+  if (a && typeof a === "object") return { name: a.name ?? "", key: a.key ?? null, url: a.url ?? null };
+  return { name: typeof a === "string" ? a : "", key: null, url: null };
+}
+
+// --- GitHub Releases: every published package is also a release asset, to count installs ----
+
+/** Tag `<id>@<version>`, asset `<id>-<version>.zip`. */
+export const releaseTag = (id, version) => `${id}@${version}`;
+export const releaseAsset = (id, version) => `${id}-${version}.zip`;
+export const releaseURL = (repo, id, version) =>
+  `https://github.com/${repo}/releases/download/${encodeURIComponent(releaseTag(id, version))}/${encodeURIComponent(releaseAsset(id, version))}`;

@@ -103,8 +103,9 @@ Community plugins, themes and packs from the signed catalog at github.com/kaizen
   and windows, each with a button to its place. The author's description stays as written.
 - **Links:** "Open in Atelier" on the website opens the mod's page.
 - **Create:** a playground for plugins. A code editor (line numbers, colouring) with Hello, Focus
-  Timer and Web Feed templates; Run and Stop; the widgets, Dock tiles, commands and corner actions
-  the script registers, drawn by Atelier's own renderers and clickable; buttons that send the
+  Timer, Web Feed and Controls templates; Run and Stop; the widgets (with working buttons and
+  toggles), Dock tiles, commands and corner actions the script registers, drawn by Atelier's own
+  renderers and clickable; buttons that send the
   events it listens for; its console. The script runs in the real plugin runtime under a throwaway
   id with no permissions unless you tick them, and Atelier asks on the permission sheet first.
   Save as Plugin writes a `.atelierplugin` folder and installs it. See [MAKING-MODS.md](MAKING-MODS.md).

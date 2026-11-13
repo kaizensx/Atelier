@@ -18,9 +18,10 @@ The API itself is in [PLUGINS.md](PLUGINS.md) and, searchable with examples, on 
 ## Quick start: the playground
 
 1. Open Atelier and go to **Mods › Create** (or search for "playground").
-2. Pick a starting point from **Templates**: Hello, Focus Timer or Web Feed.
+2. Pick a starting point from **Templates**: Hello, Focus Timer, Web Feed or Controls (buttons,
+   a toggle, settings and translated text).
 3. Press **Run** (⌘R). On the right you see what the script registered: its widgets drawn as on
-   the board, its Dock tiles (click them), its commands and corner actions (click to run them), and
+   the board (their buttons and toggles work), its Dock tiles (click them), its commands and corner actions (click to run them), and
    the events it listens for (send one to try it). `console.log` and every error, with its line
    number, show in the console below.
 4. Change the code and press **Run Again**.
@@ -63,8 +64,10 @@ everything with its documentation, and mistakes such as an unknown event name or
 option are underlined. `main.js` starts with `// @ts-check`; remove it to turn the checks off.
 
 `new` takes a kind and an id. Kinds: `plugin`, `theme`, and the data packs `icons`, `sounds`,
-`shader`, `layouts`, `effects` and `look`. For plugins, `--template hello|timer|feed` picks the
+`shader`, `layouts`, `effects` and `look`. For plugins, `--template hello|timer|feed|controls` picks the
 starting point (the same ones the playground offers). `--name` and `--author` fill the manifest.
+A pack starts as a small working example of its kind, which passes both Atelier's and the
+catalog's checks as it is; the formats are in [PACKS.md](PACKS.md).
 
 ## Trying it in Atelier
 
@@ -81,22 +84,34 @@ atelier-mod test --run "Say Hello" --run say-hello
 atelier-mod test --click focus --advance 60      # click a Dock tile, then let a minute pass
 atelier-mod test --emit appActivated='{"name":"Safari","bundleID":"com.apple.Safari"}'
 atelier-mod test --grant none                    # as if the owner allowed nothing
+atelier-mod test --tap Add --tap Paused          # tap a button, flip a toggle, in any widget
+atelier-mod test --action reset                  # run an atelier.action by id
+atelier-mod test --setting step=3 --language pt  # the owner's settings and language
+atelier-mod test --palette "gh atelier" --menu "kaizensx/Atelier"   # ask the palette, choose a row
+atelier-mod test --stack pulls --activity upload # open a stack, click a live activity
+atelier-mod test --drop url:https://github.com   # drop a link on a tile that accepts it
+atelier-mod test --panel-post dashboard='{"open":1}'   # a panel's page posts a message
 atelier-mod test --json                          # everything, as JSON
 ```
 
 `test` runs your script in Node behind **Atelier's real prelude** (the JavaScript that builds the
 `atelier` object in the app, lifted out of it word for word), with a stand-in for the native side
 that checks every call the way Atelier does: ids, permissions, hosts, shortcuts, view limits,
-storage size, the one-second time limit. It prints what the script registered, draws every widget
-as an outline, lists what it did (notifications, links, theme changes, requests, prompts) and its
-console and storage. It exits with 1 when anything went wrong, so it fits in CI.
+storage size, settings against their types, menus, drops, the hooks' own limits and permissions,
+the one-second time limit. It prints what the script registered (widgets, tiles, commands, corner
+actions, palette providers, menu bar items, tile menus, stacks, live activities, panels), draws
+every widget as an outline, lists what it did (notifications, links, theme changes, requests,
+prompts, messages to other plugins, settings it changed, panel messages) and its console,
+settings and storage. It exits with 1 when anything went wrong, so it fits in CI.
 
 Time is virtual: timers, widget refreshes and `timer` events fire when you `--advance`. The
 network is off: requests are answered from `test/fixtures.json`
 
 ```json
-{ "http": { "GET https://api.example.com/items": { "status": 200, "json": [{ "title": "One" }] } },
-  "prompts": { "API token": "test-token" } }
+{ "http": { "GET https://api.example.com/items": { "status": 200, "json": [{ "title": "One" }] },
+            "POST https://api.example.com/items": { "status": 201, "json": { "id": 7 } } },
+  "prompts": { "API token": "test-token" },
+  "scenes": ["Work", "Home"] }
 ```
 
 or, with `--network`, really sent (still only to the hosts in your manifest).
@@ -112,8 +127,9 @@ assert.equal(view.children[0].text, "Hello");
 ```
 
 What the stand-in cannot show: how your views look (use the playground or Atelier), real
-notifications and links, and calls added to the API after your copy of the kit (they are recorded
-and listed, not checked).
+notifications, links, Scenes and panel pages (a panel's HTML is not run; `--panel-post` plays its
+side), and calls added to the API after your copy of the kit (they are recorded and listed, not
+checked).
 
 ## Checking it
 
@@ -124,11 +140,14 @@ atelier-mod validate
 runs the checks Atelier makes when it loads a mod and the ones the catalog makes when you open a
 pull request: the manifest against its schema, a reverse-DNS id and a version, only allowed files
 (no binaries, hidden files or links), the size limits, and **permissions that tell the truth**:
-the script is scanned for `atelier.http`, `atelier.notify`, `atelier.openURL` and `atelier.theme`,
-and using one without asking for its permission fails, as does asking for one you never use.
+the script is scanned for `atelier.http`, `atelier.notify`, `atelier.openURL`, `atelier.theme`,
+`atelier.menuBarItem`, `atelier.liveActivity`, `atelier.scenes` and `atelier.panel`, and using one
+without asking for its permission fails, as does asking for one you never use. Packs are checked
+by the catalog's own pack rules: every file by its bytes, sizes, pixels, sound lengths, and each
+kind's keys and ranges.
 
 These are not a copy of the rules but the catalog's own code: `atelier-mod` carries the
-atelier-mods repository's `scripts/lib.mjs` and `scripts/validate.mjs`, byte for byte, and runs
+atelier-mods repository's `scripts/lib.mjs`, `scripts/packs.mjs` and `scripts/validate.mjs`, byte for byte, and runs
 the catalog's `validateMod` on a catalog folder. `node sdk/sync-catalog.mjs` refreshes them from
 a checkout of atelier-mods, and Atelier's preflight fails a release while they differ.
 

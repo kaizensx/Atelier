@@ -25,17 +25,23 @@ private func names(_ list: JSONValue?, _ key: String) -> Set<String> {
         #expect(listed.contains(permission.rawValue), "plugin-api.json lacks the permission \(permission.rawValue)")
         let entry = api["permissions"]?.array?.first { $0["name"]?.string == permission.rawValue }
         #expect(entry?["title"]?.string == permission.title, "\(permission.rawValue): title differs from the app's")
+        #expect(entry?["detail"]?.string == permission.detail, "\(permission.rawValue): detail differs from the app's")
+        #expect(entry?["symbol"]?.string == permission.symbol, "\(permission.rawValue): symbol differs from the app's")
     }
+    // And nothing the app does not have.
+    for name in listed { #expect(PluginPermission(rawValue: name) != nil, "plugin-api.json lists \(name), which the app does not have") }
 }
 
 @Test func descriptionListsEveryEvent() throws {
     let listed = names(try description()["events"], "name")
     for event in PluginEvent.allCases { #expect(listed.contains(event.rawValue), "plugin-api.json lacks the event \(event.rawValue)") }
+    for name in listed { #expect(PluginEvent(rawValue: name) != nil, "plugin-api.json lists the event \(name), which the app does not have") }
 }
 
 @Test func descriptionListsEveryManifestKey() throws {
     let listed = names(try description()["manifest"], "key")
     for field in PluginManifest.fields { #expect(listed.contains(field.key), "plugin-api.json lacks the manifest key \(field.key)") }
+    for key in PluginManifest.engineKeys { #expect(listed.contains(key), "plugin-api.json lacks the manifest key \(key)") }
 }
 
 @Test func descriptionListsEveryViewTheAppDraws() throws {
@@ -51,11 +57,14 @@ private func names(_ list: JSONValue?, _ key: String) -> Set<String> {
     }
     #expect(drawn.count >= 10)
     for type in drawn { #expect(listed.contains(type), "plugin-api.json lacks the view \(type)") }
-    // And every view listed without a later "since" parses in this build.
-    for view in api["views"]?.array ?? [] where view["since"] == nil {
+    // And every view listed parses in this build, given the keys its description says it needs.
+    for view in api["views"]?.array ?? [] {
         let type = view["type"]?.string ?? ""
-        #expect((try? PluginNode.parse(.object(["type": .string(type), "name": .string("timer")]))) != nil, "the app does not draw \(type)")
+        let sample: JSONValue = .object(["type": .string(type), "name": .string("timer"), "title": .string("Go"), "label": .string("On"),
+                                         "action": .string("go"), "asset": .string("a.png"), "values": .array([.number(1)])])
+        #expect((try? PluginNode.parse(sample)) != nil, "the app does not draw \(type)")
     }
+    #expect(drawn.count == listed.count, "plugin-api.json lists views the app does not draw: \(listed.subtracting(drawn))")
 }
 
 @Test func descriptionLimitsMatchTheApp() throws {
@@ -73,6 +82,24 @@ private func names(_ list: JSONValue?, _ key: String) -> Set<String> {
     #expect(limits["hosts"] == Double(PluginManifest.maxHosts))
     #expect(limits["storageBytes"] == Double(PluginStorage.maxBytes))
     #expect(limits["storageKeyLength"] == Double(PluginStorage.maxKeyLength))
+    #expect(limits["settings"] == Double(PluginSetting.maxCount))
+    #expect(limits["messagePayloadBytes"] == Double(PluginMessage.maxMessageBytes))
+    #expect(limits["assetBytes"] == Double(PluginAssets.maxBytes))
+    #expect(limits["chartSeries"] == Double(PluginChart.maxSeries))
+    #expect(limits["chartValues"] == Double(PluginChart.maxValues))
+    #expect(limits["stringLanguages"] == Double(PluginStrings.maxLanguages))
+    #expect(limits["stringKeys"] == Double(PluginStrings.maxKeys))
+    #expect(limits["paletteProviders"] == Double(PluginHookLimits.maxPalettes))
+    #expect(limits["paletteRows"] == Double(PluginPaletteSpec.maxResults))
+    #expect(limits["menuBarItems"] == Double(PluginMenuBarSpec.maxPerPlugin))
+    #expect(limits["menuItems"] == Double(PluginMenuEntry.maxItems))
+    #expect(limits["dropBytes"] == Double(PluginTileHooks.maxDropBytes))
+    #expect(limits["stackProviders"] == Double(PluginStackSpec.maxPerPlugin))
+    #expect(limits["stackItems"] == Double(PluginStackSpec.maxItems))
+    #expect(limits["liveActivities"] == Double(PluginActivitySpec.maxShown))
+    #expect(limits["panels"] == Double(PluginPanelSpec.maxPerPlugin))
+    #expect(limits["panelHTMLBytes"] == Double(PluginPanelSpec.maxHTMLBytes))
+    #expect(limits["panelMessageBytes"] == Double(PluginPanelSpec.maxMessageBytes))
 }
 
 @Test func descriptionDescribesEveryFunctionOfThePrelude() throws {
@@ -106,21 +133,47 @@ private func names(_ list: JSONValue?, _ key: String) -> Set<String> {
     }
 }
 
-/// The Playground's and `atelier-mod new`'s plugin templates run under the real prelude, register
-/// something, and send only messages the app accepts.
+/// The Playground's and `atelier-mod new`'s plugin templates: their manifests parse, their scripts run
+/// under the real prelude, register something, and every widget draws a view the app accepts.
 @Test func pluginTemplatesRunUnderThePrelude() throws {
     let folder = repository.appendingPathComponent("sdk/cli/templates/plugin")
     let templates = try FileManager.default.contentsOfDirectory(atPath: folder.path).filter { !$0.hasPrefix(".") }
-    #expect(templates.count >= 3)
+    #expect(templates.count >= 4)
     for name in templates {
-        let source = try String(contentsOf: folder.appendingPathComponent(name).appendingPathComponent("main.js"), encoding: .utf8)
+        let dir = folder.appendingPathComponent(name)
+        let source = try String(contentsOf: dir.appendingPathComponent("main.js"), encoding: .utf8)
+        let meta = try JSONValue.parse(Data(contentsOf: dir.appendingPathComponent("template.json")))
+        #expect(meta["title"]?.string?.isEmpty == false)
+        var root: [String: JSONValue] = ["format": .number(1), "id": .string("io.github.you." + name), "name": .string(name), "version": .string("1.0.0"),
+                                         "permissions": meta["permissions"] ?? .array([])]
+        if let hosts = meta["hosts"] { root["network"] = .object(["hosts": hosts]) }
+        for (key, value) in meta["manifest"]?.object ?? [:] { root[key] = value }
+        let (parsed, validation) = PluginManifest.parse(try JSONValue.object(root).data(pretty: false), files: ["main.js"])
+        #expect(validation.isValid, "\(name): \(validation.issues)")
+        let manifest = try #require(parsed)
+
         let context = JSContext()!
-        var errors: [String] = [], kinds: [String] = []
+        var errors: [String] = [], kinds: [String] = [], widgets: [String] = [], views = 0
         context.exceptionHandler = { _, exception in errors.append(exception?.toString() ?? "?") }
         let native: @convention(block) (String, String) -> String = { kind, payload in
             kinds.append(kind)
+            let value = (try? JSONValue.parse(payload)) ?? .null
             if kind.hasPrefix("storage.") { return kind == "storage.keys" ? "[]" : "null" }
-            do { _ = try PluginMessage.decode(kind: kind, payload: payload); return "null" } catch {
+            if kind == "settings.get" { return (manifest.setting(value["key"]?.string ?? "")?.defaultValue ?? .null).text() }
+            if kind.hasPrefix("settings.") { return "null" }
+            if kind == "env.strings" { return JSONValue.object(PluginStrings.pick(manifest.strings, preferred: ["en"]).mapValues(JSONValue.string)).text() }
+            if PluginHookMessage.handles(kind) {
+                do { _ = try PluginHookMessage.decode(kind: kind, payload: payload); return "null" } catch {
+                    errors.append("\(kind): \(error)"); return JSONValue.object(["__error": .string("\(error)")]).text()
+                }
+            }
+            do {
+                let message = try PluginMessage.decode(kind: kind, payload: payload)
+                if case .widget(let spec) = message { widgets.append(spec.id) }
+                if case .widgetView = message { views += 1 }
+                if case .widgetError(let id, let text) = message { errors.append("\(id): \(text)") }
+                return "null"
+            } catch {
                 errors.append("\(kind): \(error)")
                 return JSONValue.object(["__error": .string("\(error)")]).text()
             }
@@ -128,9 +181,27 @@ private func names(_ list: JSONValue?, _ key: String) -> Set<String> {
         context.setObject(unsafeBitCast(native, to: AnyObject.self), forKeyedSubscript: "__atelierNative" as NSString)
         context.evaluateScript(PluginPrelude.source)
         context.evaluateScript(source)
+        // Widgets whose data comes from the network fail offline by design; draw the others.
+        let offline = meta["permissions"]?.array?.contains(.string("network")) == true
+        if !offline {
+            for id in widgets { context.objectForKeyedSubscript("__atelier").objectForKeyedSubscript("render").call(withArguments: [id]) }
+            #expect(views >= widgets.count, "\(name): \(views) views for \(widgets.count) widgets")
+        }
         #expect(errors.isEmpty, "\(name): \(errors)")
         #expect(kinds.contains("widget") || kinds.contains("tile") || kinds.contains("command"), "\(name) registers nothing")
-        let meta = try JSONValue.parse(Data(contentsOf: folder.appendingPathComponent(name).appendingPathComponent("template.json")))
-        #expect(meta["title"]?.string?.isEmpty == false)
+    }
+}
+
+/// `atelier-mod new` makes packs from sdk/cli/templates/packs: each must pass the app's own checks.
+@Test func packTemplatesPassTheAppsValidator() throws {
+    let folder = repository.appendingPathComponent("sdk/cli/templates/packs")
+    for kind in ModPackKind.allCases {
+        let dir = folder.appendingPathComponent(kind.rawValue)
+        let package = try #require(try FileManager.default.contentsOfDirectory(atPath: dir.path).first { $0.hasSuffix("." + kind.bundleExtension) },
+                                   "no template for \(kind.rawValue)")
+        switch ModPackDisk.load(dir.appendingPathComponent(package)) {
+        case .success(let (_, report)): #expect(report.errors.isEmpty, "\(kind.rawValue): \(report.errors)")
+        case .failure(let error): Issue.record("\(kind.rawValue): \(error)")
+        }
     }
 }

@@ -8,16 +8,22 @@
 //              version may not change its contents.
 // --author     the pull request's author: a new mod's "github" must be them; only the owner of an
 //              existing mod (or a maintainer) may change it.
-// --labels     the pull request's labels. Native mods need "native-reviewed".
+// --labels     the pull request's labels. Native mods need "native-reviewed"; changing a
+//              published mod's author key needs "key-change".
 // --pr         pull-request mode: ownership and review labels are enforced.
+//
+// Author keys: when mod.json has "author": { "key": … }, package.sig beside it must be that key's
+// signature over the package zip (scripts/sign-package.mjs makes it).
 
 import { readFileSync, existsSync, statSync, realpathSync } from "node:fs";
 import { join, extname, basename, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
-  KINDS, LIMITS, PERMISSIONS, ALLOWED, isReverseDNS, parseVersion, compareVersions, walk, contentHash,
+  KINDS, LIMITS, PERMISSIONS, PERMISSION_CALLS, ALLOWED, isReverseDNS, parseVersion, compareVersions, walk, contentHash,
   binaryKind, isMachO, imageSize, scanPermissions, checkSchema, zipFolder, listMods, findPackage, readJSON,
 } from "./lib.mjs";
+import { validatePack } from "./packs.mjs";
+import { authorOf, isEd25519Key, ed25519Verify } from "./lib.mjs";
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((acc, a, i, all) => {
   if (a.startsWith("--")) acc.push([a.slice(2), all[i + 1] && !all[i + 1].startsWith("--") ? all[i + 1] : true]);
@@ -32,6 +38,7 @@ const tooling = join(here, "..");
 const config = readJSON(join(tooling, "catalog.json"));
 const modSchema = readJSON(join(tooling, "schema/mod.schema.json"));
 const themeSchema = readJSON(join(tooling, "schema/atelier-theme.schema.json"));
+const collectionsSchema = existsSync(join(tooling, "schema/collections.schema.json")) ? readJSON(join(tooling, "schema/collections.schema.json")) : {};
 const published = args.published && existsSync(args.published) && statSync(args.published).size > 0 ? readJSON(args.published) : null;
 const only = typeof args.only === "string" ? new Set(args.only.split(",").map((s) => s.trim()).filter(Boolean)) : null;
 const labels = new Set(typeof args.labels === "string" ? args.labels.split(",").map((s) => s.trim()) : []);
@@ -67,7 +74,7 @@ export function validateMod({ tier, id: folderName, dir }) {
   if (!parseVersion(mod.version)) err(`"${mod.version}" is not a version like 1.0.0.`);
   const kind = mod.kind;
   if (!KINDS[kind]) return;
-  if (KINDS[kind].folder !== tier) err(kind === "native" ? "Native mods live in native/<id>/." : "Plugins and themes live in mods/<id>/.");
+  if (KINDS[kind].folder !== tier) err(kind === "native" ? "Native mods live in native/<id>/." : "Plugins, themes and packs live in mods/<id>/.");
 
   const descriptionFile = join(dir, "description.md");
   const description = existsSync(descriptionFile) ? readFileSync(descriptionFile, "utf8") : mod.description ?? "";
@@ -123,7 +130,7 @@ export function validateMod({ tier, id: folderName, dir }) {
       const code = readFileSync(f.full, "utf8");
       if (/\beval\s*\(|\bnew\s+Function\s*\(/.test(code)) warn(`${f.path}: eval or new Function makes review harder. Reviewers will look closely.`, pkgRel);
     }
-    for (const p of used) if (!asked.has(p)) err(`The script calls atelier.${{ network: "http", notifications: "notify", openURL: "openURL", appearance: "theme" }[p]} but does not ask for "${p}".`, pkgRel);
+    for (const p of used) if (!asked.has(p)) err(`The script calls ${PERMISSION_CALLS[p]} but does not ask for "${p}".`, pkgRel);
     for (const p of asked) if (!used.has(p)) {
       (dynamic ? warn : err)(`It asks for "${p}" but the script never uses it. Ask only for what it needs.`, pkgRel);
     }
@@ -143,6 +150,16 @@ export function validateMod({ tier, id: folderName, dir }) {
       if (typeof path === "string" && path.includes(".") && /\.[a-z0-9]{3,4}$/i.test(path) && !files.some((f) => f.path === path)) {
         if (path.includes("/") || path === theme.preview) err(`atelier-theme.json names ${path}, which is not in the package.`, pkgRel);
       }
+    }
+  }
+  if (KINDS[kind].pack) {
+    // Data-only packs: every file read by its own bytes, then the same rules as the app.
+    const { errors: problems, header } = validatePack(kind, pkg, files, themeSchema);
+    for (const problem of problems) err(problem, pkgRel);
+    if (header) {
+      same("id", header.id, KINDS[kind].ext.slice(1) + " manifest");
+      same("name", header.name, KINDS[kind].ext.slice(1) + " manifest");
+      same("version", header.version, KINDS[kind].ext.slice(1) + " manifest");
     }
   }
   if (kind === "native") {
@@ -193,7 +210,53 @@ export function validateMod({ tier, id: folderName, dir }) {
     if (live && mod.github?.toLowerCase() !== live.github?.toLowerCase()) err("The github owner of a published mod cannot change in a pull request. Ask a maintainer.");
     if (!live && mod.github?.toLowerCase() !== author.toLowerCase()) err(`"github" must be your own handle (@${author}).`);
   }
-  return zip ? { mod, kind, tier, dir, pkg, zip, hash, description, shots } : undefined;
+
+  // The author's own signature, when they sign.
+  const who = authorOf(mod);
+  if (!who.name.trim()) err("author needs a name.");
+  if (who.url && !/^https:\/\/[^\s/]+/.test(who.url)) err("author.url must be an https link.");
+  const sigFile = join(dir, "package.sig");
+  let signature = null;
+  if (who.key) {
+    if (!isEd25519Key(who.key)) err("author.key is not an Ed25519 public key (32 bytes, base64). Make one with scripts/sign-package.mjs --generate.");
+    else if (!existsSync(sigFile)) err("author.key is set, so package.sig is needed: run node scripts/sign-package.mjs " + rel + ".");
+    else {
+      signature = readFileSync(sigFile, "utf8").trim();
+      if (zip && !ed25519Verify(zip, signature, who.key)) err("package.sig does not match the package and author.key. Sign again after every change: node scripts/sign-package.mjs " + rel + ".");
+    }
+  } else if (existsSync(sigFile)) {
+    err("package.sig is here but mod.json has no author.key to check it with.");
+  }
+  // A published mod keeps its key. Changing it (or dropping it) needs a maintainer's key-change
+  // label, and Atelier asks everyone who has the mod to confirm the new key.
+  if (prMode && live?.authorKey && live.authorKey !== who.key && !labels.has("key-change")) {
+    err(who.key
+      ? `The author key of ${mod.id} changed. A maintainer must confirm it with the key-change label.`
+      : `${mod.id} was signed by its author; the signature cannot be dropped without the key-change label.`);
+  }
+  return zip ? { mod, kind, tier, dir, pkg, zip, hash, description, shots, author: who, signature: who.key ? signature : null } : undefined;
+}
+
+/** collections.json: shelves curated by the maintainers. Unknown mods are warnings, not errors,
+ *  so taking a mod down never blocks the catalog. */
+export function readCollections() {
+  const path = join(root, "collections.json");
+  if (!existsSync(path)) return [];
+  try { return readJSON(path).collections ?? []; } catch { return []; }
+}
+
+function validateCollections(seen) {
+  const path = join(root, "collections.json");
+  if (!existsSync(path)) return;
+  let data;
+  try { data = readJSON(path); } catch (e) { report("error", "collections.json", `not valid JSON: ${e.message}`); return; }
+  for (const problem of checkSchema(collectionsSchema, data)) report("error", "collections.json", problem);
+  const ids = new Set();
+  for (const c of data.collections ?? []) {
+    if (ids.has(c.id)) report("error", "collections.json", `The collection id ${c.id} is used twice.`);
+    ids.add(c.id);
+    for (const id of c.mods ?? []) if (!seen.has(id)) report("warning", "collections.json", `${c.id}: ${id} is not in the catalog.`);
+  }
 }
 
 function homepageIsSource(url) {
@@ -212,6 +275,10 @@ export function validateAll() {
     if (r) results.push(r);
   }
   for (const id of config.featured ?? []) if (!seen.has(id)) report("warning", "catalog.json", `Featured mod ${id} is not in the catalog.`);
+  if (config.featuredNote !== undefined && (typeof config.featuredNote !== "string" || config.featuredNote.length > 200)) {
+    report("error", "catalog.json", "featuredNote is one line of at most 200 characters.");
+  }
+  validateCollections(seen);
   // Taking a mod down: only its owner or a maintainer.
   for (const id of removed) {
     if (seen.has(id)) continue;

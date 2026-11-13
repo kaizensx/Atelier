@@ -1,0 +1,44 @@
+{
+  "http": {
+    "GET https://api.github.com/notifications?per_page=50": {
+      "json": [
+        {
+          "id": "1"
+        },
+        {
+          "id": "2"
+        }
+      ]
+    },
+    "GET https://api.github.com/user/repos?per_page=100&sort=pushed": {
+      "json": [
+        {
+          "full_name": "kaizensx/Atelier",
+          "private": false,
+          "stargazers_count": 42,
+          "fork": false,
+          "html_url": "https://github.com/kaizensx/Atelier"
+        },
+        {
+          "full_name": "kaizensx/atelier-mods",
+          "private": false,
+          "stargazers_count": 3,
+          "fork": false,
+          "html_url": "https://github.com/kaizensx/atelier-mods"
+        }
+      ]
+    },
+    "GET https://api.github.com/search/issues?q=is%3Apr%20is%3Aopen%20author%3A%40me&per_page=60": {
+      "json": {
+        "items": [
+          {
+            "title": "Mods overhaul",
+            "html_url": "https://github.com/kaizensx/Atelier/pull/1",
+            "repository_url": "https://api.github.com/repos/kaizensx/Atelier",
+            "number": 1
+          }
+        ]
+      }
+    }
+  }
+}

@@ -20,7 +20,7 @@ const check = args.includes("--check");
 const fromIndex = args.indexOf("--from");
 const from = resolve(fromIndex >= 0 ? args[fromIndex + 1] : process.env.ATELIER_MODS || join(sdk, "../../atelier-mods"));
 const vendor = join(sdk, "cli/vendor/atelier-mods");
-const FILES = ["scripts/lib.mjs", "scripts/validate.mjs", "schema/mod.schema.json", "schema/atelier-theme.schema.json", "catalog.json"];
+const FILES = ["scripts/lib.mjs", "scripts/packs.mjs", "scripts/validate.mjs", "schema/mod.schema.json", "schema/atelier-theme.schema.json", "schema/collections.schema.json", "catalog.json"];
 
 if (!existsSync(join(from, "scripts/validate.mjs"))) {
   console.log(`No atelier-mods checkout at ${from}; the vendored rules were not compared. Pass --from <path>.`);

@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "id": "io.github.you.my-look",
+  "name": "My Look",
+  "version": "1.0.0",
+  "author": "You",
+  "description": "A warm dark theme over a slow nebula, with a smaller Dock that magnifies.",
+  "theme": "theme.ateliertheme",
+  "wallpaper": {
+    "shader": "sky.ateliershader"
+  },
+  "dock": {
+    "edge": "bottom",
+    "tileSize": 52,
+    "magnifiedSize": 92,
+    "magnification": true,
+    "autohide": false
+  }
+}

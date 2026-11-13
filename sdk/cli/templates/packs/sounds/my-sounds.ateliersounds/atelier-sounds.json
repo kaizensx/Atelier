@@ -1,0 +1,18 @@
+{
+  "format": 1,
+  "id": "io.github.you.my-sounds",
+  "name": "My Sounds",
+  "version": "1.0.0",
+  "author": "You",
+  "description": "A soft drop and timer chime, and two key sounds for Typing Sounds.",
+  "sounds": {
+    "dock.drop": "sounds/drop.wav",
+    "timer.done": "sounds/timer.wav"
+  },
+  "typing": {
+    "key": [
+      "typing/key1.wav",
+      "typing/key2.wav"
+    ]
+  }
+}

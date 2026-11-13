@@ -245,3 +245,7 @@ catalog's checks (`scripts/validate.mjs`) apply the same limits before a pack is
 Atelier checks the downloaded pack again, by the rules above, before installing it. The largest
 zipped package per kind: icons 60 MB, sounds 20 MB, Looks 80 MB, shaders 1 MB, layouts and
 effects 256 KB.
+
+To start one, `atelier-mod new icons io.github.you.my-icons` (or `sounds`, `shader`, `layouts`, `effects`,
+`look`) makes a small working pack of that kind, and `atelier-mod validate` runs the same pack rules as
+the catalog. See [MAKING-MODS.md](MAKING-MODS.md).

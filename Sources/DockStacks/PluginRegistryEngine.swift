@@ -124,6 +124,8 @@ extension PluginRegistry {
     /// A tap on a button or toggle a plugin drew. One call, under the usual time limit.
     func action(_ plugin: String, _ action: String, payload: JSONValue = .null) {
         guard PluginNode.isActionID(action) else { return }
+        // The Mods Playground runs its script outside the registry.
+        if plugin.hasPrefix("playground.") { PlaygroundModel.tap(plugin: plugin, action, payload: payload); return }
         runtimes[plugin]?.invoke("action:" + action, payload: payload)
     }
 
