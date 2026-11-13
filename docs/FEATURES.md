@@ -71,6 +71,9 @@ Community plugins and themes from the signed catalog at github.com/kaizensx/atel
   stays as written.
 - **Safe mode:** after two launches in a row that ended in a crash while plugins ran, Atelier
   starts with plugins off and names them here, with a button to turn them back on.
+- **In Atelier:** on an installed plugin's page, where it shows up: its Dock tile (with Add to
+  Dock), widgets, commands (with Run), hot corner actions, palette searches, stacks, menu bar items
+  and windows, each with a button to its place. The author's description stays as written.
 - **Links:** "Open in Atelier" on the website opens the mod's page.
 
 ### Mods › Library (themes and plugins)
@@ -79,6 +82,10 @@ A theme restyles everything Atelier can reach from one `.ateliertheme` file. Plu
 Dock tiles, commands and corner actions in JavaScript, each in its own sandboxed engine. Plugin
 widgets can have buttons, switches, charts, images and grids; plugins can start only when used
 and sleep when idle.
+Dock tiles, commands and corner actions in JavaScript, each in its own sandboxed engine, and plug
+into Atelier's own features: searches in the Command palette (`gh …`), menu bar items, Dock tile
+menus and link drops, stacks for the Atelier Dock (Stacks › From Plugins), live activities under
+the menu bar, Scenes, and small HTML windows with no network.
 
 - **Make and share:** drop a `.ateliertheme` or `.atelierplugin` on the tiles; Create Theme from my
   Mac; Import Theme; Open Theme Link; export.
@@ -88,7 +95,7 @@ and sleep when idle.
   recent network requests (method, host, path, status, time, size).
 - **Formats:** [THEMES.md](THEMES.md), [PLUGINS.md](PLUGINS.md), [atelier-theme.schema.json](atelier-theme.schema.json).
 - **Needs:** none. Each plugin asks for its own permissions (`notifications`, `openURL`, `network`,
-  `appearance`) on a sheet before it runs.
+  `appearance`, `menuBar`, `liveActivities`, `scenes`, `panels`) on a sheet before it runs.
 
 ---
 

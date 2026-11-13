@@ -138,6 +138,7 @@ public enum PluginPrelude {
         call(kind, plain);
         return id;
       };
+      \#(PluginHooksPrelude.source)
 
       const atelier = {
         version: "\#(apiVersion)",
@@ -148,6 +149,7 @@ public enum PluginPrelude {
         },
         dockTile(spec) {
           const id = register("tile", spec, ["onClick"]);
+          hooks.tile(id, spec);
           let current = Object.assign({}, spec);
           return Object.freeze({
             id,
@@ -156,6 +158,7 @@ public enum PluginPrelude {
               const plain = {};
               for (const key of Object.keys(current)) if (typeof current[key] !== "function") plain[key] = current[key];
               call("tile", plain);
+              if (changes && (changes.menu !== undefined || changes.accepts !== undefined || changes.onDrop !== undefined)) hooks.tile(id, current);
             },
           });
         },
@@ -188,6 +191,7 @@ public enum PluginPrelude {
         },
         storage,
         http,
+        ...hooks.api,
         theme: Object.freeze({
           apply(patch) { call("theme", { patch }); },
         }),
@@ -230,6 +234,7 @@ public enum PluginPrelude {
           Promise.resolve().then(() => handler(payload)).catch((error) => console.error(key + ": " + describe(error)));
         },
         render,
+        ask: hooks.answer,
         emit(event, payloadJSON) {
           const payload = payloadJSON ? JSON.parse(payloadJSON) : undefined;
           for (const handler of listeners[event] || []) {

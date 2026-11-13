@@ -11,6 +11,15 @@ public enum PluginPermission: String, CaseIterable, Codable, Sendable, Identifia
     case openURL
     /// `atelier.theme.apply`: change colours, wallpaper and other theme keys.
     case appearance
+    // Hooks into Atelier (PluginHooksBridge.swift).
+    /// `atelier.menuBarItem`: up to two items in the menu bar.
+    case menuBar
+    /// `atelier.liveActivity`: small live pills at the top of the screen.
+    case liveActivities
+    /// `atelier.scenes`: list the owner's Scenes and switch to one.
+    case scenes
+    /// `atelier.panel`: its own small windows, showing its HTML with no network.
+    case panels
 
     public var id: String { rawValue }
 
@@ -20,6 +29,10 @@ public enum PluginPermission: String, CaseIterable, Codable, Sendable, Identifia
         case .notifications: "Notifications"
         case .openURL: "Open Links"
         case .appearance: "Change Appearance"
+        case .menuBar: "Menu Bar"
+        case .liveActivities: "Live Activities"
+        case .scenes: "Scenes"
+        case .panels: "Windows"
         }
     }
 
@@ -29,6 +42,10 @@ public enum PluginPermission: String, CaseIterable, Codable, Sendable, Identifia
         case .notifications: "Post notifications in Notification Center."
         case .openURL: "Open web and mail links in your default apps."
         case .appearance: "Change Atelier theme settings: colours, wallpaper, Dock and widget style. You can revert them."
+        case .menuBar: "Show an item in the menu bar, with its own menu. At most two."
+        case .liveActivities: "Show small live updates at the top of the screen, like a timer or a download. At most three."
+        case .scenes: "See the names of your Scenes and switch to one, which changes your Dock."
+        case .panels: "Open its own small windows. They show the plugin's page with no network and no access to your files."
         }
     }
 
@@ -38,6 +55,10 @@ public enum PluginPermission: String, CaseIterable, Codable, Sendable, Identifia
         case .notifications: "bell.badge"
         case .openURL: "safari"
         case .appearance: "paintpalette"
+        case .menuBar: "menubar.rectangle"
+        case .liveActivities: "capsule.inset.filled"
+        case .scenes: "theatermasks"
+        case .panels: "macwindow"
         }
     }
 }
@@ -93,7 +114,7 @@ public struct PluginManifest: Equatable, Sendable, Identifiable {
         .init("entry", .file(["js"]), "The script Atelier runs. Default `main.js`."),
         .init("icon", .string(maxLength: 80), "An SF Symbol name for the plugin. Default `puzzlepiece.extension`."),
         .init("homepage", .url, "An https link to the plugin's page."),
-        .init("permissions", .strings(maxCount: 8, maxLength: 24), "Permissions the plugin asks for."),
+        .init("permissions", .strings(maxCount: 16, maxLength: 24), "Permissions the plugin asks for."),
         .init("network", .object([
             .init("hosts", .strings(maxCount: maxHosts, maxLength: 120), "Hosts `atelier.http.get` may reach, like `api.github.com`."),
         ]), "Network access, with the network permission."),

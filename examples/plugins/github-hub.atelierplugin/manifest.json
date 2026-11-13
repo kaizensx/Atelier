@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "id": "com.example.github-hub",
+  "name": "GitHub Hub",
+  "version": "1.0.0",
+  "author": "Atelier Examples",
+  "description": "Your GitHub in Atelier: search your repositories from Command with \"gh\", unread notifications in the menu bar, your open pull requests as a Dock stack, a small dashboard window, and a Dock tile that opens any GitHub link you drop on it. Needs a personal access token.",
+  "icon": "chevron.left.forwardslash.chevron.right",
+  "entry": "main.js",
+  "homepage": "https://docs.github.com/en/rest",
+  "permissions": ["network", "openURL", "menuBar", "panels"],
+  "network": { "hosts": ["api.github.com"] }
+}

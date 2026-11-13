@@ -216,6 +216,8 @@ public enum PluginEvent: String, CaseIterable, Sendable {
     case appActivated, spaceChanged, wallpaperChanged, themeChanged, timer
     // Lifecycle and system events.
     case update, settingsChanged, message, sleep, wake, screensLocked, screensUnlocked, displaysChanged, powerSource
+    /// A message from one of the plugin's HTML panels (`atelier.panel`).
+    case panelMessage
 }
 
 /// One call from a plugin's script into Atelier, decoded and checked. Everything a script

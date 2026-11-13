@@ -72,6 +72,7 @@ struct DockHubStacksChapter: View {
                 }
             }
         }
+        PluginStacksSection()
         if !creating {
             SectionHeader(entries.isEmpty ? "Start With One" : "More Ideas", symbol: "lightbulb",
                           detail: "Smart Stacks worth having, one click from made.", hue: hue)

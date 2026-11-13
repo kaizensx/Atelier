@@ -109,7 +109,8 @@ enum NavRegistry {
         NavItem(Chapter("mods"), "Mods", symbol: "shippingbox", in: .mac,
                 keywords: ["catalog", "marketplace", "community", "gallery", "browse", "download", "install", "plugins", "themes", "updates", "windhawk", "native",
                            "theme", "plugin", "import", "export", "json", "library", "create theme", "themes & plugins",
-                           "plugin settings", "load plugin folder", "development", "safe mode"]) {
+                           "plugin settings", "load plugin folder", "development", "safe mode",
+                           "hooks", "palette provider", "menu bar item", "live activity", "plugin window"]) {
             ModsChapter(model: $0)
         },
         // Desktop
@@ -140,7 +141,7 @@ enum NavRegistry {
             SystemDockPeekCard()
             DockGlowCard()
         },
-        NavItem(.stacks, "Stacks", symbol: "square.stack.3d.up", in: .dock, keywords: ["folder", "bubble", "live stack", "smart"]) {
+        NavItem(.stacks, "Stacks", symbol: "square.stack.3d.up", in: .dock, keywords: ["folder", "bubble", "live stack", "smart", "plugin stack", "from plugins"]) {
             DockHubStacksChapter(model: $0)
         },
         NavItem(.orbit, "Orbit", symbol: "circle.hexagongrid", in: .dock, keywords: ["launcher", "launchpad", "apps", "ring"]) { _ in

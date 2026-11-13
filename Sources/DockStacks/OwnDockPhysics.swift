@@ -359,6 +359,8 @@ struct OwnDockItem: Codable, Identifiable, Hashable, Sendable {
         case clock, battery, downloads, clipboard, orbit, spacer, spacerLarge
         /// A stack that fills itself: recent apps, a folder, a Spotlight search.
         case smart
+        /// A plugin's Dock tile or stack. `path` is a `PluginDockPath`.
+        case plugin
     }
     var kind: Kind
     var path: String
@@ -390,6 +392,7 @@ struct OwnDockItem: Codable, Identifiable, Hashable, Sendable {
         case .spacer: return "Small Spacer"
         case .spacerLarge: return "Spacer"
         case .smart: return "Smart Stack"
+        case .plugin: return path.hasPrefix("atelier:plugin:stack:") ? "Plugin Stack" : "Plugin Tile"
         }
     }
 
@@ -413,6 +416,7 @@ struct OwnDockItem: Codable, Identifiable, Hashable, Sendable {
         case .spacer: .spacer
         case .spacerLarge: .spacerLarge
         case .smart: .smart
+        case .plugin: .plugin
         }
     }
 }
@@ -426,6 +430,8 @@ struct DockSlot: Identifiable, Equatable, Sendable {
         /// The start of one of the user's sections. `title` is its name.
         case section
         case smart
+        /// A plugin's tile or stack. `id` is its `PluginDockPath`.
+        case plugin
     }
     var id: String
     var kind: Kind
