@@ -714,11 +714,11 @@ struct OwnDockPlaceCard: View {
             .dockHubRow()
             .help("Off, it stays on the desktop it was shown on.")
             .stagePreview(.demo("dock.spaces", "On Every Desktop", isOn: dock.hub.allSpaces, region: nil, Demos.everyDesktop))
-            SettingRow(title: "Over Full-Screen Apps", detail: "Shows on full-screen Spaces too, like the macOS Dock.", density: .compact) {
+            SettingRow(title: "Over Full-Screen Apps", detail: "Comes up from the edge over a full-screen app, like the macOS Dock. Off, it stays away.", density: .compact) {
                 LuxSwitch(isOn: $dock.hub.fullScreen, label: "Over Full-Screen Apps", tint: hue)
             }
             .dockHubRow()
-            .help("Shows on full-screen Spaces too, like the macOS Dock does when you reach the edge.")
+            .help("In a full-screen app the dock hides either way; with this on, moving to the edge brings it up.")
         }
         .onAppear { screens = dock.screenNames }
         Card { DockReserveSettings() }

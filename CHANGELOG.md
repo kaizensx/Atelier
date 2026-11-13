@@ -55,6 +55,14 @@ and a catalog you can trust.
   to another Mac. Secrets are never included.
 
 **Fixed**
+- Maximised windows stop above the Atelier Dock again when the menu bar is set to hide; they
+  used to fill the screen and sit under the dock.
+- Full-screen apps are no longer covered by the Atelier Dock. It hides there like the macOS Dock,
+  and with Over Full-Screen Apps on it comes up when the pointer reaches the edge.
+- Playground: the code editor draws its text (it showed only line numbers).
+- Shader packs and Looks: Stop and Revert put the wallpaper back exactly as it was.
+- A plugin installed from the catalog and the bundled example of the same plugin no longer show
+  up twice.
 - The website's Mods pages no longer show the offline-copy notice when the catalog loads, and
   show a new mod version without waiting for the site to rebuild.
 

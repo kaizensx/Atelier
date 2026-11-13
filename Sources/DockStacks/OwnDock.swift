@@ -1139,6 +1139,13 @@ final class OwnDock: ObservableObject {
     @Published var large: Double { didSet { store.set(large, forKey: Key.large); layout() } }
     @Published var magnify: Bool { didSet { store.set(magnify, forKey: Key.magnify); layout() } }
     @Published var autoHide: Bool { didSet { store.set(autoHide, forKey: Key.autoHide); applyAutoHide() } }
+    /// The front app is in a full-screen Space. The dock then hides like the macOS one does there:
+    /// it comes up from the edge only with Over Full-Screen Apps on, and never covers the app.
+    @Published private(set) var fullScreenSpace = false { didSet { if fullScreenSpace != oldValue { applyAutoHide() } } }
+    /// Hidden until the pointer reaches the edge: auto-hide, or a full-screen Space.
+    var hidesAway: Bool { autoHide || fullScreenSpace }
+    /// Whether the edge may bring it up right now.
+    private var mayReveal: Bool { !fullScreenSpace || hub.fullScreen }
     /// The Vitals tile's rings, outermost first. Up to four.
     @Published var vitalMetrics: [VitalMetric] = (UserDefaults.standard.array(forKey: "ownDock.vitalMetrics") as? [String])?
         .compactMap(VitalMetric.init(rawValue:)) ?? [.memory, .disk, .battery] {
@@ -1392,7 +1399,10 @@ final class OwnDock: ObservableObject {
         center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { note in
             let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
             let path = app?.activationPolicy == .regular ? app?.bundleURL?.path : nil
-            MainActor.assumeIsolated { OwnDock.shared.activated(path) }
+            MainActor.assumeIsolated {
+                OwnDock.shared.activated(path)
+                OwnDock.shared.checkFullScreenSpace()
+            }
         }
         for name in [NSWorkspace.didHideApplicationNotification, NSWorkspace.didUnhideApplicationNotification] {
             center.addObserver(forName: name, object: nil, queue: .main) { _ in
@@ -1404,7 +1414,10 @@ final class OwnDock: ObservableObject {
         }
         center.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { _ in
             // Each desktop can have its own picture.
-            MainActor.assumeIsolated { OwnDock.shared.applyTheme() }
+            MainActor.assumeIsolated {
+                OwnDock.shared.applyTheme()
+                OwnDock.shared.checkFullScreenSpace()
+            }
         }
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
@@ -2204,9 +2217,9 @@ final class OwnDock: ObservableObject {
         updateAnimating()
         syncSources()
         field.sync(slots(), instant: stage.scene.tiles.isEmpty)
-        field.hideTarget = autoHide ? 1 : 0
+        field.hideTarget = hidesAway ? 1 : 0
         field.hide = field.hideTarget
-        revealed = !autoHide
+        revealed = !hidesAway
         reader.active = revealed
         stage.scene = field.scene(metrics)
         if ticker == nil {
@@ -2246,11 +2259,37 @@ final class OwnDock: ObservableObject {
         show()
     }
 
+    /// Asks Accessibility whether the front app's window is full screen, off the main thread,
+    /// now and once the Space animation has settled.
+    func checkFullScreenSpace() {
+        for delay in [0.15, 0.9] {
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + delay) {
+                let full = Self.frontWindowIsFullScreen()
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated { if OwnDock.shared.fullScreenSpace != full { OwnDock.shared.fullScreenSpace = full } }
+                }
+            }
+        }
+    }
+
+    nonisolated private static func frontWindowIsFullScreen() -> Bool {
+        guard AXIsProcessTrusted(), let app = NSWorkspace.shared.frontmostApplication,
+              app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return false }
+        let element = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(element, 0.2)
+        var window: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXFocusedWindowAttribute as CFString, &window) == .success,
+              let window, CFGetTypeID(window) == AXUIElementGetTypeID() else { return false }
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window as! AXUIElement, "AXFullScreen" as CFString, &value) == .success else { return false }
+        return (value as? NSNumber)?.boolValue == true
+    }
+
     private func applyAutoHide() {
         guard enabled else { return }
-        revealed = !autoHide
+        revealed = !hidesAway
         reader.active = revealed
-        field.hideTarget = autoHide ? 1 : 0
+        field.hideTarget = hidesAway ? 1 : 0
         startPolling()
         wake()
         DockReserve.shared.update()
@@ -2423,7 +2462,7 @@ final class OwnDock: ObservableObject {
 
     /// Over the visible dock. A hidden dock must never catch a click.
     private func pointerInside(_ mouse: NSPoint) -> Bool {
-        guard !autoHide || revealed else { return false }
+        guard !hidesAway || revealed else { return false }
         let point = local(mouse)
         return activeZone().contains(point) || overCard(point) || overDone(point)
     }
@@ -2481,15 +2520,15 @@ final class OwnDock: ObservableObject {
         if inside == (panel?.ignoresMouseEvents ?? true) { panel?.ignoresMouseEvents = !inside }
         // Also while a card is up: the pointer may leave the panel in one jump between frames
         // (a fast exit, the screen edge, a Space switch) and the card must still go.
-        if inside ? moved : autoHide && (revealed || onEdgeStrip(mouse)) || field.peekTarget && (moved || !inside) { wake() }
+        if inside ? moved : hidesAway && (revealed || onEdgeStrip(mouse)) || field.peekTarget && (moved || !inside) { wake() }
     }
 
     private func updateHide(_ mouse: NSPoint, inside: Bool) {
-        guard autoHide else { return }
+        guard hidesAway else { return }
         let held = menuOpen || pressID != nil || bubble.isOpen || field.dragID != nil || keyboardActive
         let was = revealed
         if !revealed {
-            if onEdgeStrip(mouse) {
+            if mayReveal, onEdgeStrip(mouse) {
                 let dwell = NSEvent.pressedMouseButtons != 0 ? 0 : placedEdge == .top ? max(hub.revealDelay, 0.3) : hub.revealDelay
                 if let since = edgeSince {
                     if Date().timeIntervalSince(since) >= dwell { revealed = true; awaySince = nil }
