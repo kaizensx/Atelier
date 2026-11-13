@@ -57,6 +57,8 @@ and a catalog you can trust.
 **Fixed**
 - Maximised windows stop above the Atelier Dock again when the menu bar is set to hide; they
   used to fill the screen and sit under the dock.
+- Atelier no longer freezes when its own window reaches the Dock's band while Reserve Dock Space
+  is on.
 - Full-screen apps are no longer covered by the Atelier Dock. It hides there like the macOS Dock,
   and with Over Full-Screen Apps on it comes up when the pointer reaches the edge.
 - Playground: the code editor draws its text (it showed only line numbers).
