@@ -1147,7 +1147,8 @@ final class OwnDock: ObservableObject {
             applyAutoHide()
             // Leaving full screen, macOS puts the window back at its old size, while it still
             // reports itself full screen to the Reserve check: look again once it has landed.
-            if !fullScreenSpace, DockReserve.shared.active, let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier {
+            if !fullScreenSpace, DockReserve.shared.active, let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier,
+               pid != ProcessInfo.processInfo.processIdentifier {
                 DockReserveEngine.shared.poke(pid)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { DockReserveEngine.shared.poke(pid) }
             }

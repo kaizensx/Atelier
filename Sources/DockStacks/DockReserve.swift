@@ -141,6 +141,9 @@ final class DockReserveEngine: @unchecked Sendable {
 
     /// An app came to the front: check its focused window once.
     func poke(_ pid: pid_t) {
+        // Never Atelier's own windows: setting their frame through Accessibility from this thread
+        // waits on Atelier's main thread, which can be waiting on this one (a hang, 13 Nov).
+        guard pid != Self.ownPID else { return }
         perform {
             let app = AXUIElementCreateApplication(pid)
             AXUIElementSetMessagingTimeout(app, 0.25)
@@ -194,7 +197,7 @@ final class DockReserveEngine: @unchecked Sendable {
     // MARK: Observing
 
     private func observe(_ pid: pid_t, bundle: String, sweep: Bool) {
-        guard observers[pid] == nil, snapshot.screen != nil, let loop else { return }
+        guard pid != Self.ownPID, observers[pid] == nil, snapshot.screen != nil, let loop else { return }
         var created: AXObserver?
         let callback: AXObserverCallback = { _, element, notification, _ in
             DockReserveEngine.shared.event(element, notification as String)
@@ -242,7 +245,10 @@ final class DockReserveEngine: @unchecked Sendable {
 
     // MARK: Fitting
 
+    private static let ownPID = ProcessInfo.processInfo.processIdentifier
+
     private func check(_ window: AXUIElement, pid: pid_t) {
+        guard pid != Self.ownPID else { return }
         let (screen, exceptions) = snapshot
         guard let screen, !exceptions.contains(bundles[pid] ?? "") else { return }
         let key = CFHash(window)
