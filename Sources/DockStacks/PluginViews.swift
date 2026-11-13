@@ -131,6 +131,8 @@ struct PluginNodeView: View {
             }
         case .spacer:
             Spacer(minLength: 0)
+        case .button, .toggle, .image, .chart, .grid, .progress, .divider, .transition:
+            PluginMoreNodeView(node: node)
         }
     }
 
@@ -187,11 +189,17 @@ struct PluginWidgetContent: View {
                         PluginNodeView(node: view).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     } else if let error = widget.error {
                         Label(error, systemImage: "exclamationmark.triangle").font(DS.caption).foregroundStyle(DS.Ink.secondary)
+                    } else if registry.isAsleep(widget.plugin),
+                              registry.installed.first(where: { $0.id == widget.plugin })?.manifest.activation?.contains(.onWidgetVisible) != true {
+                        Text("Starts when you use the plugin.").font(DS.caption).foregroundStyle(DS.Ink.tertiary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
                 }
-                .onAppear { registry.render(widget: key) }
+                .onAppear { registry.widgetAppeared(key); registry.render(widget: key) }
+                .onDisappear { registry.widgetDisappeared(key) }
+                .pluginHost(widget.plugin)
             } else {
                 VStack(spacing: 6) {
                     Image(systemName: "puzzlepiece.extension").font(.system(size: 20)).foregroundStyle(DS.Ink.tertiary)
@@ -265,9 +273,12 @@ struct PluginManagerSection: View {
                 .font(DS.caption).foregroundStyle(DS.Ink.tertiary).fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Chip("Install Plugin…") { installPanel() }
+            Chip("Load Plugin Folder…") { developmentPanel() }
+                .help("Runs a plugin straight from its folder, marked Development. Atelier restarts it each time you save a file in it.")
             Chip("Show Folder") { NSWorkspace.shared.activateFileViewerSelecting([PluginRegistry.folder]) }
         }
         .padding(.horizontal, DS.Space.xs)
+        PluginSafeModeBanner()
         if registry.installed.isEmpty {
             ThemesEmptyShelf(symbol: "puzzlepiece.extension",
                              text: "No plugins yet. Drop a .atelierplugin folder on the tiles above, or try the examples in Atelier’s source.")
@@ -294,6 +305,25 @@ struct PluginManagerSection: View {
                     asking = nil
                 }
             }
+    }
+
+    private func developmentPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.treatsFilePackagesAsDirectories = false
+        panel.message = "Choose a plugin folder to run while you develop it. It reloads on every save."
+        panel.prompt = "Load"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let plugin = try registry.loadDevelopmentFolder(url)
+            failure = nil
+            if !registry.enabled.contains(plugin.id) {
+                if plugin.manifest.permissions.isEmpty { registry.enable(plugin, granting: []) } else { asking = plugin }
+            }
+        } catch {
+            failure = error.localizedDescription
+        }
     }
 
     private func installPanel() {
@@ -337,6 +367,7 @@ private struct PluginRow: View {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(plugin.manifest.name).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(DS.Ink.primary)
                         Text(plugin.manifest.version).font(DS.Typo.value).foregroundStyle(DS.Ink.tertiary)
+                        if plugin.isDevelopment { ModChip(text: "Development", symbol: "hammer", hue: .orange) }
                     }
                     Text(registry.status[plugin.id] ?? plugin.manifest.summary ?? plugin.manifest.author ?? "")
                         .font(DS.caption).foregroundStyle(DS.Ink.secondary)
@@ -381,13 +412,19 @@ private struct PluginRow: View {
                     ForEach(plugin.warnings, id: \.description) { warning in
                         Label(warning.description, systemImage: "exclamationmark.triangle").font(DS.caption).foregroundStyle(.orange)
                     }
+                    if plugin.isDevelopment { detail("Folder", plugin.folder.path) }
+                    if !plugin.manifest.settings.isEmpty {
+                        Text("SETTINGS").font(DS.eyebrow).tracking(1.2).foregroundStyle(DS.Ink.tertiary).padding(.top, 4)
+                        PluginSettingsForm(plugin: plugin)
+                    }
+                    if on { PluginActivityView(plugin: plugin) }
                     HStack(spacing: 8) {
                         if !plugin.manifest.permissions.isEmpty { Chip("Permissions…") { ask() } }
                         Chip("Logs") { logs() }
                         if on { Chip("Restart") { registry.restart(plugin) } }
                         Chip("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([plugin.folder]) }
                         Spacer()
-                        HoldButton(title: "Hold to Remove") { registry.remove(plugin) }
+                        HoldButton(title: plugin.isDevelopment ? "Hold to Forget" : "Hold to Remove") { registry.remove(plugin) }
                     }
                 }
                 .padding(.leading, 46)

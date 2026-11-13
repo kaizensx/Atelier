@@ -9,7 +9,7 @@ Three complete examples are in [`examples/plugins/`](../examples/plugins):
 
 | Example | Shows |
 |---|---|
-| `pomodoro.atelierplugin` | Dock tile with live text, progress and badge; widget; commands; corner action; timers; storage; notifications |
+| `pomodoro.atelierplugin` | Dock tile with live text, progress and badge; widget with buttons and a chart; settings; localized strings; the `update` event; commands; corner action; timers; storage; notifications |
 | `github-notifications.atelierplugin` | `network` permission, `atelier.http.get`, `atelier.prompt` for a secret, a list widget |
 | `random-palette.atelierplugin` | `appearance` permission and `atelier.theme.apply` |
 
@@ -77,6 +77,13 @@ chapter's Console.
   it is switched off, removed or updated, its timers stop, its registrations disappear, and its
   storage is saved. **Restart** in the plugin's details reloads it from disk, which is handy
   while developing.
+* **On demand.** A plugin can ask to start only when it is needed (see `activation` below). Until
+  then its declared commands, widgets, tiles and corner actions show, and nothing runs. A plugin
+  started on demand goes back to sleep after 10 minutes without calls, when it has no timers, no
+  pending requests and no widget on screen; its storage is saved first.
+* **Safe mode.** If Atelier quits unexpectedly twice in a row while plugins are running, the next
+  launch starts with every plugin off. Mods shows which plugins were running and a button to turn
+  them back on.
 
 ## Permissions
 
@@ -88,7 +95,7 @@ never covers more than the manifest asks for. Calling an API without its permiss
 | Permission | Allows | Notes |
 |---|---|---|
 | *(none)* | Drawing widgets and tiles, commands, corner actions, events, timers, `storage`, `prompt`, `console` | Always available |
-| `network` | `atelier.http.get` | https only, standard port, only hosts listed in `network.hosts`, redirects may not leave them, 2 MB per response, 4 requests at once, 15 s timeout, no cookies or cache |
+| `network` | `atelier.http.get`, `post`, `put`, `patch`, `delete`; `image` views with a `url` | https only, standard port, only hosts listed in `network.hosts`, redirects may not leave them, 2 MB per response, 4 requests at once, 15 s timeout, no cookies or cache |
 | `notifications` | `atelier.notify` | Notification Center; macOS asks once for Atelier itself |
 | `openURL` | `atelier.openURL` | `https:` and `mailto:` links, and `atelier://studio` |
 | `appearance` | `atelier.theme.apply` | Any theme key; validated like a theme; Revert in Looks undoes it |
@@ -110,7 +117,12 @@ allows them.
 | `icon` | SF Symbol name | Default `puzzlepiece.extension`. |
 | `homepage` | https link | Where to learn more. |
 | `permissions` | list of `network`, `notifications`, `openURL`, `appearance` | What it asks for. |
-| `network.hosts` | list of ≤ 8 host names | Hosts `http.get` may reach. No schemes, paths, ports, wildcards, local or private addresses. Required with `network`. |
+| `network.hosts` | list of ≤ 8 host names | Hosts `http` calls and image views may reach. No schemes, paths, ports, wildcards, local or private addresses. Required with `network`. |
+| `settings` | list of ≤ 24 settings | Settings Atelier draws for the plugin. See [Settings](#settings). |
+| `strings` | `{ "en": { key: text }, "pt": { … } }` | Localized text for `atelier.t`. Up to 24 languages and 400 keys each. |
+| `activation` | list | When the script starts. Leave it out to start at launch, as before. See [On-demand activation](#on-demand-activation). |
+| `contributes` | object | What shows before the script runs, with `activation`. |
+| `messages` | `{ send: [ids], receive: [ids] }` | Other plugins this one may message, and hear from. See [Messages between plugins](#messages-between-plugins). |
 
 Plugins are installed in `~/Library/Application Support/Atelier/Plugins/<id>.atelierplugin`.
 Their storage lives in `~/Library/Application Support/Atelier/PluginData/<id>.json`.
@@ -118,7 +130,7 @@ Their storage lives in `~/Library/Application Support/Atelier/PluginData/<id>.js
 ## API reference
 
 Everything is on the global, frozen `atelier` object. `atelier.version` is the API version,
-currently `"1.0"`.
+currently `"1.1"`.
 
 Ids: every registration takes an `id` of letters, digits, `-`, `_` or `.` (up to 64). If you
 leave it out, Atelier makes one from the `title` (`"Say Hello"` becomes `say-hello`).
@@ -158,10 +170,36 @@ as a vertical stack). `atelier.ui` has helpers that build the same objects.
 | `list` | `items`: up to 20 of `"text"` or `{ title, detail, symbol, color }` | `ui.list(items)` |
 | `vstack` `hstack` `zstack` | `children`, `spacing` (0…40, default 6), `align` (`leading` `center` `trailing` `top` `bottom`) | `ui.vstack(children, style)` … |
 | `spacer` | | `ui.spacer()` |
+| `button` | `title`, `symbol`, `style` (`prominent` `plain`), `action` | `ui.button(title, action, style)` |
+| `toggle` | `label`, `on`, `action` (called with `{ on }`) | `ui.toggle(label, on, action)` |
+| `image` | `asset` (a png, jpg, heic or pdf in the plugin folder, ≤ 2 MB) or `url` (https, on a host in `network.hosts`, needs `network`), `width`, `height`, `fit` (`fit` `fill`), `radius` | `ui.image(pathOrURL, style)` |
+| `chart` | `kind` (`bar` `line` `area`), `values` or `series: [{ label, values, color }]` (≤ 8 series, 120 values), `labels`, `max` | `ui.chart(valuesOrSeries, style)` |
+| `grid` | `columns` (1…6), `children` | `ui.grid(children, style)` |
+| `progress` | `value` (0…1), `label`, `color`: a linear bar with its percentage | `ui.progress(value, style)` |
+| `divider` | | `ui.divider()` |
+
+Stacks take `transition: "fade" | "slide" | "scale"`: children that appear or disappear between
+renders animate that way.
+
+**Buttons and toggles.** `action` is a function, or an id you registered with
+`atelier.action(id, fn)`. A tap calls it once, under the usual 1-second limit; a toggle passes
+`{ on }`. Inline functions get an id per widget, replaced on every render. After a tap, call
+`widget.refresh()` to redraw.
+
+```js
+atelier.action("reset", () => { count = 0; widget.refresh(); });
+view: () => atelier.ui.hstack([
+  atelier.ui.button("Add", () => { count++; widget.refresh(); }, { symbol: "plus" }),
+  atelier.ui.button("Reset", "reset", { style: "plain" }),
+])
+```
+
+Images: Atelier fetches `url` images itself with the same rules as `http.get` and keeps them in
+memory; `atelier.asset(path)` checks a path in your folder and returns it, or throws.
 
 Colours are `#RRGGBB` hex or one of `primary` `secondary` `tertiary` `accent` `red` `orange`
 `yellow` `green` `mint` `teal` `blue` `indigo` `purple` `pink` `gray`. `accent` follows the
-widget style, so a plugin widget matches whatever theme is on. A view may hold at most 160
+widget style, so a plugin widget matches whatever theme is on. A view may hold at most 240
 nodes, nest at most 8 deep, and texts are cut at 400 characters.
 
 ```js
@@ -211,6 +249,13 @@ An action you can put on a hot corner or edge in Atelier's Corners chapter.
 | `wallpaperChanged` | `{ live }` or `{ mesh }` | Atelier changes the live or mesh wallpaper. A wallpaper picked in System Settings is not seen. |
 | `themeChanged` | `{ id, name }` | A theme or Look is applied, or reverted (`id` is `null`). |
 | `timer` | `{ date }` (ms since 1970) | Every `options.interval` seconds, 5…86400, default 60. Up to 4 per plugin. |
+| `update` | `{ from, to }` | Once, after the plugin was updated, before any other handler runs. |
+| `settingsChanged` | `{ key, value }` | The owner changed a setting (`value` is `null` for secrets; read them with `settings.get`). |
+| `message` | `{ from, payload }` | Another plugin sent a message. See below. |
+| `sleep` `wake` | `{}` | The Mac goes to sleep, or wakes. |
+| `screensLocked` `screensUnlocked` | `{}` | The screen locks or unlocks. |
+| `displaysChanged` | `{ count }` | A display is added, removed or rearranged. |
+| `powerSource` | `{ onBattery, level }` | The power source or battery level changes. `level` is 0…1, or `null` without a battery. |
 
 ### `atelier.notify(title, body?)` — needs `notifications`
 
@@ -234,7 +279,12 @@ Fetches a URL on a host listed in `network.hosts`. Resolves to a frozen response
 failures, refused hosts and oversized responses reject with an `Error`. You may set ordinary
 headers such as `Authorization` and `Accept`; `Cookie`, `Host`, `Origin`, `Referer`,
 `Content-Length` and `Connection` are dropped. The user agent is
-`Atelier-Plugin/1.0 (<your id>)`.
+`Atelier-Plugin/1.1 (<your id>)`.
+
+### `atelier.http.post(url, { headers?, body?, json? })` → Promise — needs `network`
+
+Also `put`, `patch` and `delete`, with the same rules and limits as `get`. `body` is a string;
+`json` is any JSON value, sent with `Content-Type: application/json` unless you set one.
 
 ### `atelier.prompt(title, { message?, placeholder?, secure? })` → Promise<string | null>
 
@@ -256,6 +306,74 @@ A small key-value store of JSON values, private to the plugin and kept across la
 
 Keys are 1–128 characters; all values together may take at most 256 KB. Writes are saved
 within a second and when the plugin stops.
+
+### Settings
+
+Declare settings in the manifest and Atelier draws them: on the plugin's page in Mods (above
+**In Atelier**) and in its details in Mods › Library.
+
+```json
+"settings": [
+  { "key": "focus", "type": "number", "title": "Focus minutes", "default": 25, "min": 1, "max": 120 },
+  { "key": "token", "type": "secret", "title": "API token", "detail": "From your account page." }
+]
+```
+
+| Key | |
+|---|---|
+| `key` **required** | Letters, digits, `-` `_` `.`, up to 64. |
+| `type` **required** | `text` (≤ 1000 characters), `secret`, `number` (with `min`, `max`), `toggle`, `choice` (with `options`: text or `{ value, title }`), `color` (`#RRGGBB`), `hotkeyHint` (a shortcut like `cmd+shift+p`, shown as a hint; Atelier does not bind it). |
+| `title` **required** | 1–60 characters. |
+| `detail`, `default` | A line under the title; the value before the owner changes it. A `secret` has no default. |
+
+Values live in the plugin's storage under `settings.<key>`; `storage.set` refuses those keys, so
+use `atelier.settings`:
+
+| Function | |
+|---|---|
+| `settings.get(key)` | The value, or its default, or `null`. |
+| `settings.set(key, value)` | Checked against its type; throws if it does not fit. `null` resets it. |
+| `settings.all()` | Every setting at once. |
+
+`secret` values are kept in the Keychain (service `net.dasantos.dockstacks.plugin.<id>`), never
+in the storage file, and only that plugin can read them. Atelier never shows a saved secret
+again. `atelier.on("settingsChanged", ({ key, value }) => …)` hears every change.
+
+### `atelier.t(key, vars?)`
+
+Localized text from the manifest's `strings`, in the owner's first preferred language the plugin
+has (`pt-BR`, then `pt`), falling back to English, then to the key itself. `{name}` in the text
+is replaced from `vars`: `atelier.t("today", { n: 3 })`.
+
+### Messages between plugins
+
+Both plugins opt in, in their manifests:
+
+```json
+"messages": { "send": ["com.example.timer"], "receive": ["com.example.timer"] }
+```
+
+`atelier.send(toId, payload)` sends a JSON value of up to 64 KB. It is delivered as
+`atelier.on("message", ({ from, payload }) => …)` only when the sender lists the receiver under
+`send` and the receiver lists the sender under `receive`, and the receiver is on. Undelivered
+messages are noted in the sender's Console.
+
+### On-demand activation
+
+```json
+"activation": ["onCommand", "onWidgetVisible", "onEvent:wake"],
+"contributes": {
+  "commands": [{ "id": "toggle", "title": "Start or Pause" }],
+  "widgets": [{ "id": "focus", "title": "Focus", "size": "small" }]
+}
+```
+
+Triggers: `onStartup` (the default without `activation`), `onCommand`, `onWidgetVisible`,
+`onTileClick`, `onCorner`, `onTimer` (with `contributes.timer`, seconds, at least 60) and
+`onEvent:<event>` for any event above. Without `onStartup`, the script runs when one of them
+happens; the commands, widgets, tiles (`id`, `title`, `symbol`) and corner actions under
+`contributes` show meanwhile, with the same rules as registering them. The script must still
+register them with the same ids so they work once it runs.
 
 ### `atelier.theme.apply(patch)` — needs `appearance`
 
@@ -280,7 +398,10 @@ write to the Console in Mods › Library.
 | Script size | 512 KB |
 | Time per call | 1 s; three timeouts in a row stop the plugin |
 | Registrations | 24 per plugin |
-| View size | 160 nodes, 8 levels |
+| View size | 240 nodes, 8 levels |
+| Settings | 24 per plugin |
+| Messages | 64 KB of JSON each |
+| Assets | png, jpg, heic, pdf; 2 MB each |
 | Storage | 256 KB |
 | Message size | 256 KB per call across the bridge |
 | Network | 4 requests at once, 2 MB per response, 15 s |
@@ -294,10 +415,16 @@ Atelier quits.
 
 ## Developing
 
-* Keep the plugin folder somewhere convenient and install it; install again to update it. Or
-  edit the installed copy directly and press **Restart**.
-* Watch the Console. Every error carries its line number, and every `http.get` is logged with
-  its status and timing.
+* **Load Plugin Folder…** in Mods › Library runs a plugin straight from its folder, wherever it
+  is, marked **Development**. Atelier watches the folder and restarts the plugin within a moment
+  of each save, keeping its storage; the Console notes each reload. Forgetting it leaves the
+  folder where it is.
+* Or keep the folder somewhere convenient and install it; install again to update it.
+* Watch the Console. Every error carries its line number, and every request is logged with its
+  status and timing.
+* A plugin's details show its activity: calls and script time over the last minute, and its
+  recent requests (method, host, path, status, time, size). A plugin stopped for running too
+  long posts a notification naming it.
 * Test with the owner's eye: plugin widgets follow the widget style, so try a light theme and
   a dark one.
 * Keep work small per call. Do heavy lifting in `data`, which may be async, and keep `view`

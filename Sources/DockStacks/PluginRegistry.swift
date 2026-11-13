@@ -9,6 +9,8 @@ struct InstalledPlugin: Identifiable, Equatable {
     let manifest: PluginManifest
     let folder: URL
     let warnings: [ThemeIssue]
+    /// Loaded with Load Plugin Folder…: runs straight from its folder and reloads on save.
+    var isDevelopment = false
     var id: String { manifest.id }
 }
 
@@ -59,23 +61,38 @@ final class PluginRegistry: ObservableObject {
     static let shared = PluginRegistry()
     private let store = UserDefaults.standard
 
-    @Published private(set) var installed: [InstalledPlugin] = []
+    @Published var installed: [InstalledPlugin] = []
     @Published private(set) var enabled: Set<String> { didSet { store.set(Array(enabled).sorted(), forKey: Key.enabled) } }
     /// What the owner granted, per plugin. A grant never covers more than the manifest asks.
     @Published private(set) var grants: [String: Set<PluginPermission>] {
         didSet { store.set(grants.mapValues { $0.map(\.rawValue).sorted() }, forKey: Key.grants) }
     }
-    @Published private(set) var status: [String: String] = [:]
+    @Published var status: [String: String] = [:]
     @Published private(set) var problems: [String] = []
 
-    @Published private(set) var widgets: [PluginWidget] = []
-    @Published private(set) var dockTiles: [PluginDockTile] = []
-    @Published private(set) var commands: [PluginCommand] = []
-    @Published private(set) var cornerActions: [PluginCornerAction] = []
+    @Published var widgets: [PluginWidget] = []
+    @Published var dockTiles: [PluginDockTile] = []
+    @Published var commands: [PluginCommand] = []
+    @Published var cornerActions: [PluginCornerAction] = []
     @Published private(set) var log: [PluginLogLine] = []
 
-    private var runtimes: [String: PluginRuntime] = [:]
-    private var subscriptions: [String: Set<PluginEvent>] = [:]
+    // Engine state (see PluginRegistryEngine.swift).
+    @Published var networkLog: [String: [PluginNetworkEntry]] = [:]
+    /// Set when this launch started in safe mode: the plugins that were running at the crashes.
+    @Published var safeMode: [String]?
+    @Published var safeModeBannerShown = false
+    /// Bumped when a setting changes, so settings forms redraw.
+    @Published var settingsRevision = 0
+    var settingsCache: [String: PluginStorage] = [:]
+    var visibleWidgets: [String: Int] = [:]
+    var wakeDates: [String: Date] = [:]
+    var engineTimer: Timer?
+    var lastRunning: [String] = []
+    var lastPower: JSONValue?
+    let development = PluginDevelopment()
+
+    var runtimes: [String: PluginRuntime] = [:]
+    var subscriptions: [String: Set<PluginEvent>] = [:]
     private var observers: [NSObjectProtocol] = []
     private var cancellables: Set<AnyCancellable> = []
     private var started = false
@@ -83,6 +100,7 @@ final class PluginRegistry: ObservableObject {
 
     private enum Key { static let enabled = "plugins.enabled", grants = "plugins.grants" }
     static let maxLogLines = 400
+    static let maxNetworkLog = 50
 
     static var folder: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -101,6 +119,7 @@ final class PluginRegistry: ObservableObject {
         started = true
         // Off until the owner enables one: a plugin never runs without its permission sheet.
         ThemeEngine.seedExamples(kind: "plugins", into: Self.folder, pathExtension: PluginManifest.bundleExtension)
+        enterSafeModeIfNeeded()
         reload()
         let workspace = NSWorkspace.shared.notificationCenter
         observers.append(workspace.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { note in
@@ -121,6 +140,7 @@ final class PluginRegistry: ObservableObject {
         Effects.shared.$living.dropFirst().removeDuplicates().sink { hue in
             PluginRegistry.shared.emit(.wallpaperChanged, payload: .object(["mesh": hue.map { .string($0.rawValue) } ?? .null]))
         }.store(in: &cancellables)
+        startEngine()
     }
 
     // MARK: Library
@@ -133,10 +153,16 @@ final class PluginRegistry: ObservableObject {
         for url in urls.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) where url.pathExtension == PluginManifest.bundleExtension {
             do { found.append(try Self.load(url)) } catch { problems.append("\(url.lastPathComponent): \(error.localizedDescription)") }
         }
+        // Development folders win over an installed copy with the same id.
+        for plugin in development.load(problems: &problems) {
+            found.removeAll { $0.id == plugin.id }
+            found.append(plugin)
+        }
         installed = found
         self.problems = problems
         for id in Array(runtimes.keys) where !found.contains(where: { $0.id == id }) { stopRuntime(id) }
-        for plugin in found where enabled.contains(plugin.id) && runtimes[plugin.id] == nil { launch(plugin) }
+        for plugin in found where enabled.contains(plugin.id) && runtimes[plugin.id] == nil { start(plugin) }
+        development.watch(found.filter(\.isDevelopment))
     }
 
     nonisolated static func load(_ folder: URL) throws -> InstalledPlugin {
@@ -173,8 +199,15 @@ final class PluginRegistry: ObservableObject {
         return installed.first { $0.id == plugin.id } ?? plugin
     }
 
-    /// Moves a plugin to the Trash. Its stored data stays, in case it comes back.
+    /// Moves a plugin to the Trash. Its stored data stays, in case it comes back. A development
+    /// plugin is only forgotten: its folder is the author's and stays where it is.
     func remove(_ plugin: InstalledPlugin) {
+        if plugin.isDevelopment {
+            disable(plugin.id)
+            development.forget(plugin.id)
+            reload()
+            return
+        }
         disable(plugin.id)
         do {
             try FileManager.default.trashItem(at: plugin.folder, resultingItemURL: nil)
@@ -196,7 +229,7 @@ final class PluginRegistry: ObservableObject {
         grants[plugin.id] = permissions.intersection(plugin.manifest.permissions)
         enabled.insert(plugin.id)
         stopRuntime(plugin.id)
-        launch(plugin)
+        start(plugin)
     }
 
     func disable(_ id: String) {
@@ -206,14 +239,24 @@ final class PluginRegistry: ObservableObject {
     }
 
     func restart(_ plugin: InstalledPlugin) {
+        let wasRunning = runtimes[plugin.id] != nil
+        let old = runtimes.removeValue(forKey: plugin.id)
         stopRuntime(plugin.id)
-        if enabled.contains(plugin.id) { launch(plugin) }
+        guard enabled.contains(plugin.id) else { return }
+        // The new engine starts once the old one's storage is on disk.
+        let relaunch: @MainActor @Sendable () -> Void = {
+            let registry = PluginRegistry.shared
+            guard registry.runtimes[plugin.id] == nil, let current = registry.installed.first(where: { $0.id == plugin.id }) else { return }
+            if wasRunning || !current.manifest.startsOnDemand { registry.launch(current) } else { registry.start(current) }
+        }
+        if let old { old.stop(then: relaunch) } else { relaunch() }
     }
 
     func isRunning(_ id: String) -> Bool { runtimes[id] != nil }
 
-    private func launch(_ plugin: InstalledPlugin) {
+    func launch(_ plugin: InstalledPlugin) {
         let id = plugin.id
+        guard safeMode == nil else { status[id] = "Off: Atelier started in safe mode."; return }
         let runtime = PluginRuntime(manifest: plugin.manifest, folder: plugin.folder, granted: grants[id] ?? []) { signal in
             // Main queue, not a Task: signals must arrive in the order the script sent them.
             DispatchQueue.main.async { MainActor.assumeIsolated { PluginRegistry.shared.receive(signal, from: id) } }
@@ -221,15 +264,17 @@ final class PluginRegistry: ObservableObject {
         runtimes[id] = runtime
         status[id] = "Starting…"
         runtime.start()
+        noteRunning()
     }
 
-    private func stopRuntime(_ id: String) {
+    func stopRuntime(_ id: String) {
         runtimes.removeValue(forKey: id)?.stop()
         subscriptions[id] = nil
         widgets.removeAll { $0.plugin == id }
         dockTiles.removeAll { $0.plugin == id }
         commands.removeAll { $0.plugin == id }
         cornerActions.removeAll { $0.plugin == id }
+        noteRunning()
     }
 
     // MARK: Signals from runtimes
@@ -244,6 +289,18 @@ final class PluginRegistry: ObservableObject {
             append(id, "error", reason)
             stopRuntime(id)
             status[id] = reason
+        case .timedOut(let reason):
+            append(id, "error", reason)
+            stopRuntime(id)
+            status[id] = reason
+            PluginNotifier.post(title: "\(name) was stopped", body: "It ran too long three times in a row. Turn it on again in Mods.", from: "Atelier")
+        case .settingChanged(let key, let value):
+            noteSetting(plugin, key: key, value: value)
+        case .network(let entry):
+            var list = networkLog[id] ?? []
+            list.append(entry)
+            if list.count > Self.maxNetworkLog { list.removeFirst(list.count - Self.maxNetworkLog) }
+            networkLog[id] = list
         case .log(let level, let text):
             append(id, level, text)
         case .message(let message):
@@ -297,12 +354,14 @@ final class PluginRegistry: ObservableObject {
             PluginPrompt.ask(title: title, message: message, placeholder: placeholder, secure: secure, from: name) { [weak self] answer in
                 self?.runtimes[id]?.settle(request, ok: true, payload: .object(["text": answer.map(JSONValue.string) ?? .null]))
             }
-        case .timer, .clearTimer, .http:
+        case .send(let to, let payload):
+            deliver(payload, from: id, to: to)
+        case .timer, .clearTimer, .http, .httpSend:
             break
         }
     }
 
-    private func append(_ plugin: String, _ level: String, _ text: String) {
+    func append(_ plugin: String, _ level: String, _ text: String) {
         log.append(PluginLogLine(date: Date(), plugin: plugin, level: level, text: text))
         if log.count > Self.maxLogLines { log.removeFirst(log.count - Self.maxLogLines) }
     }
@@ -316,7 +375,7 @@ final class PluginRegistry: ObservableObject {
     /// Re-renders a plugin widget now, for example when it appears on screen.
     func render(widget key: String) {
         guard let widget = widgets.first(where: { $0.id == key }) else { return }
-        runtimes[widget.plugin]?.render(widget: widget.spec.id)
+        runtime(widget.plugin, for: .onWidgetVisible)?.render(widget: widget.spec.id)
     }
 
     func widget(_ key: String) -> PluginWidget? { widgets.first { $0.id == key } }
@@ -325,18 +384,18 @@ final class PluginRegistry: ObservableObject {
     /// A click on a plugin's Dock tile.
     func click(tile key: String) {
         guard let tile = dockTiles.first(where: { $0.id == key }) else { return }
-        runtimes[tile.plugin]?.invoke("tile:\(tile.spec.id):onClick")
+        runtime(tile.plugin, for: .onTileClick)?.invoke("tile:\(tile.spec.id):onClick")
     }
 
     func run(_ command: PluginCommand) {
-        runtimes[command.plugin]?.invoke("command:\(command.spec.id):run")
+        runtime(command.plugin, for: .onCommand)?.invoke("command:\(command.spec.id):run")
     }
 
     /// For a hot corner bound to `pluginID/actionID`. Returns false when it is not running.
     @discardableResult
     func runCorner(_ key: String) -> Bool {
         guard let action = cornerActions.first(where: { $0.id == key }) else { return false }
-        runtimes[action.plugin]?.invoke("corner:\(action.spec.id):run")
+        runtime(action.plugin, for: .onCorner)?.invoke("corner:\(action.spec.id):run")
         return true
     }
 
@@ -345,6 +404,7 @@ final class PluginRegistry: ObservableObject {
         for (id, events) in subscriptions where events.contains(event) {
             runtimes[id]?.emit(event, payload: payload)
         }
+        wakeSleepers(for: event, payload: payload)
     }
 
     /// The Command palette's rows for plugin commands (snippet S9).

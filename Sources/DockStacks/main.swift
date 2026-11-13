@@ -451,6 +451,11 @@ if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--render-permi
     PermissionRenders.run(into: URL(fileURLWithPath: CommandLine.arguments[2]))
     exit(0)
 }
+// Offline renders of plugin views and the plugin settings form, from fixed data.
+if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--render-plugins" {
+    PluginRenders.run(into: URL(fileURLWithPath: CommandLine.arguments[2]))
+    exit(0)
+}
 #endif
 
 // Command line, for scripts and Shortcuts. Prints the stack path.

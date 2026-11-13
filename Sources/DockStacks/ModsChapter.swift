@@ -89,6 +89,8 @@ struct ModsTabsView: View {
 
         ModsStatusLine()
 
+        PluginSafeModeBanner()
+
         let count = store.updates.count
         Segments(selection: $tab, options: [(.browse, "Browse"), (.installed, "Installed"),
                                             (.updates, count > 0 ? "Updates (\(count))" : "Updates"), (.library, "Library")])

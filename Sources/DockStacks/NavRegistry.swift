@@ -108,7 +108,8 @@ enum NavRegistry {
         },
         NavItem(Chapter("mods"), "Mods", symbol: "shippingbox", in: .mac,
                 keywords: ["catalog", "marketplace", "community", "gallery", "browse", "download", "install", "plugins", "themes", "updates", "windhawk", "native",
-                           "theme", "plugin", "import", "export", "json", "library", "create theme", "themes & plugins"]) {
+                           "theme", "plugin", "import", "export", "json", "library", "create theme", "themes & plugins",
+                           "plugin settings", "load plugin folder", "development", "safe mode"]) {
             ModsChapter(model: $0)
         },
         // Desktop

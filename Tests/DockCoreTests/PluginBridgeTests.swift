@@ -119,13 +119,16 @@ private func manifest(_ json: String) -> (PluginManifest?, ThemeValidation) {
 
 /// Runs a script under the real prelude with a native side that records every call, the way
 /// PluginRuntime does, minus the threads. No network: http calls are recorded, never sent.
-private final class Harness {
+final class Harness {
     let context = JSContext()!
     var calls: [(kind: String, message: PluginMessage?)] = []
     var errors: [String] = []
     var store = PluginStorage()
+    /// Settings and strings come from this manifest, as the runtime reads them.
+    var manifest: PluginManifest?
 
-    init() {
+    init(manifest: PluginManifest? = nil) {
+        self.manifest = manifest
         context.exceptionHandler = { [unowned self] _, exception in self.errors.append(exception?.toString() ?? "?") }
         let native: @convention(block) (String, String) -> String = { [unowned self] kind, payload in
             if kind.hasPrefix("storage.") {
@@ -136,6 +139,7 @@ private final class Harness {
                 default: return "[]"
                 }
             }
+            if kind.hasPrefix("settings.") || kind.hasPrefix("env.") { return self.environment(kind, payload) }
             do {
                 self.calls.append((kind, try PluginMessage.decode(kind: kind, payload: payload)))
                 return "null"
@@ -146,6 +150,31 @@ private final class Harness {
         }
         context.setObject(unsafeBitCast(native, to: AnyObject.self), forKeyedSubscript: "__atelierNative" as NSString)
         context.evaluateScript(PluginPrelude.source)
+    }
+
+    /// What PluginRuntime answers for settings and strings, without the Keychain.
+    private func environment(_ kind: String, _ payload: String) -> String {
+        let value = (try? JSONValue.parse(payload)) ?? .null
+        let settings = manifest?.settings ?? []
+        switch kind {
+        case "env.strings":
+            return JSONValue.object(PluginStrings.pick(manifest?.strings ?? [:], preferred: ["en"]).mapValues(JSONValue.string)).text()
+        case "env.asset":
+            let path = value["path"]?.string ?? ""
+            return PluginAssets.isValidPath(path) ? JSONValue.string(path).text() : JSONValue.object(["__error": .string("asset: bad path")]).text()
+        case "settings.all":
+            return JSONValue.object(Dictionary(uniqueKeysWithValues: settings.map { ($0.key, store.values[$0.storageKey] ?? $0.defaultValue ?? .null) })).text()
+        case "settings.get", "settings.set":
+            guard let setting = settings.first(where: { $0.key == value["key"]?.string }) else {
+                return JSONValue.object(["__error": .string("settings: not declared")]).text()
+            }
+            if kind == "settings.get" { return (store.values[setting.storageKey] ?? setting.defaultValue ?? .null).text() }
+            switch setting.check(value["value"] ?? .null) {
+            case .success(let good): try? store.set(setting.storageKey, good.isNull ? nil : good); return "null"
+            case .failure(let failure): return JSONValue.object(["__error": .string(failure.description)]).text()
+            }
+        default: return JSONValue.object(["__error": .string("unknown")]).text()
+        }
     }
 
     func run(_ script: String) { context.evaluateScript(script) }
@@ -239,14 +268,17 @@ private final class Harness {
 @Test func examplePluginsRegister() throws {
     let folder = repository.appendingPathComponent("examples/plugins")
     let expected: [String: [String]] = [
-        "pomodoro.atelierplugin": ["tile", "widget", "command", "corner", "on"],
+        "pomodoro.atelierplugin": ["tile", "widget", "command", "corner", "on", "widgetView"],
         "github-notifications.atelierplugin": ["tile", "widget", "command"],
         "random-palette.atelierplugin": ["command", "corner"],
     ]
     for (name, kinds) in expected {
-        let harness = Harness()
-        let source = try String(contentsOf: folder.appendingPathComponent(name).appendingPathComponent("main.js"), encoding: .utf8)
+        let bundle = folder.appendingPathComponent(name)
+        let manifest = PluginManifest.parse(try Data(contentsOf: bundle.appendingPathComponent(PluginManifest.fileName)), files: ["main.js"]).0
+        let harness = Harness(manifest: manifest)
+        let source = try String(contentsOf: bundle.appendingPathComponent("main.js"), encoding: .utf8)
         harness.run(source)
+        for case .widget(let spec) in harness.messages("widget") { harness.call("render", [spec.id]) }
         #expect(harness.errors.isEmpty, "\(name): \(harness.errors)")
         for kind in kinds { #expect(!harness.messages(kind).isEmpty, "\(name) should send \(kind)") }
         #expect(harness.calls.allSatisfy { $0.message != nil }, "\(name) sent a call the bridge refused: \(harness.calls.filter { $0.message == nil }.map(\.kind))")

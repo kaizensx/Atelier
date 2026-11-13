@@ -29,9 +29,13 @@ enum CrashGuard {
     @MainActor private static var terminateSource: DispatchSourceSignal?
     @MainActor private static var terminating = false
 
+    /// Whether the run before this launch ended in a crash. Read by plugin safe mode.
+    @MainActor private(set) static var lastRunCrashed = false
+
     /// At launch, before anything can crash.
     @MainActor static func start() {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        lastRunCrashed = FileManager.default.fileExists(atPath: crashedMarker.path)
         try? FileManager.default.removeItem(at: crashedMarker)
         try? FileManager.default.removeItem(at: cleanMarker)
         installSignalHandlers()

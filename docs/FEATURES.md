@@ -63,18 +63,29 @@ Community plugins and themes from the signed catalog at github.com/kaizensx/atel
 - **Installed:** every mod on this Mac. Click a row to open its page; plugins have their on/off
   switch in the row; hold **Remove** to take one out.
 - **Updates:** newer versions from the catalog, one at a time or all at once.
+- **Settings:** on an installed plugin's page, above In Atelier, the settings the plugin declares
+  (text, numbers, switches, choices, colours, shortcut hints and secrets). Secrets go to the
+  Keychain and are never shown again.
 - **In Atelier:** on an installed plugin's page, where it shows up: its Dock tile, widgets, commands
   (with Run) and hot corner actions, each with a button to its place. The author's description
   stays as written.
+- **Safe mode:** after two launches in a row that ended in a crash while plugins ran, Atelier
+  starts with plugins off and names them here, with a button to turn them back on.
 - **Links:** "Open in Atelier" on the website opens the mod's page.
 
 ### Mods › Library (themes and plugins)
 
 A theme restyles everything Atelier can reach from one `.ateliertheme` file. Plugins add widgets,
-Dock tiles, commands and corner actions in JavaScript, each in its own sandboxed engine.
+Dock tiles, commands and corner actions in JavaScript, each in its own sandboxed engine. Plugin
+widgets can have buttons, switches, charts, images and grids; plugins can start only when used
+and sleep when idle.
 
 - **Make and share:** drop a `.ateliertheme` or `.atelierplugin` on the tiles; Create Theme from my
   Mac; Import Theme; Open Theme Link; export.
+- **Load Plugin Folder…:** runs a plugin straight from its folder, marked Development, and
+  restarts it on every save, keeping its storage.
+- **Plugin details:** its settings, and its activity: calls and script time per minute and its
+  recent network requests (method, host, path, status, time, size).
 - **Formats:** [THEMES.md](THEMES.md), [PLUGINS.md](PLUGINS.md), [atelier-theme.schema.json](atelier-theme.schema.json).
 - **Needs:** none. Each plugin asks for its own permissions (`notifications`, `openURL`, `network`,
   `appearance`) on a sheet before it runs.

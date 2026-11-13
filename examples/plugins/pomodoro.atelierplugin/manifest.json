@@ -2,10 +2,32 @@
   "format": 1,
   "id": "com.example.pomodoro",
   "name": "Pomodoro",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Atelier Examples",
-  "description": "A focus timer as a Dock tile, a widget, a command and a hot-corner action.",
+  "description": "A focus timer as a Dock tile, a widget with buttons and a week of sessions, commands and a hot-corner action.",
   "icon": "timer",
   "entry": "main.js",
-  "permissions": ["notifications"]
+  "permissions": ["notifications"],
+  "settings": [
+    { "key": "focus", "type": "number", "title": "Focus minutes", "default": 25, "min": 1, "max": 120 },
+    { "key": "break", "type": "number", "title": "Break minutes", "default": 5, "min": 1, "max": 60 },
+    { "key": "notify", "type": "toggle", "title": "Notify when a session ends", "default": true }
+  ],
+  "strings": {
+    "en": {
+      "start": "Start", "pause": "Pause", "focusing": "Focusing", "resting": "On a break", "paused": "Paused",
+      "today": "{n} today", "focusDone": "Focus session done", "focusDoneBody": "Take a break. {n} done today.",
+      "breakOver": "Break over", "breakOverBody": "Back to it."
+    },
+    "pt": {
+      "start": "Iniciar", "pause": "Pausar", "focusing": "Em foco", "resting": "Em pausa", "paused": "Pausado",
+      "today": "{n} hoje", "focusDone": "Sessão de foco concluída", "focusDoneBody": "Faça uma pausa. {n} hoje.",
+      "breakOver": "Fim da pausa", "breakOverBody": "De volta ao trabalho."
+    },
+    "de": {
+      "start": "Start", "pause": "Pause", "focusing": "Fokus", "resting": "Pause", "paused": "Angehalten",
+      "today": "{n} heute", "focusDone": "Fokus-Einheit fertig", "focusDoneBody": "Mach eine Pause. {n} heute.",
+      "breakOver": "Pause vorbei", "breakOverBody": "Weiter geht's."
+    }
+  }
 }

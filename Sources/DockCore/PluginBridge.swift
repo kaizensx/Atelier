@@ -41,6 +41,16 @@ public indirect enum PluginNode: Equatable, Sendable {
     case sparkline([Double], color: PluginColor?, fill: Bool)
     case stack(Axis, spacing: Double, alignment: Alignment, [PluginNode])
     case spacer
+    // Interactive and richer views (see PluginEngine.swift for their parsing).
+    case button(PluginButton)
+    case toggle(label: String, on: Bool, action: String)
+    case image(PluginImage)
+    case chart(PluginChart)
+    case grid(columns: Int, [PluginNode])
+    case progress(value: Double, label: String?, color: PluginColor?)
+    case divider
+    /// A stack whose children fade, slide or scale in and out as they change.
+    case transition(PluginTransition, PluginNode)
 
     public enum Axis: String, Sendable { case vertical, horizontal, overlay }
     public enum Alignment: String, Sendable { case leading, center, trailing, top, bottom }
@@ -53,7 +63,7 @@ public indirect enum PluginNode: Equatable, Sendable {
     }
 
     public static let maxDepth = 8
-    public static let maxNodes = 160
+    public static let maxNodes = 240
     public static let maxText = 400
     public static let maxPoints = 240
     public static let maxRows = 20
@@ -65,7 +75,7 @@ public indirect enum PluginNode: Equatable, Sendable {
         return try parse(value, depth: 0, path: "view", budget: &budget)
     }
 
-    private static func parse(_ value: JSONValue, depth: Int, path: String, budget: inout Int) throws(PluginFailure) -> PluginNode {
+    static func parse(_ value: JSONValue, depth: Int, path: String, budget: inout Int) throws(PluginFailure) -> PluginNode {
         budget -= 1
         guard budget >= 0 else { throw .invalid("\(path): more than \(maxNodes) views. Show less at once.") }
         guard depth <= maxDepth else { throw .invalid("\(path): views nest more than \(maxDepth) deep.") }
@@ -106,19 +116,22 @@ public indirect enum PluginNode: Equatable, Sendable {
             case "vstack", "hstack", "zstack", "stack":
                 let axis: Axis = type == "hstack" ? .horizontal : type == "zstack" ? .overlay : .vertical
                 let alignment = object["align"]?.string.flatMap(Alignment.init(rawValue:)) ?? (axis == .horizontal ? .center : .leading)
-                return .stack(axis, spacing: clamp(object["spacing"]?.number ?? 6, 0...40), alignment: alignment,
-                              try children(object["children"]?.array ?? [], depth: depth, path: path, budget: &budget))
+                let stack = PluginNode.stack(axis, spacing: clamp(object["spacing"]?.number ?? 6, 0...40), alignment: alignment,
+                                             try children(object["children"]?.array ?? [], depth: depth, path: path, budget: &budget))
+                if let transition = object["transition"]?.string.flatMap(PluginTransition.init(rawValue:)) { return .transition(transition, stack) }
+                return stack
             case "spacer":
                 return .spacer
             default:
-                throw .invalid("\(path): unknown view type \"\(type)\". Use text, symbol, ring, bar, list, sparkline, vstack, hstack, zstack or spacer.")
+                if let node = try parseMore(type: type, object, depth: depth, path: path, budget: &budget) { return node }
+                throw .invalid("\(path): unknown view type \"\(type)\". Use \(typeNames).")
             }
         case .bool(let flag): return .text(flag ? "true" : "false", PluginTextStyle())
         case .null: return .spacer
         }
     }
 
-    private static func children(_ items: [JSONValue], depth: Int, path: String, budget: inout Int) throws(PluginFailure) -> [PluginNode] {
+    static func children(_ items: [JSONValue], depth: Int, path: String, budget: inout Int) throws(PluginFailure) -> [PluginNode] {
         var out: [PluginNode] = []
         for (index, item) in items.enumerated() {
             out.append(try parse(item, depth: depth + 1, path: "\(path).children[\(index)]", budget: &budget))
@@ -126,7 +139,7 @@ public indirect enum PluginNode: Equatable, Sendable {
         return out
     }
 
-    private static func style(_ object: [String: JSONValue]) -> PluginTextStyle {
+    static func style(_ object: [String: JSONValue]) -> PluginTextStyle {
         var style = PluginTextStyle()
         if let size = object["size"]?.number { style.size = clamp(size, 8...64) }
         if let weight = object["weight"]?.string.flatMap(PluginTextStyle.Weight.init(rawValue:)) { style.weight = weight }
@@ -201,6 +214,8 @@ public struct PluginCornerSpec: Equatable, Sendable {
 
 public enum PluginEvent: String, CaseIterable, Sendable {
     case appActivated, spaceChanged, wallpaperChanged, themeChanged, timer
+    // Lifecycle and system events.
+    case update, settingsChanged, message, sleep, wake, screensLocked, screensUnlocked, displaysChanged, powerSource
 }
 
 /// One call from a plugin's script into Atelier, decoded and checked. Everything a script
@@ -222,6 +237,14 @@ public enum PluginMessage: Equatable, Sendable {
     case http(request: Int, url: URL, headers: [String: String])
     /// Ask the owner for a line of text. Answered through `__atelier.settle`.
     case prompt(request: Int, title: String, message: String?, placeholder: String?, secure: Bool)
+    /// `atelier.http.post`, `put`, `patch` and `delete`. Answered through `__atelier.settle`.
+    case httpSend(request: Int, method: String, url: URL, headers: [String: String], body: String?)
+    /// `atelier.send`: a JSON message to another plugin. Delivered only when both opt in.
+    case send(to: String, payload: JSONValue)
+
+    // MARK: Extension point
+    // New message kinds go below this line, grouped by area, each decoded by a
+    // `decode<Area>(kind:_:)` helper in that area's own file and tried in `decode`'s default case.
 
     public static let maxRegistrations = 24
 
@@ -310,16 +333,7 @@ public enum PluginMessage: Equatable, Sendable {
             guard let request = value["request"]?.number, let text = value["url"]?.string, let url = URL(string: text) else {
                 throw .invalid("http.get: pass a URL string.")
             }
-            var headers: [String: String] = [:]
-            for (key, item) in value["headers"]?.object ?? [:] {
-                guard let text = item.string, headers.count < 16 else { continue }
-                let lower = key.lowercased()
-                // Plugins may say what they accept and who they are, not impersonate the browser.
-                guard !["cookie", "host", "origin", "referer", "content-length", "connection"].contains(lower),
-                      key.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }), text.count < 2048 else { continue }
-                headers[key] = text
-            }
-            return .http(request: Int(request), url: url, headers: headers)
+            return .http(request: Int(request), url: url, headers: headers(value["headers"]))
         case "prompt":
             guard let request = value["request"]?.number, let text = value["title"]?.string, !text.isEmpty else {
                 throw .invalid("prompt: a title is required.")
@@ -329,6 +343,8 @@ public enum PluginMessage: Equatable, Sendable {
                            placeholder: value["placeholder"]?.string.map { String($0.prefix(80)) },
                            secure: value["secure"]?.bool ?? false)
         default:
+            if let message = try decodeEngine(kind: kind, value) { return message }
+            // Extension point: try further areas' decoders here.
             throw .invalid("Unknown call \"\(kind)\".")
         }
     }

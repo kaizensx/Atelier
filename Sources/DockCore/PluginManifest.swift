@@ -25,7 +25,7 @@ public enum PluginPermission: String, CaseIterable, Codable, Sendable, Identifia
 
     public var detail: String {
         switch self {
-        case .network: "Download data over https from the sites listed below. Nothing else on the network."
+        case .network: "Exchange data over https with the sites listed below. Nothing else on the network."
         case .notifications: "Post notifications in Notification Center."
         case .openURL: "Open web and mail links in your default apps."
         case .appearance: "Change Atelier theme settings: colours, wallpaper, Dock and widget style. You can revert them."
@@ -60,6 +60,13 @@ public struct PluginManifest: Equatable, Sendable, Identifiable {
     public var permissions: [PluginPermission]
     public var hosts: [String]
     public var homepage: String?
+    // Declared in the manifest, all optional (see PluginEngine.swift).
+    public var settings: [PluginSetting] = []
+    public var strings: [String: [String: String]] = [:]
+    /// Nil: the script runs at startup, as it always has.
+    public var activation: [PluginActivation]?
+    public var contributes = PluginContributions()
+    public var messages = PluginMessaging()
 
     public init(id: String, name: String, version: String, author: String? = nil, summary: String? = nil,
                 entry: String = "main.js", symbol: String = "puzzlepiece.extension", permissions: [PluginPermission] = [],
@@ -67,6 +74,14 @@ public struct PluginManifest: Equatable, Sendable, Identifiable {
         self.id = id; self.name = name; self.version = version; self.author = author; self.summary = summary
         self.entry = entry; self.symbol = symbol; self.permissions = permissions; self.hosts = hosts; self.homepage = homepage
     }
+
+    /// Whether the script waits for one of its `activation` triggers instead of running at startup.
+    public var startsOnDemand: Bool { activation.map { !$0.contains(.onStartup) } ?? false }
+
+    public func setting(_ key: String) -> PluginSetting? { settings.first { $0.key == key } }
+
+    /// Keys validated by their own code rather than the field table.
+    static let engineKeys = ["settings", "strings", "activation", "contributes", "messages"]
 
     public static let fields: [ThemeSchema.Field] = [
         .init("format", .integer(1...1), "Manifest format. Always 1.", required: true),
@@ -98,7 +113,28 @@ public struct PluginManifest: Equatable, Sendable, Identifiable {
         }
         var withEntry = root
         if withEntry["entry"] == nil { withEntry["entry"] = .string("main.js") }
+        for key in engineKeys { withEntry[key] = nil }
         result.issues = ThemeValidator.validate(fields: fields, object: withEntry, files: files).issues
+        let settings = PluginSetting.parseList(root["settings"], into: &result)
+        let strings = PluginStrings.parse(root["strings"], into: &result)
+        let contributes = PluginContributions.parse(root["contributes"], into: &result)
+        let messages = PluginMessaging.parse(root["messages"], into: &result)
+        var activation: [PluginActivation]?
+        if let list = root["activation"] {
+            activation = []
+            for (index, item) in (list.array ?? []).enumerated() {
+                if let text = item.string, let trigger = PluginActivation(text) {
+                    if activation?.contains(trigger) == false { activation?.append(trigger) }
+                } else {
+                    result.error("activation[\(index)]", "Use onStartup, onCommand, onWidgetVisible, onTileClick, onTimer, onCorner or onEvent:<event>.")
+                }
+            }
+            if list.array == nil { result.error("activation", "Expected a list, like [\"onCommand\"].") }
+            else if activation?.isEmpty == true { result.error("activation", "List at least one trigger, or leave activation out.") }
+            if activation?.contains(.onTimer) == true, contributes.timer == nil {
+                result.error("contributes.timer", "onTimer needs contributes.timer: how often to wake, in seconds.")
+            }
+        }
         let id = root["id"]?.string ?? ""
         if !id.isEmpty, !ThemeIdentifier.isValid(id) { result.error("id", "\"\(id)\" is not a reverse-DNS identifier, like com.example.pomodoro.") }
         if let version = root["version"]?.string, SemVer(version) == nil { result.error("version", "\"\(version)\" is not a version like 1.0.0.") }
@@ -127,7 +163,13 @@ public struct PluginManifest: Equatable, Sendable, Identifiable {
             author: root["author"]?.string, summary: root["description"]?.string,
             entry: withEntry["entry"]?.string ?? "main.js", symbol: root["icon"]?.string ?? "puzzlepiece.extension",
             permissions: permissions, hosts: hosts, homepage: root["homepage"]?.string)
-        return (manifest, result)
+        var full = manifest
+        full.settings = settings
+        full.strings = strings
+        full.activation = activation
+        full.contributes = contributes
+        full.messages = messages
+        return (full, result)
     }
 }
 

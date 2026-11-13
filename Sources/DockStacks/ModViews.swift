@@ -229,6 +229,14 @@ struct ModPage: View {
                 Card { ModMarkdown(text: entry.description) }
             }
 
+            if entry.kind == .plugin, store.installedVersion(entry.id) != nil,
+               let plugin = registry.installed.first(where: { $0.id == entry.id }), !plugin.manifest.settings.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    SectionHeader("Settings", symbol: "slider.horizontal.3", detail: "Kept for this plugin. Secrets go to your Keychain.", hue: ModsHue.tint)
+                    PluginSettingsForm(plugin: plugin).padding(.top, DS.Space.s)
+                }
+            }
+
             if entry.kind == .plugin, store.installedVersion(entry.id) != nil { inAtelier }
 
             if entry.kind == .plugin { permissions }

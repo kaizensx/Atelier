@@ -8,7 +8,13 @@ enum PluginSignal: Sendable {
     case log(level: String, text: String)
     /// The script could not start, or stopped responding.
     case failed(String)
+    /// Stopped after three calls in a row ran past the time limit.
+    case timedOut(String)
     case started
+    /// The plugin changed one of its settings with `atelier.settings.set`.
+    case settingChanged(key: String, value: JSONValue)
+    /// A request finished, for the owner's network log.
+    case network(PluginNetworkEntry)
 }
 
 /// One plugin's JavaScript world: its own virtual machine and context, on its own serial queue.
@@ -34,6 +40,7 @@ final class PluginRuntime: @unchecked Sendable {
     private var registered = Set<String>()
     private var pendingRequests = 0
     private var stopped = false
+    private var meter = PluginMeter()
     /// Consecutive calls that hit the time limit. Three in a row and the plugin is stopped.
     private var timeouts = 0
     private lazy var session: URLSession = {
@@ -71,7 +78,9 @@ final class PluginRuntime: @unchecked Sendable {
 
     func start() { queue.async { self.boot() } }
 
-    func stop() {
+    /// Stops the plugin. `then` runs on the main queue once its storage is on disk, so a
+    /// restart can read it back.
+    func stop(then done: (@MainActor @Sendable () -> Void)? = nil) {
         queue.async {
             self.stopped = true
             self.flushStorage()
@@ -82,6 +91,24 @@ final class PluginRuntime: @unchecked Sendable {
             self.session.invalidateAndCancel()
             self.context = nil
             self.machine = nil
+            if let done { DispatchQueue.main.async { MainActor.assumeIsolated { done() } } }
+        }
+    }
+
+    /// For the idle check of plugins started on demand: replies on the main queue.
+    func idleState(_ reply: @escaping @MainActor @Sendable (_ timers: Int, _ pending: Int, _ lastCall: Date?) -> Void) {
+        queue.async {
+            let timers = self.timers.count + self.eventTimers.count, pending = self.pendingRequests, last = self.meter.lastCall
+            DispatchQueue.main.async { MainActor.assumeIsolated { reply(timers, pending, last) } }
+        }
+    }
+
+    /// Calls and script time over the last minute: replies on the main queue.
+    func stats(_ reply: @escaping @MainActor @Sendable (PluginMeter.Snapshot) -> Void) {
+        queue.async {
+            self.meter.prune(before: Date().addingTimeInterval(-60))
+            let snapshot = self.meter.snapshot(at: Date())
+            DispatchQueue.main.async { MainActor.assumeIsolated { reply(snapshot) } }
         }
     }
 
@@ -113,8 +140,27 @@ final class PluginRuntime: @unchecked Sendable {
         }
         context.setObject(unsafeBitCast(bridge, to: AnyObject.self), forKeyedSubscript: "__atelierNative" as NSString)
         context.evaluateScript(PluginPrelude.source, withSourceURL: URL(string: "atelier://prelude.js"))
+        let began = Date()
         context.evaluateScript(source, withSourceURL: script)
+        meter.record(at: Date(), seconds: Date().timeIntervalSince(began))
+        context.exception = nil
+        noteVersion()
         signal(.started)
+    }
+
+    private var metaURL: URL { Self.dataFolder.appendingPathComponent(manifest.id + ".meta.json") }
+
+    /// After an update, `update` fires once with the versions, before anything else reaches
+    /// the script.
+    private func noteVersion() {
+        let previous = (try? Data(contentsOf: metaURL)).flatMap { try? JSONValue.parse($0) }?["version"]?.string
+        if let previous, previous != manifest.version {
+            call("emit", [PluginEvent.update.rawValue, JSONValue.object(["from": .string(previous), "to": .string(manifest.version)]).text()])
+        }
+        if previous != manifest.version {
+            try? FileManager.default.createDirectory(at: Self.dataFolder, withIntermediateDirectories: true)
+            try? JSONValue.object(["version": .string(manifest.version)]).data(pretty: false).write(to: metaURL, options: .atomic)
+        }
     }
 
     /// JavaScriptCore's watchdog. The function is exported by the framework but declared only
@@ -133,7 +179,7 @@ final class PluginRuntime: @unchecked Sendable {
         timeouts += 1
         signal(.log(level: "error", text: "A call ran longer than \(Self.callLimit) s and was stopped."))
         if timeouts >= 3 {
-            signal(.failed("Stopped after running too long three times in a row."))
+            signal(.timedOut("Stopped after running too long three times in a row."))
         }
     }
 
@@ -141,14 +187,19 @@ final class PluginRuntime: @unchecked Sendable {
 
     /// Runs `__atelier.<method>(args…)` on the plugin's queue.
     private func enter(_ method: String, _ arguments: [any Sendable]) {
-        queue.async {
-            guard !self.stopped, let context = self.context,
-                  let target = context.objectForKeyedSubscript("__atelier")?.objectForKeyedSubscript(method) else { return }
-            target.call(withArguments: arguments.map { $0 as Any })
-            if context.exception == nil { self.timeouts = 0 }
-            context.exception = nil
-            self.scheduleFlush()
-        }
+        queue.async { self.call(method, arguments) }
+    }
+
+    /// The body of `enter`, on `queue`. Timed for the resource meter.
+    private func call(_ method: String, _ arguments: [any Sendable]) {
+        guard !stopped, let context,
+              let target = context.objectForKeyedSubscript("__atelier")?.objectForKeyedSubscript(method) else { return }
+        let began = Date()
+        target.call(withArguments: arguments.map { $0 as Any })
+        meter.record(at: Date(), seconds: Date().timeIntervalSince(began))
+        if context.exception == nil { timeouts = 0 }
+        context.exception = nil
+        scheduleFlush()
     }
 
     func invoke(_ key: String, payload: JSONValue = .null) { enter("dispatch", [key, payload.text()]) }
@@ -156,11 +207,30 @@ final class PluginRuntime: @unchecked Sendable {
     func emit(_ event: PluginEvent, payload: JSONValue) { enter("emit", [event.rawValue, payload.text()]) }
     /// Answers a pending promise, such as `atelier.prompt`.
     func settle(_ request: Int, ok: Bool, payload: JSONValue) { enter("settle", [request, ok, payload.text()]) }
+    /// Delivers an event every plugin may hear without subscribing first: `message`,
+    /// `settingsChanged` and the lifecycle events. Handlers that are not there are skipped.
+    func emit(_ event: String, payload: JSONValue) { enter("emit", [event, payload.text()]) }
+
+    /// The owner changed a setting in Atelier. Secrets are already in the Keychain; other
+    /// values go into storage here, where the running script's copy lives.
+    func applySetting(_ setting: PluginSetting, value: JSONValue) {
+        queue.async {
+            if setting.kind != .secret {
+                try? self.storage.set(setting.storageKey, value.isNull ? nil : value)
+                self.storageDirty = true
+                self.flushStorage()
+            }
+            let shown: JSONValue = setting.kind == .secret ? .null : (value.isNull ? setting.defaultValue ?? .null : value)
+            self.call("emit", [PluginEvent.settingsChanged.rawValue, JSONValue.object(["key": .string(setting.key), "value": shown]).text()])
+        }
+    }
 
     // MARK: Calls out (always on `queue`, from inside the script)
 
     private func handle(kind: String, payload: String) -> String {
         if kind.hasPrefix("storage.") { return handleStorage(kind, payload) }
+        if kind.hasPrefix("settings.") { return handleSettings(kind, payload) }
+        if kind.hasPrefix("env.") { return handleEnvironment(kind, payload) }
         let message: PluginMessage
         do { message = try PluginMessage.decode(kind: kind, payload: payload) } catch {
             return Self.error(error.description)
@@ -170,6 +240,14 @@ final class PluginRuntime: @unchecked Sendable {
             guard register("widget:" + spec.id) else { return Self.tooMany }
             scheduleRefresh(spec)
             enter("render", [spec.id])
+        case .widgetView(let id, let view):
+            // Images are checked here, where the plugin's folder and grants are known.
+            for image in view.images {
+                if let failure = check(image) {
+                    signal(.message(.widgetError(id: id, message: failure.description)))
+                    return "null"
+                }
+            }
         case .tile(let spec):
             guard register("tile:" + spec.id) else { return Self.tooMany }
         case .command(let spec):
@@ -198,10 +276,22 @@ final class PluginRuntime: @unchecked Sendable {
                 fetch(request: request, url: url, headers: headers)
             }
             return "null"
+        case .httpSend(let request, let method, let url, let headers, let body):
+            switch PluginNetwork.allows(url, manifest: manifest, granted: granted) {
+            case .failure(let failure): return Self.error(failure.description)
+            case .success:
+                guard pendingRequests < Self.maxConcurrentRequests else { return Self.error("At most \(Self.maxConcurrentRequests) requests at once.") }
+                fetch(request: request, url: url, headers: headers, method: method, body: body)
+            }
+            return "null"
+        case .send(let to, _):
+            guard manifest.messages.send.contains(to) else {
+                return Self.error("send: list \(to) under messages.send in manifest.json first.")
+            }
         case .log(let level, let text):
             signal(.log(level: level, text: text))
             return "null"
-        case .widgetView, .widgetError, .prompt:
+        case .widgetError, .prompt:
             break
         }
         signal(.message(message))
@@ -231,11 +321,75 @@ final class PluginRuntime: @unchecked Sendable {
         case "storage.get": return storage.values[key]?.text() ?? "null"
         case "storage.keys": return JSONValue.array(storage.values.keys.sorted().map(JSONValue.string)).text()
         case "storage.set":
+            if key.hasPrefix(PluginSetting.storagePrefix), manifest.setting(String(key.dropFirst(PluginSetting.storagePrefix.count))) != nil {
+                return Self.error("storage: \(key) is a setting. Use atelier.settings.set.")
+            }
             do { try storage.set(key, value["value"]) } catch { return Self.error(error.description) }
             storageDirty = true
             return "null"
         default: return Self.error("Unknown storage call.")
         }
+    }
+
+    // MARK: Settings, strings and assets
+
+    private func settingValue(_ setting: PluginSetting) -> JSONValue {
+        if setting.kind == .secret { return PluginSecrets.read(plugin: manifest.id, key: setting.key).map(JSONValue.string) ?? .null }
+        return storage.values[setting.storageKey] ?? setting.defaultValue ?? .null
+    }
+
+    private func handleSettings(_ kind: String, _ payload: String) -> String {
+        guard let value = try? JSONValue.parse(payload) else { return Self.error("settings: bad arguments.") }
+        if kind == "settings.all" {
+            return JSONValue.object(Dictionary(uniqueKeysWithValues: manifest.settings.map { ($0.key, settingValue($0)) })).text()
+        }
+        let key = value["key"]?.string ?? ""
+        guard let setting = manifest.setting(key) else { return Self.error("settings: \"\(key)\" is not declared under settings in manifest.json.") }
+        switch kind {
+        case "settings.get": return settingValue(setting).text()
+        case "settings.set":
+            let checked: JSONValue
+            switch setting.check(value["value"] ?? .null) {
+            case .success(let good): checked = good
+            case .failure(let failure): return Self.error(failure.description)
+            }
+            if setting.kind == .secret {
+                guard PluginSecrets.write(plugin: manifest.id, key: key, value: checked.string) else {
+                    return Self.error("settings: the Keychain refused to save \(key).")
+                }
+            } else {
+                do { try storage.set(setting.storageKey, checked.isNull ? nil : checked) } catch { return Self.error(error.description) }
+                storageDirty = true
+            }
+            signal(.settingChanged(key: key, value: setting.kind == .secret ? .null : checked))
+            return "null"
+        default: return Self.error("Unknown settings call.")
+        }
+    }
+
+    private func handleEnvironment(_ kind: String, _ payload: String) -> String {
+        let value = (try? JSONValue.parse(payload)) ?? .null
+        switch kind {
+        case "env.strings":
+            return JSONValue.object(PluginStrings.pick(manifest.strings, preferred: Locale.preferredLanguages).mapValues(JSONValue.string)).text()
+        case "env.asset":
+            let path = value["path"]?.string ?? ""
+            switch PluginAssets.resolve(path, in: folder) {
+            case .success: return JSONValue.string(path).text()
+            case .failure(let failure): return Self.error(failure.description)
+            }
+        default: return Self.error("Unknown call \"\(kind)\".")
+        }
+    }
+
+    private func check(_ image: PluginImage) -> PluginFailure? {
+        switch image.source {
+        case .asset(let path):
+            if case .failure(let failure) = PluginAssets.resolve(path, in: folder) { return failure }
+        case .url(let url):
+            if case .failure(let failure) = PluginNetwork.allows(url, manifest: manifest, granted: granted) { return failure }
+        }
+        return nil
     }
 
     private var flushScheduled = false
@@ -294,10 +448,11 @@ final class PluginRuntime: @unchecked Sendable {
 
     // MARK: Network
 
-    private func fetch(request: Int, url: URL, headers: [String: String]) {
+    private func fetch(request: Int, url: URL, headers: [String: String], method: String = "GET", body: String? = nil) {
         pendingRequests += 1
         var urlRequest = URLRequest(url: url)
-        urlRequest.httpMethod = "GET"
+        urlRequest.httpMethod = method
+        urlRequest.httpBody = body.map { Data($0.utf8) }
         for (key, value) in headers { urlRequest.setValue(value, forHTTPHeaderField: key) }
         let started = Date()
         session.dataTask(with: urlRequest) { [weak self] data, response, error in
@@ -327,7 +482,9 @@ final class PluginRuntime: @unchecked Sendable {
                     ])
                 }
                 let ms = Int(Date().timeIntervalSince(started) * 1000)
-                self.signal(.log(level: "debug", text: "GET \(url.absoluteString) → \(ok ? String(http?.statusCode ?? 0) : "failed") in \(ms) ms"))
+                self.signal(.log(level: "debug", text: "\(method) \(url.absoluteString) → \(ok ? String(http?.statusCode ?? 0) : "failed") in \(ms) ms"))
+                self.signal(.network(PluginNetworkEntry(date: Date(), method: method, host: url.host() ?? "", path: url.path(),
+                                                        status: error == nil ? http?.statusCode : nil, milliseconds: ms, bytes: data?.count ?? 0)))
                 self.enter("settle", [request, ok, payload.text()])
             }
         }.resume()

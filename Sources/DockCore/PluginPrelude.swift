@@ -5,7 +5,7 @@
 /// Native code calls back in through `__atelier.dispatch`, `__atelier.render`, `__atelier.emit`,
 /// `__atelier.fire` and `__atelier.settle`.
 public enum PluginPrelude {
-    public static let apiVersion = "1.0"
+    public static let apiVersion = "1.1"
 
     public static let source = #"""
     (function (global) {
@@ -62,6 +62,15 @@ public enum PluginPrelude {
         keys: () => call("storage.keys", {}),
       });
 
+      const send = (method) => (url, options) => new Promise((resolve, reject) => {
+        const request = nextRequest++;
+        requests[request] = { resolve, reject };
+        const o = options || {};
+        try {
+          call("httpSend", { request, method, url: String(url), headers: o.headers || {},
+                             body: o.body === undefined ? null : o.body, json: o.json === undefined ? null : o.json });
+        } catch (e) { delete requests[request]; reject(e); }
+      });
       const http = Object.freeze({
         get: (url, options) => new Promise((resolve, reject) => {
           const request = nextRequest++;
@@ -70,7 +79,51 @@ public enum PluginPrelude {
             call("http", { request, url: String(url), headers: (options && options.headers) || {} });
           } catch (e) { delete requests[request]; reject(e); }
         }),
+        post: send("POST"),
+        put: send("PUT"),
+        patch: send("PATCH"),
+        delete: send("DELETE"),
       });
+
+      const settings = Object.freeze({
+        get: (key) => call("settings.get", { key: String(key) }),
+        set: (key, value) => { call("settings.set", { key: String(key), value: value === undefined ? null : value }); },
+        all: () => call("settings.all", {}),
+      });
+
+      // Taps on buttons and toggles call back by id. Inline functions in a view get an id per
+      // widget, replaced on each render.
+      const inline = Object.create(null);
+      const actionKey = (id) => "action:" + id;
+      const bindActions = (owner, tree) => {
+        for (const id of inline[owner] || []) delete callbacks[actionKey(id)];
+        const made = [];
+        let n = 0;
+        const walk = (node, depth) => {
+          if (!node || typeof node !== "object" || depth > 12) return;
+          if (Array.isArray(node)) { node.forEach((child) => walk(child, depth + 1)); return; }
+          if (typeof node.action === "function") {
+            const id = "_" + owner + "." + (n++);
+            callbacks[actionKey(id)] = node.action;
+            node.action = id;
+            made.push(id);
+          }
+          if (Array.isArray(node.children)) node.children.forEach((child) => walk(child, depth + 1));
+        };
+        walk(tree, 0);
+        inline[owner] = made;
+        return tree;
+      };
+
+      let strings = null;
+      const translate = (key, vars) => {
+        if (strings === null) { try { strings = call("env.strings", {}) || {}; } catch (e) { strings = {}; } }
+        let text = Object.prototype.hasOwnProperty.call(strings, key) ? String(strings[key]) : String(key);
+        if (vars && typeof vars === "object") {
+          for (const name of Object.keys(vars)) text = text.split("{" + name + "}").join(String(vars[name]));
+        }
+        return text;
+      };
 
       const register = (kind, spec, functions) => {
         if (!spec || typeof spec !== "object") throw new TypeError("atelier." + kind + " takes an object");
@@ -108,6 +161,16 @@ public enum PluginPrelude {
         },
         command(spec) { return register("command", spec, ["run"]); },
         cornerAction(spec) { return register("corner", spec, ["run"]); },
+        action(id, handler) {
+          const key = String(id || "").trim();
+          if (!/^[A-Za-z0-9._-]{1,64}$/.test(key)) throw new TypeError("atelier.action needs an id of letters, digits, - _ or .");
+          callbacks[actionKey(key)] = fn(handler, "atelier.action handler");
+          return key;
+        },
+        send(to, payload) { call("send", { to: String(to), payload: payload === undefined ? null : payload }); },
+        asset(path) { return call("env.asset", { path: String(path) }); },
+        t: translate,
+        settings,
         on(event, handler, options) {
           (listeners[event] = listeners[event] || []).push(fn(handler, "atelier.on handler"));
           call("on", { event: String(event), interval: options && options.interval });
@@ -139,6 +202,13 @@ public enum PluginPrelude {
           hstack: (children, style) => Object.assign({ type: "hstack", children }, style || {}),
           zstack: (children, style) => Object.assign({ type: "zstack", children }, style || {}),
           spacer: () => ({ type: "spacer" }),
+          button: (title, action, style) => Object.assign({ type: "button", title: String(title), action }, style || {}),
+          toggle: (label, on, action, style) => Object.assign({ type: "toggle", label: String(label), on: !!on, action }, style || {}),
+          image: (source, style) => Object.assign({ type: "image" }, String(source).startsWith("https://") ? { url: String(source) } : { asset: String(source) }, style || {}),
+          chart: (data, style) => Object.assign({ type: "chart" }, Array.isArray(data) && data.length && typeof data[0] === "object" ? { series: data } : { values: data }, style || {}),
+          grid: (children, style) => Object.assign({ type: "grid", children }, style || {}),
+          progress: (value, style) => Object.assign({ type: "progress", value }, style || {}),
+          divider: () => ({ type: "divider" }),
         }),
       };
 
@@ -148,7 +218,7 @@ public enum PluginPrelude {
         return Promise.resolve()
           .then(() => data ? data() : undefined)
           .then((value) => view ? view(value) : value)
-          .then((tree) => call("widgetView", { id, view: tree === undefined ? null : tree }))
+          .then((tree) => call("widgetView", { id, view: tree === undefined ? null : bindActions(id, tree) }))
           .catch((error) => call("widgetError", { id, message: describe(error) }));
       };
 
