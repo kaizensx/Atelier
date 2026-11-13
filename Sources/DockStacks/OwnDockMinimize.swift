@@ -296,7 +296,7 @@ final class MinimizeRedirect {
             var called = t0
             if let overlay {
                 overlay.show(progress: 1)
-                let call = MinimizeHandoff.restoreCall(duration: MinimizeTiming.duration(effect, restoring: true, slow: slow))
+                let call = MinimizeHandoff.restoreCall(duration: overlay.duration(restoring: true, slow: slow))
                 async let played: Void = overlay.play(restoring: true, slow: slow)
                 // The Veil's picture is taken just before it is needed, never seconds before.
                 let lead = call - 0.1 - (CACurrentMediaTime() - t0)

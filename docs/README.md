@@ -1,6 +1,6 @@
 # Customising Atelier: Themes and Plugins
 
-Atelier is built to be restyled and extended by anyone. There are two ways in.
+Atelier is built to be restyled and extended by anyone. There are three ways in.
 
 **Themes** change how everything looks, from a single JSON file: the Atelier Dock, widgets,
 menu bar, live wallpaper and its palette, Atelier's own window, macOS icon tint, the desktop
@@ -9,6 +9,10 @@ clock and sounds. No code. → [THEMES.md](THEMES.md) · [JSON Schema](atelier-t
 **Plugins** add new things, in JavaScript: widgets, Dock tiles, Command palette entries,
 hot-corner actions, and reactions to what happens on your Mac. Each runs sandboxed in its own
 engine, off the main thread, with nothing but what you allow. → [PLUGINS.md](PLUGINS.md)
+
+**Packs** are data only, checked file by file: icon packs, sound packs, shader packs (live
+wallpapers as numbers, never code), snap layout packs, minimise effect packs, and Looks that
+bundle a theme with a wallpaper, Dock settings and packs. → [PACKS.md](PACKS.md)
 
 ## Try it
 

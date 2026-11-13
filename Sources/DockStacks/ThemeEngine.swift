@@ -166,9 +166,18 @@ final class ThemeEngine: ObservableObject {
         return nil
     }
 
+    /// Before a Look pack: keeps the setup from before it, with what the Look changes beyond a
+    /// theme (packs, the picture, the Dock's size and edge), so Revert undoes all of it.
+    func keepRevertPoint(extra: JSONValue) {
+        var point = revertPoint ?? ThemeApplier.capture(name: "Before Themes", id: "local.before-themes")
+        if point.root["x-packs"] == nil { point.root["x-packs"] = extra }
+        revertPoint = point
+    }
+
     func revert() {
         guard let point = revertPoint else { return }
         ThemeApplier.apply(point, bundle: nil)
+        LookApplier.restore(point.root["x-packs"])
         if point.string("studio.accent").flatMap(ThemeColor.init(hex:)) == nil { Self.exactAccent = nil }
         revertPoint = nil
         appliedID = nil
@@ -295,6 +304,7 @@ final class ThemeEngine: ObservableObject {
                 switch url.pathExtension {
                 case ThemeSchema.bundleExtension: try install(from: url)
                 case PluginManifest.bundleExtension: try PluginRegistry.shared.install(from: url)
+                case let ext where ModPackKind.of(extension: ext) != nil: _ = ModPackStore.shared.handleOpen(url)
                 default: return false
                 }
             } catch {

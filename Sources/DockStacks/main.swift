@@ -87,6 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         WidgetBoard.shared.adoptDesktopEffects(from: Effects.shared)
         WidgetBoard.shared.restoreClassicDesktopLooks()
         ThemeEngine.shared.start()
+        ModPackStore.shared.start()
         PluginRegistry.shared.start()
         ModStore.shared.start()
         KeyRemapper.shared.start()
@@ -449,6 +450,13 @@ if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--export-icon"
 // Offline renders of the Permissions sheet: fixed states only, nothing is asked of macOS.
 if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--render-permissions" {
     PermissionRenders.run(into: URL(fileURLWithPath: CommandLine.arguments[2]))
+    exit(0)
+}
+// Offline renders of pack previews: packs are read from a folder, nothing is installed.
+if CommandLine.arguments.count == 4, CommandLine.arguments[1] == "--render-packs" {
+    MainActor.assumeIsolated {
+        ModPacksRenders.run(packs: URL(fileURLWithPath: CommandLine.arguments[2]), into: URL(fileURLWithPath: CommandLine.arguments[3]))
+    }
     exit(0)
 }
 #endif

@@ -1,0 +1,13 @@
+{
+  "format": 1,
+  "id": "com.example.dusk-studio.theme",
+  "name": "Dusk Studio",
+  "version": "1.0.0",
+  "author": "Atelier Examples",
+  "description": "Violet glass at dusk.",
+  "appearance": "dark",
+  "colors": {"accent": "#C7A6FF", "secondary": "#3FC1B0", "glassTint": "#1A1430"},
+  "dock": {"style": "glass", "accent": "purple", "indicator": "dot", "roundness": 0.7},
+  "widgets": {"material": "glass", "tint": "purple", "accent": "purple"},
+  "studio": {"backdrop": "midnight", "accent": "#C7A6FF"}
+}

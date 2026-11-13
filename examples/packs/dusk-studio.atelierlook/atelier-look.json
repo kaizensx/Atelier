@@ -1,0 +1,12 @@
+{
+  "format": 1,
+  "id": "com.example.dusk-studio",
+  "name": "Dusk Studio",
+  "version": "1.0.0",
+  "author": "Atelier Examples",
+  "description": "A violet theme, a moving dusk sky, a smaller Dock that magnifies, and Mono Glyphs icons when installed.",
+  "theme": "theme.ateliertheme",
+  "wallpaper": {"shader": "sky.ateliershader"},
+  "dock": {"edge": "bottom", "tileSize": 52, "magnifiedSize": 92, "magnification": true, "autohide": false},
+  "iconPack": "com.example.mono-glyphs"
+}

@@ -18,7 +18,7 @@ struct ThemesChapter: View {
         LooksStatusBar(model: model)
 
         SectionHeader("Make and share", symbol: "wand.and.sparkles",
-                      detail: "Drop a .ateliertheme or .atelierplugin on these tiles to install it.", hue: DS.Ink.accent)
+                      detail: "Drop a .ateliertheme, an .atelierplugin or a pack on these tiles to install it.", hue: DS.Ink.accent)
         Grid(horizontalSpacing: DS.Space.m, verticalSpacing: DS.Space.m) {
             GridRow {
                 ActionTile(title: "Create Theme from my Mac", detail: "Save how everything looks now.", symbol: "wand.and.sparkles", prominent: true) { creating = true }
@@ -99,6 +99,8 @@ struct ThemesChapter: View {
 
         PluginManagerSection()
 
+        PacksLibrarySection()
+
         SectionHeader("For makers", symbol: "doc.text", hue: DS.Ink.accent)
         RowGroup {
             SettingRow(title: "Theme format", detail: "A folder with atelier-theme.json, plus optional pictures and sounds.",
@@ -131,11 +133,13 @@ struct ThemesChapter: View {
         panel.canChooseFiles = true
         // Both bundles are packages (Info.plist), so a plain folder type would grey them out.
         let bundles = [("net.dasantos.atelier.theme", ThemeSchema.bundleExtension),
-                       ("net.dasantos.atelier.plugin", PluginManifest.bundleExtension)].compactMap { id, ext in
+                       ("net.dasantos.atelier.plugin", PluginManifest.bundleExtension)]
+            + ModPackKind.allCases.map { ("net.dasantos.atelier." + $0.rawValue + "pack", $0.bundleExtension) }
+        let types = bundles.compactMap { id, ext in
             UTType(id) ?? UTType(filenameExtension: ext, conformingTo: .package)
         }
-        panel.allowedContentTypes = bundles + [.json, .folder]
-        panel.message = "Choose a .ateliertheme, an .atelierplugin or an atelier-theme.json"
+        panel.allowedContentTypes = types + [.json, .folder]
+        panel.message = "Choose a .ateliertheme, an .atelierplugin, a pack or an atelier-theme.json"
         panel.prompt = "Import"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         install(url)
@@ -145,7 +149,9 @@ struct ThemesChapter: View {
         failure = nil
         engine.problem = nil
         do {
-            if url.pathExtension == PluginManifest.bundleExtension {
+            if ModPackKind.of(extension: url.pathExtension) != nil {
+                try ModPackStore.shared.install(from: url)
+            } else if url.pathExtension == PluginManifest.bundleExtension {
                 let plugin = try PluginRegistry.shared.install(from: url)
                 if plugin.manifest.permissions.isEmpty { PluginRegistry.shared.enable(plugin, granting: []) } else { installedPlugin = plugin }
             } else {

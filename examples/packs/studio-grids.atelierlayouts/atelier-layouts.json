@@ -1,0 +1,27 @@
+{
+  "format": 1,
+  "id": "com.example.studio-grids",
+  "name": "Studio Grids",
+  "version": "1.0.0",
+  "author": "Atelier Examples",
+  "description": "Four snap layouts for wide screens: golden split, centre stage, three rows and a 2 by 4 grid.",
+  "layouts": [
+    {"name": "Golden Split", "zones": [
+      {"x": 0, "y": 0, "width": 0.618, "height": 1},
+      {"x": 0.618, "y": 0, "width": 0.382, "height": 0.5},
+      {"x": 0.618, "y": 0.5, "width": 0.382, "height": 0.5}]},
+    {"name": "Centre Stage", "zones": [
+      {"x": 0, "y": 0, "width": 0.2, "height": 1},
+      {"x": 0.2, "y": 0, "width": 0.6, "height": 1},
+      {"x": 0.8, "y": 0, "width": 0.2, "height": 1}]},
+    {"name": "Three Rows", "zones": [
+      {"x": 0, "y": 0, "width": 1, "height": 0.3333},
+      {"x": 0, "y": 0.3333, "width": 1, "height": 0.3334},
+      {"x": 0, "y": 0.6667, "width": 1, "height": 0.3333}]},
+    {"name": "Eight Grid", "zones": [
+      {"x": 0, "y": 0, "width": 0.25, "height": 0.5}, {"x": 0.25, "y": 0, "width": 0.25, "height": 0.5},
+      {"x": 0.5, "y": 0, "width": 0.25, "height": 0.5}, {"x": 0.75, "y": 0, "width": 0.25, "height": 0.5},
+      {"x": 0, "y": 0.5, "width": 0.25, "height": 0.5}, {"x": 0.25, "y": 0.5, "width": 0.25, "height": 0.5},
+      {"x": 0.5, "y": 0.5, "width": 0.25, "height": 0.5}, {"x": 0.75, "y": 0.5, "width": 0.25, "height": 0.5}]}
+  ]
+}

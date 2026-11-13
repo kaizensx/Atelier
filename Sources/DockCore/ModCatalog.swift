@@ -22,6 +22,8 @@ import Foundation
 /// through the Dock Bridge and live in their own, separately reviewed tier.
 public enum ModKind: String, Codable, CaseIterable, Sendable, Identifiable {
     case plugin, theme, native
+    /// Data-only packs (ModPacks.swift): no code runs, every file is checked before use.
+    case icons, sounds, shader, layouts, effects, look
 
     public var id: String { rawValue }
 
@@ -31,6 +33,7 @@ public enum ModKind: String, Codable, CaseIterable, Sendable, Identifiable {
         case .plugin: PluginManifest.bundleExtension
         case .theme: ThemeSchema.bundleExtension
         case .native: "ateliermod"
+        default: pack?.bundleExtension ?? rawValue
         }
     }
 
@@ -39,6 +42,7 @@ public enum ModKind: String, Codable, CaseIterable, Sendable, Identifiable {
         case .plugin: "Plugin"
         case .theme: "Theme"
         case .native: "Native"
+        default: pack?.title ?? rawValue
         }
     }
 
@@ -47,6 +51,7 @@ public enum ModKind: String, Codable, CaseIterable, Sendable, Identifiable {
         case .plugin: "Plugins"
         case .theme: "Themes"
         case .native: "Native"
+        default: pack?.plural ?? rawValue
         }
     }
 
@@ -55,6 +60,7 @@ public enum ModKind: String, Codable, CaseIterable, Sendable, Identifiable {
         case .plugin: "puzzlepiece.extension"
         case .theme: "paintpalette"
         case .native: "cpu"
+        default: pack?.symbol ?? "shippingbox"
         }
     }
 
@@ -64,6 +70,7 @@ public enum ModKind: String, Codable, CaseIterable, Sendable, Identifiable {
         case .plugin: 2 * 1024 * 1024
         case .theme: 40 * 1024 * 1024
         case .native: 20 * 1024 * 1024
+        default: pack?.maxPackageBytes ?? 1024 * 1024
         }
     }
 }

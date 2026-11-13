@@ -26,6 +26,14 @@ final class OrbitIconStore {
         }
     }
 
+    /// Every icon drawn again, after the icon pack changed.
+    func forgetAll() {
+        let paths = Array(images.keys)
+        images = [:]
+        hues = [:]
+        request(paths)
+    }
+
     func forget(_ path: String) {
         guard images[path] != nil || hues[path] != nil else { return }
         images[path] = nil

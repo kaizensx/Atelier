@@ -733,7 +733,7 @@ final class TimerShelf: ObservableObject {
         items.removeAll { due.contains($0) }
         if let last = due.last {
             ringing = last
-            NSSound(named: "Glass")?.play()
+            SoundPackRuntime.timerDone()
             TimerHUD.shared.show(last.label)
         }
         schedule()

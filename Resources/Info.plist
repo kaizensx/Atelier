@@ -48,6 +48,25 @@
 			<key>LSTypeIsPackage</key>
 			<true/>
 		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Atelier Pack</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>net.dasantos.atelier.iconspack</string>
+				<string>net.dasantos.atelier.soundspack</string>
+				<string>net.dasantos.atelier.shaderpack</string>
+				<string>net.dasantos.atelier.layoutspack</string>
+				<string>net.dasantos.atelier.effectspack</string>
+				<string>net.dasantos.atelier.lookpack</string>
+			</array>
+			<key>LSTypeIsPackage</key>
+			<true/>
+		</dict>
 	</array>
 	<key>CFBundleExecutable</key>
 	<string>DockStacks</string>
@@ -142,6 +161,66 @@
 					<string>atelierplugin</string>
 				</array>
 			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array><string>com.apple.package</string></array>
+			<key>UTTypeDescription</key>
+			<string>Atelier Icon Pack</string>
+			<key>UTTypeIdentifier</key>
+			<string>net.dasantos.atelier.iconspack</string>
+			<key>UTTypeTagSpecification</key>
+			<dict><key>public.filename-extension</key><array><string>ateliericons</string></array></dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array><string>com.apple.package</string></array>
+			<key>UTTypeDescription</key>
+			<string>Atelier Sound Pack</string>
+			<key>UTTypeIdentifier</key>
+			<string>net.dasantos.atelier.soundspack</string>
+			<key>UTTypeTagSpecification</key>
+			<dict><key>public.filename-extension</key><array><string>ateliersounds</string></array></dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array><string>com.apple.package</string></array>
+			<key>UTTypeDescription</key>
+			<string>Atelier Shader Pack</string>
+			<key>UTTypeIdentifier</key>
+			<string>net.dasantos.atelier.shaderpack</string>
+			<key>UTTypeTagSpecification</key>
+			<dict><key>public.filename-extension</key><array><string>ateliershader</string></array></dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array><string>com.apple.package</string></array>
+			<key>UTTypeDescription</key>
+			<string>Atelier Layout Pack</string>
+			<key>UTTypeIdentifier</key>
+			<string>net.dasantos.atelier.layoutspack</string>
+			<key>UTTypeTagSpecification</key>
+			<dict><key>public.filename-extension</key><array><string>atelierlayouts</string></array></dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array><string>com.apple.package</string></array>
+			<key>UTTypeDescription</key>
+			<string>Atelier Effect Pack</string>
+			<key>UTTypeIdentifier</key>
+			<string>net.dasantos.atelier.effectspack</string>
+			<key>UTTypeTagSpecification</key>
+			<dict><key>public.filename-extension</key><array><string>ateliereffects</string></array></dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array><string>com.apple.package</string></array>
+			<key>UTTypeDescription</key>
+			<string>Atelier Look</string>
+			<key>UTTypeIdentifier</key>
+			<string>net.dasantos.atelier.lookpack</string>
+			<key>UTTypeTagSpecification</key>
+			<dict><key>public.filename-extension</key><array><string>atelierlook</string></array></dict>
 		</dict>
 	</array>
 	<key>NSAudioCaptureUsageDescription</key>

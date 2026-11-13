@@ -152,7 +152,10 @@ function shell() {
 }
 
 /* ---------- shared renderers ---------- */
-const kindLabel = { plugin: "Plugin", theme: "Theme", native: "Native" };
+const kindLabel = { plugin: "Plugin", theme: "Theme", native: "Native",
+  icons: "Icon Pack", sounds: "Sound Pack", shader: "Shader", layouts: "Layouts", effects: "Effects", look: "Look" };
+/** Data-only packs: no code runs, every file is checked (docs/PACKS.md). */
+const packKinds = ["icons", "sounds", "shader", "layouts", "effects", "look"];
 const permInfo = {
   network: { name: "Network", text: "Reaches only the hosts it lists, over https.", icon: icon.globe },
   notifications: { name: "Notifications", text: "Posts notifications in Notification Center.", icon: icon.bell },
@@ -230,7 +233,7 @@ pages.mods = async () => {
   let kind = params.get("kind") || "all", q = params.get("q") || "";
   if (input) input.value = q;
   if (cat.seed) $("[data-seed]")?.removeAttribute("hidden");
-  const counts = { all: cat.mods.length, plugin: 0, theme: 0, native: 0 };
+  const counts = { all: cat.mods.length, plugin: 0, theme: 0, native: 0, ...Object.fromEntries(packKinds.map((k) => [k, 0])) };
   cat.mods.forEach((m) => (counts[m.kind] = (counts[m.kind] ?? 0) + 1));
   $$(".seg button").forEach((b) => { const n = b.querySelector(".n"); if (n) n.textContent = counts[b.dataset.kind] ?? 0; });
 
@@ -272,7 +275,7 @@ pages.mod = async () => {
   const desc = render(String(m.description || m.summary).replace(/^\s*#\s+.*\n/, ""), { resolve, headingOffset: 1 });
   const install = `atelier://mods?install=${encodeURIComponent(m.id)}`;
   const perms = (m.permissions ?? []).map((p) => `<div class="permrow"><span class="ic">${permInfo[p]?.icon ?? icon.key}</span><div><b>${esc(permInfo[p]?.name ?? p)}</b><span>${esc(permInfo[p]?.text ?? "")}${p === "network" && m.hosts?.length ? ` ${m.hosts.map((h) => `<code>${esc(h)}</code>`).join(", ")}` : ""}</span></div></div>`).join("")
-    || `<div class="permrow"><span class="ic">${icon.shield}</span><div><b>No permissions</b><span>${m.kind === "theme" ? "A theme is data: it changes how things look and runs no code." : "It runs in its own sandbox and asks for nothing."}</span></div></div>`;
+    || `<div class="permrow"><span class="ic">${icon.shield}</span><div><b>No permissions</b><span>${m.kind === "theme" ? "A theme is data: it changes how things look and runs no code." : packKinds.includes(m.kind) ? "A pack is data: Atelier checks every file in it, and nothing in it runs." : "It runs in its own sandbox and asks for nothing."}</span></div></div>`;
   const versions = (m.versions ?? []).map((v) => `<li><div class="vh"><b>v${esc(v.version)}</b><span>${date(v.date)}</span></div>${v.notes ? `<p>${esc(v.notes)}</p>` : ""}</li>`).join("");
 
   root.innerHTML = `
@@ -409,7 +412,7 @@ pages.community = async () => {
 
 const DOCS = [
   { group: "Using Atelier", items: [["features", "Feature reference", "docs/FEATURES.md"], ["compatibility", "Compatibility", "COMPATIBILITY.md"], ["changelog", "Changelog", "CHANGELOG.md"]] },
-  { group: "Making things", items: [["customising", "Themes and plugins", "docs/README.md"], ["themes", "Theme format", "docs/THEMES.md"], ["plugins", "Plugin API", "docs/PLUGINS.md"]] },
+  { group: "Making things", items: [["customising", "Themes and plugins", "docs/README.md"], ["themes", "Theme format", "docs/THEMES.md"], ["plugins", "Plugin API", "docs/PLUGINS.md"], ["packs", "Pack formats", "docs/PACKS.md"]] },
   { group: "Project", items: [["contributing", "Contributing", "docs/CONTRIBUTING.md"], ["releasing", "Releasing", "docs/RELEASING.md"], ["security", "Security", "SECURITY.md"]] },
 ];
 pages.docs = async () => {

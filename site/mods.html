@@ -16,9 +16,9 @@
 <script>document.documentElement.classList.add("js")</script>
 <script type="module" src="assets/js/app.js"></script>
 <title>Mods · Atelier</title>
-<meta name="description" content="Plugins and themes for Atelier, made by the community and shared on GitHub.">
+<meta name="description" content="Plugins, themes and packs for Atelier, made by the community and shared on GitHub.">
 <meta property="og:title" content="Atelier Mods">
-<meta property="og:description" content="Plugins and themes for Atelier, made by the community and shared on GitHub.">
+<meta property="og:description" content="Plugins, themes and packs for Atelier, made by the community and shared on GitHub.">
 </head>
 <body data-page="mods">
 <a class="skip" href="#main">Skip to content</a>
@@ -48,7 +48,7 @@
     <div class="head">
       <span class="eyebrow">Mods</span>
       <h1 class="display" style="font-size:clamp(2.6rem,6vw,4.8rem)">Made by the community.</h1>
-      <p class="lead">Plugins add widgets, Dock tiles, commands and corner actions in sandboxed JavaScript. Themes restyle everything Atelier reaches, from one file. Every mod is reviewed in the open on GitHub. Once installed, its page in Atelier shows where it lives: its Dock tile, widgets, commands and corner actions.</p>
+      <p class="lead">Plugins add widgets, Dock tiles, commands and corner actions in sandboxed JavaScript. Themes restyle everything Atelier reaches, from one file. Packs are data only: icon packs, sound packs, shaders, snap layouts, minimise effects and Looks, each checked file by file. Every mod is reviewed in the open on GitHub. Once installed, its page in Atelier shows where it lives: its Dock tile, widgets, commands and corner actions.</p>
     </div>
   </div>
 </section>
@@ -62,6 +62,14 @@
         <button type="button" data-kind="plugin" aria-pressed="false">Plugins<span class="n">0</span></button>
         <button type="button" data-kind="theme" aria-pressed="false">Themes<span class="n">0</span></button>
         <button type="button" data-kind="native" aria-pressed="false">Native<span class="n">0</span></button>
+      </div>
+      <div class="seg" role="group" aria-label="Pack kind">
+        <button type="button" data-kind="icons" aria-pressed="false">Icon Packs<span class="n">0</span></button>
+        <button type="button" data-kind="sounds" aria-pressed="false">Sound Packs<span class="n">0</span></button>
+        <button type="button" data-kind="shader" aria-pressed="false">Shaders<span class="n">0</span></button>
+        <button type="button" data-kind="layouts" aria-pressed="false">Layouts<span class="n">0</span></button>
+        <button type="button" data-kind="effects" aria-pressed="false">Effects<span class="n">0</span></button>
+        <button type="button" data-kind="look" aria-pressed="false">Looks<span class="n">0</span></button>
       </div>
       <span class="faint small tnum" data-count aria-live="polite"></span>
     </div>
@@ -77,7 +85,7 @@
       <p class="lead">One folder, one pull request. A check validates it, a maintainer reads the code and tries it, and within minutes of the merge it is in everyone's Mods chapter.</p>
     </div>
     <div class="steps">
-      <div class="step shell" data-reveal data-stagger><div class="core card"><span class="num">1</span><h3>Make it and try it</h3><p>Drop your <code>.atelierplugin</code> or <code>.ateliertheme</code> on Mods › Library in Atelier. Try a light setup and a dark one.</p></div></div>
+      <div class="step shell" data-reveal data-stagger><div class="core card"><span class="num">1</span><h3>Make it and try it</h3><p>Drop your <code>.atelierplugin</code>, <code>.ateliertheme</code> or pack on Mods › Library in Atelier. Try a light setup and a dark one.</p></div></div>
       <div class="step shell" data-reveal data-stagger><div class="core card"><span class="num">2</span><h3>Pick an id</h3><p>Reverse-DNS and yours, like <code>io.github.you.focus-ring</code>. It is permanent: updates follow it.</p></div></div>
       <div class="step shell" data-reveal data-stagger><div class="core card"><span class="num">3</span><h3>Add the folder</h3><p><code>mod.json</code>, <code>description.md</code>, 1 to 6 screenshots and the package, in <code>mods/&lt;id&gt;/</code>.</p></div></div>
       <div class="step shell" data-reveal data-stagger><div class="core card"><span class="num">4</span><h3>Open a pull request</h3><p>The Validate check lists anything to fix. Permissions must match what the script uses.</p></div></div>

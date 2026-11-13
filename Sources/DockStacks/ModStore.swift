@@ -157,7 +157,7 @@ final class ModStore: ObservableObject {
                              permissions: $0.manifest.permissions.map(\.rawValue), hosts: $0.manifest.hosts)
         } + ThemeEngine.shared.installed.map {
             InstalledModInfo(id: $0.id, kind: .theme, version: $0.document.version)
-        } + nativeInstalled
+        } + nativeInstalled + ModPackStore.shared.installedInfo
     }
 
     func installedVersion(_ id: String) -> String? { installed.first { $0.id == id }?.version }
@@ -222,6 +222,9 @@ final class ModStore: ObservableObject {
                 try ThemeEngine.shared.install(from: prepared.folder)
             case .native:
                 try installNative(prepared.folder, id: entry.id)
+            default:
+                // Data-only packs: checked again and copied into their own folder.
+                if let pack = entry.kind.pack { try ModPackStore.shared.install(from: prepared.folder, expecting: pack) }
             }
             fromCatalog[entry.id] = entry.version
             notice = "Installed \(entry.name) \(entry.version)."
@@ -259,6 +262,8 @@ final class ModStore: ObservableObject {
             if manager.fileExists(atPath: data.path) { try? manager.trashItem(at: data, resultingItemURL: nil) }
         } else if let theme = ThemeEngine.shared.installed.first(where: { $0.id == id }) {
             ThemeEngine.shared.remove(theme)
+        } else if ModPackStore.shared.pack(id) != nil {
+            ModPackStore.shared.remove(id)
         } else {
             let folder = ModsConfig.nativeFolder.appendingPathComponent(id + "." + ModKind.native.packageExtension)
             try? manager.trashItem(at: folder, resultingItemURL: nil)

@@ -1,0 +1,22 @@
+{
+  "format": 1,
+  "id": "com.example.mono-glyphs",
+  "name": "Mono Glyphs",
+  "version": "1.0.0",
+  "author": "Atelier Examples",
+  "description": "Quiet ink tiles with a white glyph, for a few Apple apps, folders, Downloads and the Trash.",
+  "icons": {
+    "com.apple.Safari": "icons/safari.png",
+    "com.apple.finder": "icons/finder.png",
+    "com.apple.mail": "icons/mail.png",
+    "com.apple.Notes": "icons/notes.png",
+    "com.apple.TextEdit": "icons/textedit.png",
+    "com.apple.Terminal": "icons/terminal.png",
+    "com.apple.systempreferences": "icons/settings.png",
+    "com.apple.AppStore": "icons/appstore.png",
+    "folder": "icons/folder.png",
+    "downloads": "icons/downloads.png",
+    "trash": "icons/trash.png",
+    "trash.full": "icons/trash-full.png"
+  }
+}

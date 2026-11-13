@@ -84,6 +84,8 @@ public struct MinimizeMesh: Sendable {
     public var vertices: [MinimizeVertex] = []
     /// Triangles, three per entry group.
     public var indices: [UInt32] = []
+    /// Blur for the whole frame, in mipmap levels (0 is sharp). Only effect packs set it.
+    public var blur: Float = 0
     public init() {}
 }
 

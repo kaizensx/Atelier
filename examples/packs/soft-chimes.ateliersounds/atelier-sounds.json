@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "id": "com.example.soft-chimes",
+  "name": "Soft Chimes",
+  "version": "1.0.0",
+  "author": "Atelier Examples",
+  "description": "Small bell tones for the Dock, timers and themes, and soft synthesised keys for Typing Sounds.",
+  "sounds": {
+    "dock.launch": "sounds/launch.wav",
+    "dock.drop": "sounds/drop.wav",
+    "dock.trash": "sounds/trash.wav",
+    "dock.minimize": "sounds/minimize.wav",
+    "timer.done": "sounds/timer.wav",
+    "theme.apply": "sounds/apply.wav"
+  },
+  "typing": {
+    "key": ["typing/key1.wav", "typing/key2.wav", "typing/key3.wav"],
+    "space": ["typing/space.wav"],
+    "return": ["typing/return.wav"]
+  }
+}

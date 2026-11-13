@@ -79,6 +79,8 @@ final class MinimizeRenderer {
             encoder.setVertexBytes(&extent, length: MemoryLayout<SIMD2<Float>>.size, index: 1)
             encoder.setFragmentTexture(texture, index: 0)
             encoder.setFragmentSamplerState(sampler, index: 0)
+            var blur = mesh.blur
+            encoder.setFragmentBytes(&blur, length: MemoryLayout<Float>.size, index: 0)
             encoder.drawIndexedPrimitives(type: .triangle, indexCount: mesh.indices.count, indexType: .uint32,
                                           indexBuffer: indices, indexBufferOffset: 0)
         }
@@ -104,8 +106,9 @@ final class MinimizeRenderer {
         return out;
     }
     fragment float4 minimizeFragment(MinimizeVertexOut in [[stage_in]], texture2d<float> picture [[texture(0)]],
-                                     sampler smooth [[sampler(0)]]) {
-        float4 c = picture.sample(smooth, in.uv);
+                                     sampler smooth [[sampler(0)]], constant float &blur [[buffer(0)]]) {
+        // Blur from effect packs: a coarser mipmap level. Zero is the picture as it is.
+        float4 c = picture.sample(smooth, in.uv, bias(blur));
         c.rgb = min(c.rgb * in.shade, float3(c.a));
         return c * in.alpha;
     }
@@ -123,6 +126,8 @@ final class MinimizeEffectView: NSView {
     private var restoring = false
     private var finished: CheckedContinuation<Void, Never>?
     var effect = MinimizeEffect.genie
+    /// An effect from an effect pack, drawn in place of `effect` when set.
+    var custom: PackMinimizeEffect?
     var geometry = MinimizeGeometry(window: .zero, tile: .zero, edge: .bottom)
     /// Where the tile is this frame, in this view's coordinates, when it can move while the
     /// effect plays (the dock making room, magnifying). Nil keeps the tile it was given.
@@ -171,8 +176,8 @@ final class MinimizeEffectView: NSView {
         guard let renderer = MinimizeRenderer.shared, let texture else { return }
         resize()
         if let track { geometry.tile = MinimizeHandoff.aim(live: track(), last: geometry.tile) }
-        renderer.draw(MinimizeEffects.mesh(effect, progress: progress, geometry: geometry), texture: texture,
-                      into: metal, size: bounds.size)
+        let mesh = custom?.mesh(progress: progress, geometry: geometry) ?? MinimizeEffects.mesh(effect, progress: progress, geometry: geometry)
+        renderer.draw(mesh, texture: texture, into: metal, size: bounds.size)
     }
 
     func clear() {
@@ -198,7 +203,8 @@ final class MinimizeEffectView: NSView {
 
     @objc private func tick(_ link: CADisplayLink) {
         let elapsed = CACurrentMediaTime() - started
-        let progress = MinimizeTiming.progress(elapsed: elapsed, duration: duration, restoring: restoring)
+        let progress = custom?.progress(elapsed: elapsed, duration: duration, restoring: restoring)
+            ?? MinimizeTiming.progress(elapsed: elapsed, duration: duration, restoring: restoring)
         draw(progress: progress)
         if elapsed >= duration { stop() }
     }
@@ -240,6 +246,7 @@ final class MinimizeOverlay {
         panel.contentView = view
         panel.setFrame(area, display: false)
         view.effect = effect
+        view.custom = MinimizeEffectSetting.activePack
         func local(_ rect: CGRect) -> CGRect { rect.offsetBy(dx: -area.minX, dy: -area.minY) }
         view.geometry = MinimizeGeometry(window: local(window), tile: local(tile), edge: edge)
         if let track { view.track = { track().map(local) } }
@@ -255,7 +262,12 @@ final class MinimizeOverlay {
 
     func play(restoring: Bool, slow: Bool) async {
         if !panel.isVisible { show(progress: restoring ? 1 : 0) }
-        await view.play(restoring: restoring, duration: MinimizeTiming.duration(effect, restoring: restoring, slow: slow))
+        await view.play(restoring: restoring, duration: duration(restoring: restoring, slow: slow))
+    }
+
+    /// How long it plays: the pack effect's own length, or the built-in one's.
+    func duration(restoring: Bool, slow: Bool) -> Double {
+        view.custom?.duration(restoring: restoring, slow: slow) ?? MinimizeTiming.duration(effect, restoring: restoring, slow: slow)
     }
 
     func close(after delay: Double = 0) {
@@ -301,16 +313,20 @@ enum MinimizeEffectSetting {
 struct MinimizeEffectPlate: NSViewRepresentable {
     var effect: MinimizeEffect
     var accent: Color
+    /// An effect pack's effect, shown in place of `effect`.
+    var custom: PackMinimizeEffect? = nil
 
     func makeNSView(context: Context) -> MinimizePlateView {
         let view = MinimizePlateView(frame: .zero)
         view.effect = effect
+        view.custom = custom
         return view
     }
 
     func updateNSView(_ view: MinimizePlateView, context: Context) {
-        if view.effect != effect {
+        if view.effect != effect || view.custom != custom {
             view.effect = effect
+            view.custom = custom
             view.restart()
         }
     }
@@ -319,6 +335,7 @@ struct MinimizeEffectPlate: NSViewRepresentable {
 @MainActor
 final class MinimizePlateView: NSView {
     var effect = MinimizeEffect.genie
+    var custom: PackMinimizeEffect?
     private var stage: MinimizeEffectView?
     private var loop: Task<Void, Never>?
     private let dock = CALayer()
@@ -376,6 +393,11 @@ final class MinimizePlateView: NSView {
         guard let stage else { return }
         let resolved = effect.resolved(systemEffect: MinimizeEffectSetting.systemEffect)
         stage.effect = resolved
+        stage.custom = custom
+        let custom = custom
+        func length(_ restoring: Bool) -> Double {
+            custom?.duration(restoring: restoring, slow: false) ?? MinimizeTiming.duration(resolved, restoring: restoring, slow: false)
+        }
         loop = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(60))
             guard let self, let stage = self.stage else { return }
@@ -391,10 +413,10 @@ final class MinimizePlateView: NSView {
                 stage.draw(progress: 0)
                 try? await Task.sleep(for: .milliseconds(700))
                 if Task.isCancelled { break }
-                await stage.play(restoring: false, duration: MinimizeTiming.duration(resolved, restoring: false, slow: false) * 1.6)
+                await stage.play(restoring: false, duration: length(false) * 1.6)
                 try? await Task.sleep(for: .milliseconds(650))
                 if Task.isCancelled { break }
-                await stage.play(restoring: true, duration: MinimizeTiming.duration(resolved, restoring: true, slow: false) * 1.6)
+                await stage.play(restoring: true, duration: length(true) * 1.6)
                 try? await Task.sleep(for: .milliseconds(500))
             }
         }
@@ -448,10 +470,18 @@ final class MinimizePlateView: NSView {
 struct MinimizeEffectPicker: View {
     @AppStorage(MinimizeEffectSetting.key) private var raw = MinimizeEffect.system.rawValue
     @ObservedObject private var dock = OwnDock.shared
+    /// "pack id/effect id" when an effect pack's effect is chosen.
+    @AppStorage(MinimizeEffectSetting.packKey) private var packRaw: String?
+    @ObservedObject private var packs = ModPackStore.shared
 
     private var effect: MinimizeEffect { MinimizeEffect(rawValue: raw) ?? .system }
+    private var custom: PackMinimizeEffect? {
+        let parts = (packRaw ?? "").split(separator: "/", maxSplits: 1).map(String.init)
+        return parts.count == 2 ? MinimizeEffectSetting.effect(pack: parts[0], effect: parts[1]) : nil
+    }
 
     private var detail: String {
+        if let custom { return "\(custom.name), from an effect pack. \(String(format: "%.2f", custom.duration)) s." }
         if effect == .system {
             let macOS = MinimizeEffect.system.resolved(systemEffect: MinimizeEffectSetting.systemEffect)
             return "Now \(macOS.title), as set in Desktop & Dock."
@@ -462,9 +492,10 @@ struct MinimizeEffectPicker: View {
     var body: some View {
         DockHubWideRow("Window Minimise Effect", detail: detail) {
             VStack(alignment: .leading, spacing: DS.Space.s) {
-                Segments(selection: Binding(get: { effect }, set: { raw = $0.rawValue }),
+                Segments(selection: Binding(get: { effect }, set: { raw = $0.rawValue; packRaw = nil }),
                          options: MinimizeEffect.allCases.map { ($0, $0.title) })
-                MinimizeEffectPlate(effect: effect, accent: DockHubHue.tint)
+                EffectPackChoices(selection: $packRaw)
+                MinimizeEffectPlate(effect: effect, accent: DockHubHue.tint, custom: custom)
                     .frame(height: 150)
                     .frame(maxWidth: .infinity)
                     .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black.opacity(0.28)))

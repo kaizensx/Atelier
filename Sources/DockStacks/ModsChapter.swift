@@ -47,6 +47,7 @@ struct ModsChapter: View {
                 store.refreshIfStale()
                 registry.reload()
                 themes.reload()
+                ModPackStore.shared.reload()
                 openRequested()
             }
             .onChange(of: store.requestedPage) { openRequested() }
@@ -83,7 +84,7 @@ struct ModsTabsView: View {
     @ObservedObject private var store = ModStore.shared
 
     var body: some View {
-        Text("Plugins and themes made by the community, checked and signed before they reach your Mac. Plugins still ask for each permission.")
+        Text("Plugins, themes and packs made by the community, checked and signed before they reach your Mac. Plugins still ask for each permission; packs are data only and run no code.")
             .font(DS.body).foregroundStyle(DS.Ink.secondary).fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, DS.Space.xs)
 
@@ -212,6 +213,7 @@ struct ModsBrowse: View {
             .padding(.horizontal, 10).frame(height: 32)
             .background(DS.Ink.fill, in: .rect(cornerRadius: DS.Radius.control, style: .continuous))
             Segments(selection: $kind, options: kinds)
+            PackKindFilter(kind: $kind)
         }
         .padding(.top, DS.Space.s)
     }
@@ -248,6 +250,7 @@ struct ModsInstalled: View {
     @ObservedObject private var store = ModStore.shared
     @ObservedObject private var registry = PluginRegistry.shared
     @ObservedObject private var themes = ThemeEngine.shared
+    @ObservedObject private var packs = ModPackStore.shared
 
     var body: some View {
         let mine = store.installed.sorted { name($0).localizedCaseInsensitiveCompare(name($1)) == .orderedAscending }
@@ -266,6 +269,7 @@ struct ModsInstalled: View {
         case .plugin: registry.installed.first { $0.id == mod.id }?.manifest.name ?? mod.id
         case .theme: themes.installed.first { $0.id == mod.id }?.document.name ?? mod.id
         case .native: store.index?.mod(mod.id)?.name ?? mod.id
+        default: ModPackStore.shared.pack(mod.id)?.name ?? mod.id
         }
     }
 
