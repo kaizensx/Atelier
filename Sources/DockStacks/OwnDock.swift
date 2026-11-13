@@ -1141,7 +1141,18 @@ final class OwnDock: ObservableObject {
     @Published var autoHide: Bool { didSet { store.set(autoHide, forKey: Key.autoHide); applyAutoHide() } }
     /// The front app is in a full-screen Space. The dock then hides like the macOS one does there:
     /// it comes up from the edge only with Over Full-Screen Apps on, and never covers the app.
-    @Published private(set) var fullScreenSpace = false { didSet { if fullScreenSpace != oldValue { applyAutoHide() } } }
+    @Published private(set) var fullScreenSpace = false {
+        didSet {
+            guard fullScreenSpace != oldValue else { return }
+            applyAutoHide()
+            // Leaving full screen, macOS puts the window back at its old size, while it still
+            // reports itself full screen to the Reserve check: look again once it has landed.
+            if !fullScreenSpace, DockReserve.shared.active, let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier {
+                DockReserveEngine.shared.poke(pid)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { DockReserveEngine.shared.poke(pid) }
+            }
+        }
+    }
     /// Hidden until the pointer reaches the edge: auto-hide, or a full-screen Space.
     var hidesAway: Bool { autoHide || fullScreenSpace }
     /// Whether the edge may bring it up right now.
