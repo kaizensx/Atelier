@@ -424,6 +424,8 @@ enum ShaderPackRuntime {
     /// The wallpaper as it was before the first shader pack was worn, so Stop puts it back.
     private struct Before: Codable {
         var enabled: Bool, scheduled: Bool, shader: String, tuning: LivingTuning?, living: String?
+        /// The shader the pack wore, whose tuning `tuning` was before.
+        var worn: String?
     }
     private static let beforeKey = "packs.shader.before"
 
@@ -434,7 +436,7 @@ enum ShaderPackRuntime {
         let store = UserDefaults.standard
         if store.data(forKey: beforeKey) == nil {
             let before = Before(enabled: live.enabled, scheduled: live.scheduled, shader: live.shader.rawValue,
-                                tuning: live.tunings[shader], living: Effects.shared.living?.rawValue)
+                                tuning: live.tunings[shader], living: Effects.shared.living?.rawValue, worn: shader.rawValue)
             if let data = try? JSONEncoder().encode(before) { store.set(data, forKey: beforeKey) }
         }
         live.setTuning(tuning(pack), for: shader)
@@ -458,6 +460,17 @@ enum ShaderPackRuntime {
         if live.scheduled != before.scheduled { live.scheduled = before.scheduled }
         if live.enabled != before.enabled { live.enabled = before.enabled }
         if let living = before.living, let hue = Hue(rawValue: living) { Effects.shared.living = hue }
+    }
+
+    /// After a Look is reverted: Revert already put the wallpaper back, so only the worn shader's
+    /// tuning returns, and the saved state is dropped so a later Stop cannot replay it.
+    static func forgetAfterRevert() {
+        let store = UserDefaults.standard
+        guard let data = store.data(forKey: beforeKey) else { return }
+        store.removeObject(forKey: beforeKey)
+        guard let before = try? JSONDecoder().decode(Before.self, from: data),
+              let worn = before.worn.flatMap(LivingShader.init(rawValue:)) else { return }
+        LiveWallpaper.shared.setTuning(before.tuning ?? LivingTuning(), for: worn)
     }
 
     /// One frame of a pack, for previews. Nil without Metal.
@@ -570,6 +583,7 @@ enum LookApplier {
         store.soundPackID = saved["soundPack"]?.string
         store.typingFromPack = saved["typingFromPack"]?.bool ?? false
         store.shaderPackID = saved["shaderPack"]?.string
+        if store.shaderPackID == nil { ShaderPackRuntime.forgetAfterRevert() }
         if let d = saved["dock"]?.object {
             if let edge = d["edge"]?.string.flatMap(OwnDockEdge.init(rawValue:)), edge != dock.edge { dock.edge = edge }
             if let tile = d["tile"]?.number, tile != dock.tile { dock.tile = tile }

@@ -661,24 +661,14 @@ struct CodeEditor: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(text: $text) }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        // TextKit 1 throughout: the line-number ruler measures lines with the layout manager.
-        let storage = NSTextStorage()
-        let layout = NSLayoutManager()
-        storage.addLayoutManager(layout)
-        let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
-        container.widthTracksTextView = true
-        layout.addTextContainer(container)
-        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), textContainer: container)
-        view.isVerticallyResizable = true
-        view.isHorizontallyResizable = false
-        view.autoresizingMask = [.width]
-        view.minSize = NSSize(width: 0, height: 0)
-        view.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        let scroll = NSScrollView()
+    func makeNSView(context: Context) -> EditorContainer {
+        // AppKit's own scrollable text view, so the text view, clip view and container are wired the
+        // standard way. The line-number ruler measures lines with the layout manager (TextKit 1).
+        let scroll = NSTextView.scrollableTextView()
+        let view = scroll.documentView as! NSTextView
+        _ = view.layoutManager
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
-        scroll.documentView = view
         scroll.drawsBackground = true
         scroll.backgroundColor = NSColor(red: 0.035, green: 0.04, blue: 0.055, alpha: 1)
         view.delegate = context.coordinator
@@ -698,19 +688,18 @@ struct CodeEditor: NSViewRepresentable {
         view.textContainerInset = NSSize(width: 6, height: 8)
         view.string = text
         view.setAccessibilityLabel("Plugin script")
-        let ruler = LineNumberRuler(textView: view)
-        scroll.verticalRulerView = ruler
-        scroll.hasVerticalRuler = true
-        scroll.rulersVisible = true
         CodeEditor.highlight(view)
-        return scroll
+        // Line numbers in a gutter beside the scroll view. An NSRulerView here stopped the whole
+        // hosting window from drawing its SwiftUI content and the text.
+        return EditorContainer(scroll: scroll, textView: view)
     }
 
-    func updateNSView(_ scroll: NSScrollView, context: Context) {
-        guard let view = scroll.documentView as? NSTextView, view.string != text else { return }
+    func updateNSView(_ container: EditorContainer, context: Context) {
+        let view = container.textView
+        guard view.string != text else { return }
         view.string = text
         CodeEditor.highlight(view)
-        scroll.verticalRulerView?.needsDisplay = true
+        container.gutter.needsDisplay = true
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
@@ -721,7 +710,7 @@ struct CodeEditor: NSViewRepresentable {
             guard let view = notification.object as? NSTextView else { return }
             text.wrappedValue = view.string
             CodeEditor.highlight(view)
-            view.enclosingScrollView?.verticalRulerView?.needsDisplay = true
+            (view.enclosingScrollView?.superview as? EditorContainer)?.gutter.needsDisplay = true
         }
 
         /// Tab inserts two spaces; Return keeps the line's indentation.
@@ -765,45 +754,75 @@ struct CodeEditor: NSViewRepresentable {
     }
 }
 
-/// Line numbers beside the editor.
-final class LineNumberRuler: NSRulerView {
-    private weak var textView: NSTextView?
+/// The editor: a gutter of line numbers and the scrolling text, side by side.
+final class EditorContainer: NSView {
+    let scroll: NSScrollView
+    let textView: NSTextView
+    let gutter: LineNumberGutter
+    static let gutterWidth: CGFloat = 36
 
-    init(textView: NSTextView) {
+    init(scroll: NSScrollView, textView: NSTextView) {
+        self.scroll = scroll
         self.textView = textView
-        super.init(scrollView: textView.enclosingScrollView, orientation: .verticalRuler)
-        clientView = textView
-        ruleThickness = 36
-        NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: textView.enclosingScrollView?.contentView,
-                                               queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.needsDisplay = true }
+        self.gutter = LineNumberGutter(textView: textView)
+        super.init(frame: .zero)
+        addSubview(gutter)
+        addSubview(scroll)
+        scroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.gutter.needsDisplay = true }
         }
     }
 
-    required init(coder: NSCoder) { fatalError("init(coder:) is not used") }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override func drawHashMarksAndLabels(in rect: NSRect) {
+    override func layout() {
+        super.layout()
+        gutter.frame = NSRect(x: 0, y: 0, width: Self.gutterWidth, height: bounds.height)
+        scroll.frame = NSRect(x: Self.gutterWidth, y: 0, width: max(bounds.width - Self.gutterWidth, 0), height: bounds.height)
+        gutter.needsDisplay = true
+    }
+}
+
+/// Line numbers for the editor's text, following its scrolling.
+final class LineNumberGutter: NSView {
+    private weak var textView: NSTextView?
+    init(textView: NSTextView) { self.textView = textView; super.init(frame: .zero) }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+    override var isFlipped: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
         NSColor(red: 0.035, green: 0.04, blue: 0.055, alpha: 1).setFill()
-        rect.fill()
-        guard let view = textView, let layout = view.layoutManager, let container = view.textContainer else { return }
+        bounds.fill()
+        guard let view = textView, let layout = view.layoutManager, let container = view.textContainer,
+              let clip = view.enclosingScrollView?.contentView else { return }
         let text = view.string as NSString
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .regular), .foregroundColor: NSColor(white: 0.42, alpha: 1),
         ]
-        let visible = layout.glyphRange(forBoundingRect: view.visibleRect, in: container)
+        let scrolled = clip.bounds.origin.y
+        let inset = view.textContainerInset.height
+        if text.length == 0 {
+            let label = "1" as NSString
+            let size = label.size(withAttributes: attributes)
+            label.draw(at: NSPoint(x: bounds.width - size.width - 6, y: inset - scrolled + 2), withAttributes: attributes)
+            return
+        }
+        let visible = layout.glyphRange(forBoundingRect: clip.bounds, in: container)
         let start = layout.characterIndexForGlyph(at: visible.location)
         var line = text.substring(to: start).components(separatedBy: "\n").count
-        var index = start
-        let origin = convert(NSPoint.zero, from: view).y + view.textContainerInset.height
-        while index <= NSMaxRange(layout.characterRange(forGlyphRange: visible, actualGlyphRange: nil)) {
-            let lineRange = text.lineRange(for: NSRange(location: min(index, text.length), length: 0))
-            let glyphs = layout.glyphRange(forCharacterRange: NSRange(location: lineRange.location, length: 0), actualCharacterRange: nil)
-            let box = layout.lineFragmentRect(forGlyphAt: min(glyphs.location, max(layout.numberOfGlyphs - 1, 0)), effectiveRange: nil)
+        var index = text.lineRange(for: NSRange(location: start, length: 0)).location
+        let end = NSMaxRange(layout.characterRange(forGlyphRange: visible, actualGlyphRange: nil))
+        while index < text.length, index <= end {
+            let lineRange = text.lineRange(for: NSRange(location: index, length: 0))
+            let glyph = layout.glyphIndexForCharacter(at: lineRange.location)
+            let box = layout.lineFragmentRect(forGlyphAt: min(glyph, max(layout.numberOfGlyphs - 1, 0)), effectiveRange: nil)
             let label = "\(line)" as NSString
             let size = label.size(withAttributes: attributes)
-            label.draw(at: NSPoint(x: ruleThickness - size.width - 6, y: origin + box.minY + (box.height - size.height) / 2), withAttributes: attributes)
+            label.draw(at: NSPoint(x: bounds.width - size.width - 6, y: box.minY + inset - scrolled + (box.height - size.height) / 2),
+                       withAttributes: attributes)
             line += 1
-            if NSMaxRange(lineRange) <= index || NSMaxRange(lineRange) >= text.length { break }
+            guard NSMaxRange(lineRange) > index else { break }
             index = NSMaxRange(lineRange)
         }
     }
