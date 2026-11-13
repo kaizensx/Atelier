@@ -212,6 +212,8 @@ struct ModPage: View {
     var openAuthor: (String) -> Void = { _ in }
     @ObservedObject private var store = ModStore.shared
     @ObservedObject private var registry = PluginRegistry.shared
+    /// So "Add to Dock" turns into "Dock" as soon as the tile is there.
+    @ObservedObject private var dock = OwnDock.shared
     @State private var shot = 0
 
     var body: some View {
@@ -396,10 +398,10 @@ struct ModPage: View {
                     ForEach(tiles) { tile in
                         SettingRow(title: tile.spec.title, detail: "Dock tile, on your Atelier Dock.",
                                    symbol: "dock.rectangle", density: .compact) {
-                            if OwnDock.shared.hasPlugin(.tile, key: tile.id) {
+                            if dock.hasPlugin(.tile, key: tile.id) {
                                 Button("Dock") { go(.dock) }.buttonStyle(ModPill(prominent: false))
                             } else {
-                                Button("Add to Dock") { OwnDock.shared.addPlugin(.tile, key: tile.id) }.buttonStyle(ModPill())
+                                Button("Add to Dock") { dock.addPlugin(.tile, key: tile.id) }.buttonStyle(ModPill())
                             }
                         }
                     }

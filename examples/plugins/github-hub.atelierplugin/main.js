@@ -49,6 +49,10 @@ atelier.paletteProvider({
   title: "GitHub",
   prefix: "gh",
   search: async (query) => {
+    // Without a token there is nothing to search yet: offer to connect instead of an empty list.
+    if (!atelier.storage.get("token")) {
+      return [{ title: "Connect GitHub…", subtitle: "Add a token to search your repositories", symbol: "key", action: () => token() }];
+    }
     // The list is cached for ten minutes, so typing never waits on the network twice.
     if (!repos || Date.now() - reposFetched > 10 * 60 * 1000) {
       repos = await get("/user/repos?per_page=100&sort=pushed");
