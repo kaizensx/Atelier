@@ -125,9 +125,11 @@ if (mods) write("mods.json", mods);
 const docs = {
   features: "docs/FEATURES.md", themes: "docs/THEMES.md", plugins: "docs/PLUGINS.md", customising: "docs/README.md",
   contributing: "docs/CONTRIBUTING.md", releasing: "docs/RELEASING.md", compatibility: "COMPATIBILITY.md", security: "SECURITY.md",
-  changelog: "CHANGELOG.md",
+  changelog: "CHANGELOG.md", "making-mods": "docs/MAKING-MODS.md",
 };
 for (const [name, path] of Object.entries(docs)) {
   if (existsSync(join(root, path))) { copyFileSync(join(root, path), join(out, "docs", `${name}.md`)); console.log(`copied ${path}`); }
 }
+// The plugin API description, for the Make a mod page.
+if (existsSync(join(root, "docs/plugin-api.json"))) { copyFileSync(join(root, "docs/plugin-api.json"), join(out, "plugin-api.json")); console.log("copied docs/plugin-api.json"); }
 if (existsSync(join(root, "VERSION"))) write("version.json", { version: readFileSync(join(root, "VERSION"), "utf8").trim() });

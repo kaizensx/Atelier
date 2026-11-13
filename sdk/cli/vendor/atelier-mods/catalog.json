@@ -1,0 +1,11 @@
+{
+  "catalog": "kaizensx/atelier-mods",
+  "baseURL": "https://raw.githubusercontent.com/kaizensx/atelier-mods/dist",
+  "publicKey": "SATwJOjY3lMsJm4Ak8pOlyv54/DlSPynY0qz71XiGSY=",
+  "maintainers": ["kaizensx"],
+  "featured": [
+    "com.example.pomodoro",
+    "com.example.midnight-glass",
+    "com.example.random-palette"
+  ]
+}

@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:atelier:plugin-manifest:1",
+  "title": "Atelier plugin manifest",
+  "description": "manifest.json inside a .atelierplugin folder. Generated from docs/plugin-api.json (API 1.0).",
+  "type": "object",
+  "required": [
+    "format",
+    "id",
+    "name",
+    "version"
+  ],
+  "additionalProperties": false,
+  "patternProperties": {
+    "^(\\$|x-)": {}
+  },
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "format": {
+      "type": "integer",
+      "enum": [
+        1
+      ],
+      "description": "Manifest format. Always 1."
+    },
+    "id": {
+      "type": "string",
+      "maxLength": 120,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*(\\.[A-Za-z0-9][A-Za-z0-9_-]*)+$",
+      "description": "Reverse-DNS identifier, unique to the plugin: com.example.pomodoro. Permanent: updates follow it."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60,
+      "description": "Shown in Atelier."
+    },
+    "version": {
+      "type": "string",
+      "maxLength": 20,
+      "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$",
+      "description": "Semantic version: 1.0.0."
+    },
+    "author": {
+      "type": "string",
+      "maxLength": 80,
+      "description": "Who made it."
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 400,
+      "description": "What it does, in a sentence or two."
+    },
+    "entry": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._/-]+\\.js$",
+      "description": "The script Atelier runs, a path inside the plugin folder. At most 512 KB.",
+      "default": "main.js"
+    },
+    "icon": {
+      "type": "string",
+      "maxLength": 80,
+      "pattern": "^[a-z0-9.]+$",
+      "description": "An SF Symbol name for the plugin.",
+      "default": "puzzlepiece.extension"
+    },
+    "homepage": {
+      "type": "string",
+      "maxLength": 300,
+      "pattern": "^https://",
+      "description": "An https link to the plugin's page or source."
+    },
+    "permissions": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "enum": [
+          "network",
+          "notifications",
+          "openURL",
+          "appearance"
+        ]
+      },
+      "description": "What it asks for. The owner grants each one separately."
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hosts"
+      ],
+      "properties": {
+        "hosts": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "maxLength": 120,
+            "pattern": "^[A-Za-z0-9-]+(\\.[A-Za-z0-9-]+)+$"
+          }
+        }
+      },
+      "description": "Hosts the http functions may reach, like api.github.com. No schemes, paths, ports, wildcards, local or private addresses. Required with the network permission."
+    },
+    "settings": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "type",
+          "title"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9._-]{1,64}$"
+          },
+          "type": {
+            "enum": [
+              "toggle",
+              "text",
+              "secret",
+              "number",
+              "choice",
+              "color"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "default": {},
+          "options": {
+            "type": "array",
+            "maxItems": 24
+          },
+          "min": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          },
+          "step": {
+            "type": "number"
+          }
+        }
+      },
+      "description": "Settings Atelier draws for the plugin on its page in Mods. Read them with atelier.settings; changes arrive as the settingsChanged event. (Atelier 1.0.0-beta.4)"
+    },
+    "activation": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "string",
+        "maxLength": 80,
+        "pattern": "^(startup|command:[A-Za-z0-9._-]+|event:[A-Za-z]+|widget:[A-Za-z0-9._-]+)$"
+      },
+      "description": "When to start the script. Without it the script starts with Atelier. With it, Atelier waits until one of these happens: startup, command:<id>, event:<name>, widget:<id>. Needs contributes for anything shown before the script runs. (Atelier 1.0.0-beta.4)"
+    },
+    "contributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "commands": {
+          "type": "array",
+          "maxItems": 24
+        },
+        "widgets": {
+          "type": "array",
+          "maxItems": 24
+        },
+        "tiles": {
+          "type": "array",
+          "maxItems": 24
+        },
+        "cornerActions": {
+          "type": "array",
+          "maxItems": 24
+        },
+        "menuBarItems": {
+          "type": "array",
+          "maxItems": 4
+        }
+      },
+      "description": "What the plugin adds, declared up front so it shows before the script has run (for lazy activation). Each entry is { id, title } plus the kind's own keys. (Atelier 1.0.0-beta.4)"
+    },
+    "strings": {
+      "type": "object",
+      "maxProperties": 40,
+      "description": "Translations by language code: { \"en\": { \"hello\": \"Hello\" }, \"pt\": { \"hello\": \"Olá\" } }. atelier.t(key) picks the owner's language, then en. (Atelier 1.0.0-beta.4)"
+    },
+    "messages": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accept": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "maxLength": 120
+          }
+        }
+      },
+      "description": "Plugins (by id) whose atelier.send messages this plugin accepts, as the message event. Both sides must be installed and on. (Atelier 1.0.0-beta.4)"
+    }
+  }
+}

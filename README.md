@@ -178,7 +178,7 @@ permission each one needs, and its `atelier://` test hook.
 |---|---|---|
 | **Home** | A live replica of your Mac, and a shelf of tiles for what a stock Mac cannot do. Hover a tile to play it on the stage. | No equivalent. |
 | **Looks** | Curated themes in one click: Dock, menu bar, wallpaper, widgets and icon tint together. **Change with the Day** hands over from one Look to the next at the hour you set. Revert undoes the run. | No themes beyond Light, Dark and accent colour. |
-| **Mods** | Community plugins and themes from a signed catalog on GitHub: browse, install, update and remove in one place. A mod's page shows where it lives once installed: its Dock tile, widgets, commands and corner actions, one click away. **Library** holds your own: create a theme from your Mac, import, and manage plugins. A theme is one JSON file that restyles everything Atelier reaches; plugins add widgets, Dock tiles, commands and corner actions in sandboxed JavaScript. See [docs/README.md](docs/README.md). | No theme or plugin system. |
+| **Mods** | Community plugins and themes from a signed catalog on GitHub: browse, install, update and remove in one place. A mod's page shows where it lives once installed: its Dock tile, widgets, commands and corner actions, one click away. **Library** holds your own: create a theme from your Mac, import, and manage plugins. **Create** is a playground: write a plugin, run it sandboxed and see what it adds, then save it. A theme is one JSON file that restyles everything Atelier reaches; plugins add widgets, Dock tiles, commands and corner actions in sandboxed JavaScript. See [docs/README.md](docs/README.md). | No theme or plugin system. |
 
 </details>
 
@@ -360,6 +360,10 @@ package is checked before it is unpacked; plugins still ask for each permission.
 **Mods › Library**: drop a `.ateliertheme` or `.atelierplugin` there to install it. The formats are in
 [docs/THEMES.md](docs/THEMES.md) and [docs/PLUGINS.md](docs/PLUGINS.md), with examples in
 [`examples/`](examples).
+
+To make your own, start with [docs/MAKING-MODS.md](docs/MAKING-MODS.md): the **Mods › Create**
+playground, and `atelier-mod` in [`sdk/`](sdk), a command-line kit with editor types for the
+plugin API, the catalog's own checks, a test runner and the folder for your pull request.
 
 ## Build from source
 

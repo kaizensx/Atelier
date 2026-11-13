@@ -50,6 +50,9 @@ struct ModsChapter: View {
                 openRequested()
             }
             .onChange(of: store.requestedPage) { openRequested() }
+            // Search and `atelier://studio?chapter=mods&focus=playground` open the Create tab.
+            .onChange(of: NavFocus.shared.target) { _, target in if target == "playground" { selected = nil; tab = .create } }
+            .onAppear { if NavFocus.shared.target == "playground" { tab = .create } }
             .onChange(of: store.index?.mods.count) { openRequested() }
     }
 
@@ -72,7 +75,7 @@ struct ModsChapter: View {
     }
 }
 
-enum ModsTab: Hashable { case browse, installed, updates, library }
+enum ModsTab: Hashable { case browse, installed, updates, library, create }
 
 /// The three tabs, with the catalog's status line above them.
 struct ModsTabsView: View {
@@ -91,7 +94,8 @@ struct ModsTabsView: View {
 
         let count = store.updates.count
         Segments(selection: $tab, options: [(.browse, "Browse"), (.installed, "Installed"),
-                                            (.updates, count > 0 ? "Updates (\(count))" : "Updates"), (.library, "Library")])
+                                            (.updates, count > 0 ? "Updates (\(count))" : "Updates"), (.library, "Library"),
+                                            (.create, "Create")])
 
         if let notice = store.notice {
             Label(notice, systemImage: "checkmark.circle.fill").font(DS.caption).foregroundStyle(ModsHue.tint)
@@ -104,6 +108,8 @@ struct ModsTabsView: View {
         case .updates: ModsUpdates(open: open)
         // What used to be Themes & Plugins: making, importing and managing your own.
         case .library: ThemesChapter(model: model)
+        // The Playground: write a plugin, run it sandboxed, save it.
+        case .create: PlaygroundView(model: PlaygroundModel.shared)
         }
     }
 }

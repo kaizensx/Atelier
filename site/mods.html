@@ -77,15 +77,17 @@
       <p class="lead">One folder, one pull request. A check validates it, a maintainer reads the code and tries it, and within minutes of the merge it is in everyone's Mods chapter.</p>
     </div>
     <div class="steps">
-      <div class="step shell" data-reveal data-stagger><div class="core card"><span class="num">1</span><h3>Make it and try it</h3><p>Drop your <code>.atelierplugin</code> or <code>.ateliertheme</code> on Mods › Library in Atelier. Try a light setup and a dark one.</p></div></div>
+      <div class="step shell" data-reveal data-stagger><div class="core card"><span class="num">1</span><h3>Make it and try it</h3><p>Write a plugin in Mods › Create, or start a project with <code>atelier-mod</code>. Drop your <code>.atelierplugin</code> or <code>.ateliertheme</code> on Mods › Library and try a light setup and a dark one.</p></div></div>
       <div class="step shell" data-reveal data-stagger><div class="core card"><span class="num">2</span><h3>Pick an id</h3><p>Reverse-DNS and yours, like <code>io.github.you.focus-ring</code>. It is permanent: updates follow it.</p></div></div>
-      <div class="step shell" data-reveal data-stagger><div class="core card"><span class="num">3</span><h3>Add the folder</h3><p><code>mod.json</code>, <code>description.md</code>, 1 to 6 screenshots and the package, in <code>mods/&lt;id&gt;/</code>.</p></div></div>
-      <div class="step shell" data-reveal data-stagger><div class="core card"><span class="num">4</span><h3>Open a pull request</h3><p>The Validate check lists anything to fix. Permissions must match what the script uses.</p></div></div>
+      <div class="step shell" data-reveal data-stagger><div class="core card"><span class="num">3</span><h3>Add the folder</h3><p><code>mod.json</code>, <code>description.md</code>, 1 to 6 screenshots and the package, in <code>mods/&lt;id&gt;/</code>. <code>atelier-mod catalog-entry</code> writes it for you.</p></div></div>
+      <div class="step shell" data-reveal data-stagger><div class="core card"><span class="num">4</span><h3>Open a pull request</h3><p>The Validate check lists anything to fix; <code>atelier-mod validate</code> runs the same checks first. Permissions must match what the script uses.</p></div></div>
     </div>
     <div class="btns" style="margin-top:28px" data-reveal>
       <a class="btn" data-newmod href="https://github.com/kaizensx/atelier-mods/new/main">Start a mod.json<span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a>
       <a class="btn ghost" href="https://github.com/kaizensx/atelier-mods/blob/main/CONTRIBUTING.md">Read the guide<span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg></span></a>
-      <a class="btn ghost" href="docs.html?doc=plugins">Plugin API<span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></a>
+      <a class="btn ghost" href="make.html">Make a mod<span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></a>
+      <a class="btn ghost" href="docs.html?doc=making-mods">Making mods guide<span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></a>
+      <a class="btn ghost" href="make.html#api">Plugin API<span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span></a>
     </div>
   </div>
 </section>

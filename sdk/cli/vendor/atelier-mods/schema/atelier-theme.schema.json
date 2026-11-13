@@ -1,0 +1,739 @@
+{
+  "$defs" : {
+    "color" : {
+      "description" : "#RGB, #RRGGBB or #RRGGBBAA",
+      "pattern" : "^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$",
+      "type" : "string"
+    }
+  },
+  "$id" : "urn:atelier:theme:1",
+  "$schema" : "https://json-schema.org/draft/2020-12/schema",
+  "description" : "atelier-theme.json, format 1. Every section is optional; an absent key leaves that setting as it is. Keys starting with $ or x- are ignored.",
+  "patternProperties" : {
+    "^(\\$|x-)" : {
+
+    }
+  },
+  "properties" : {
+    "appearance" : {
+      "description" : "Whether the theme is designed for a dark or a light setup. Informational.",
+      "enum" : [
+        "dark",
+        "light"
+      ]
+    },
+    "author" : {
+      "description" : "Who made it.",
+      "maxLength" : 80,
+      "type" : "string"
+    },
+    "clock" : {
+      "description" : "The desktop clock.",
+      "patternProperties" : {
+        "^(\\$|x-)" : {
+
+        }
+      },
+      "properties" : {
+        "face" : {
+          "description" : "Its face.",
+          "enum" : [
+            "thin",
+            "bold",
+            "rounded",
+            "serif",
+            "mono",
+            "words",
+            "analog",
+            "flip",
+            "stacked",
+            "dot"
+          ]
+        },
+        "show" : {
+          "description" : "A Big Clock on the desktop.",
+          "type" : "boolean"
+        }
+      },
+      "type" : "object"
+    },
+    "colors" : {
+      "description" : "The palette everything else can borrow from.",
+      "patternProperties" : {
+        "^(\\$|x-)" : {
+
+        }
+      },
+      "properties" : {
+        "accent" : {
+          "$ref" : "#/$defs/color",
+          "description" : "The theme's main colour. Feeds the Dock, widgets and Studio when they have no colour of their own."
+        },
+        "glassTint" : {
+          "$ref" : "#/$defs/color",
+          "description" : "The tint for Liquid Glass widget surfaces when widgets.tint is absent (snapped to the nearest widget tint)."
+        },
+        "secondary" : {
+          "$ref" : "#/$defs/color",
+          "description" : "A second colour, used for rings and gradients."
+        }
+      },
+      "type" : "object"
+    },
+    "description" : {
+      "description" : "One or two sentences for the gallery.",
+      "maxLength" : 400,
+      "type" : "string"
+    },
+    "dock" : {
+      "description" : "The Atelier Dock.",
+      "patternProperties" : {
+        "^(\\$|x-)" : {
+
+        }
+      },
+      "properties" : {
+        "accent" : {
+          "anyOf" : [
+            {
+              "$ref" : "#/$defs/color"
+            },
+            {
+              "enum" : [
+                "blue",
+                "purple",
+                "pink",
+                "orange",
+                "green",
+                "graphite"
+              ]
+            }
+          ],
+          "description" : "Dock accent: a named accent or a colour (snapped to the nearest named accent)."
+        },
+        "curve" : {
+          "description" : "Magnification curve.",
+          "enum" : [
+            "gentle",
+            "classic",
+            "fisheye",
+            "wave"
+          ]
+        },
+        "divider" : {
+          "description" : "A divider before folders and Trash.",
+          "type" : "boolean"
+        },
+        "followTheme" : {
+          "description" : "The Dock takes its tint from the menu bar skin or mesh wallpaper instead of dock.accent (Atelier Dock's Follow Look setting). Turned off when the theme sets dock.accent and leaves this out.",
+          "type" : "boolean"
+        },
+        "gap" : {
+          "description" : "Points between the bar and the screen edge.",
+          "maximum" : 32,
+          "minimum" : 0,
+          "type" : "number"
+        },
+        "hover" : {
+          "description" : "What resting on a tile shows.",
+          "enum" : [
+            "peek",
+            "label",
+            "none"
+          ]
+        },
+        "hoverLift" : {
+          "description" : "Icons rise under the pointer instead of growing.",
+          "type" : "boolean"
+        },
+        "iconShadow" : {
+          "description" : "Soft shadow under icons.",
+          "type" : "boolean"
+        },
+        "indicator" : {
+          "description" : "What marks an open app.",
+          "enum" : [
+            "dot",
+            "bar",
+            "glow",
+            "none"
+          ]
+        },
+        "labelPosition" : {
+          "description" : "Where tile names appear.",
+          "enum" : [
+            "lens",
+            "icon"
+          ]
+        },
+        "launch" : {
+          "description" : "What an app does while it opens.",
+          "enum" : [
+            "bounce",
+            "pulse",
+            "glow"
+          ]
+        },
+        "padding" : {
+          "description" : "Glass around the icons, as a fraction of the icon size.",
+          "maximum" : 0.29999999999999999,
+          "minimum" : 0.040000000000000001,
+          "type" : "number"
+        },
+        "reflection" : {
+          "description" : "A reflection under the bar.",
+          "type" : "boolean"
+        },
+        "roundness" : {
+          "description" : "0 is nearly square, 1 a capsule.",
+          "maximum" : 1,
+          "minimum" : 0,
+          "type" : "number"
+        },
+        "spacing" : {
+          "description" : "Room between icons, as a fraction of the icon size.",
+          "maximum" : 0.5,
+          "minimum" : 0,
+          "type" : "number"
+        },
+        "style" : {
+          "description" : "Atelier Dock design.",
+          "enum" : [
+            "glass",
+            "tinted",
+            "midnight",
+            "frost",
+            "neon",
+            "wallpaper"
+          ]
+        }
+      },
+      "type" : "object"
+    },
+    "effects" : {
+      "description" : "Atelier's desktop effects.",
+      "patternProperties" : {
+        "^(\\$|x-)" : {
+
+        }
+      },
+      "properties" : {
+        "dayLine" : {
+          "description" : "A hairline under the menu bar fills as the day passes.",
+          "type" : "boolean"
+        },
+        "dockGlow" : {
+          "description" : "Light pools under the Dock.",
+          "type" : "boolean"
+        }
+      },
+      "type" : "object"
+    },
+    "format" : {
+      "description" : "Format version. Always 1 for this release.",
+      "maximum" : 1,
+      "minimum" : 1,
+      "type" : "integer"
+    },
+    "homepage" : {
+      "description" : "An https link for more about the theme.",
+      "format" : "uri",
+      "pattern" : "^https://",
+      "type" : "string"
+    },
+    "icons" : {
+      "description" : "macOS icon appearance.",
+      "patternProperties" : {
+        "^(\\$|x-)" : {
+
+        }
+      },
+      "properties" : {
+        "mode" : {
+          "description" : "Light or dark icons, for clear and tinted.",
+          "enum" : [
+            "dark",
+            "light"
+          ]
+        },
+        "style" : {
+          "description" : "macOS app icon style. Needs a Dock restart, which Atelier does.",
+          "enum" : [
+            "default",
+            "clear",
+            "tinted"
+          ]
+        },
+        "tint" : {
+          "anyOf" : [
+            {
+              "$ref" : "#/$defs/color"
+            },
+            {
+              "enum" : [
+                "Blue",
+                "Purple",
+                "Pink",
+                "Orange",
+                "Yellow",
+                "Green",
+                "Graphite"
+              ]
+            }
+          ],
+          "description" : "Icon tint, for tinted."
+        }
+      },
+      "type" : "object"
+    },
+    "id" : {
+      "description" : "Reverse-DNS identifier, unique to this theme: com.example.midnight-glass.",
+      "maxLength" : 120,
+      "type" : "string"
+    },
+    "menuBar" : {
+      "description" : "The menu bar.",
+      "patternProperties" : {
+        "^(\\$|x-)" : {
+
+        }
+      },
+      "properties" : {
+        "skin" : {
+          "description" : "A menu bar skin. none removes it.",
+          "enum" : [
+            "none",
+            "notchless",
+            "sunset",
+            "ocean",
+            "aurora",
+            "graphite"
+          ]
+        }
+      },
+      "type" : "object"
+    },
+    "name" : {
+      "description" : "Name shown in the gallery.",
+      "maxLength" : 60,
+      "type" : "string"
+    },
+    "preview" : {
+      "description" : "A picture for the gallery card, inside the bundle.",
+      "pattern" : "^(?!/)(?!.*(^|/)\\.)[^\\\\]+\\.(png|jpg|jpeg|heic|tiff)$",
+      "type" : "string"
+    },
+    "sounds" : {
+      "description" : "Sounds.",
+      "patternProperties" : {
+        "^(\\$|x-)" : {
+
+        }
+      },
+      "properties" : {
+        "apply" : {
+          "description" : "Played when the theme is applied: a system sound name (Glass) or a file in the bundle.",
+          "maxLength" : 120,
+          "type" : "string"
+        },
+        "cornerFire" : {
+          "description" : "Played when a hot corner fires.",
+          "maxLength" : 120,
+          "type" : "string"
+        },
+        "focusEnd" : {
+          "description" : "Played when a Focus Island countdown ends.",
+          "maxLength" : 120,
+          "type" : "string"
+        }
+      },
+      "type" : "object"
+    },
+    "studio" : {
+      "description" : "Atelier's own window.",
+      "patternProperties" : {
+        "^(\\$|x-)" : {
+
+        }
+      },
+      "properties" : {
+        "accent" : {
+          "anyOf" : [
+            {
+              "$ref" : "#/$defs/color"
+            },
+            {
+              "enum" : [
+                "sky",
+                "violet",
+                "mint",
+                "rose",
+                "amber",
+                "silver"
+              ]
+            }
+          ],
+          "description" : "Accent of Atelier's own controls. A colour is used exactly."
+        },
+        "backdrop" : {
+          "description" : "The room around Atelier's stage.",
+          "enum" : [
+            "light",
+            "wallpaper",
+            "live",
+            "midnight",
+            "aurora",
+            "ember",
+            "graphite",
+            "paper"
+          ]
+        },
+        "glow" : {
+          "description" : "How much of the room's colour shows.",
+          "maximum" : 1,
+          "minimum" : 0,
+          "type" : "number"
+        },
+        "reflection" : {
+          "description" : "A glossy floor under the stage.",
+          "type" : "boolean"
+        },
+        "tilt" : {
+          "description" : "The stage leans toward the pointer.",
+          "type" : "boolean"
+        }
+      },
+      "type" : "object"
+    },
+    "tags" : {
+      "description" : "Words the gallery can filter by.",
+      "items" : {
+        "maxLength" : 24,
+        "type" : "string"
+      },
+      "maxItems" : 8,
+      "type" : "array"
+    },
+    "version" : {
+      "description" : "Semantic version of the theme: 1.2.0.",
+      "maxLength" : 20,
+      "type" : "string"
+    },
+    "wallpaper" : {
+      "description" : "The desktop.",
+      "patternProperties" : {
+        "^(\\$|x-)" : {
+
+        }
+      },
+      "properties" : {
+        "cycle" : {
+          "description" : "Follow the clock, or hold day, dusk or night.",
+          "enum" : [
+            "clock",
+            "day",
+            "dusk",
+            "night"
+          ]
+        },
+        "dim" : {
+          "description" : "Darkening, for legibility.",
+          "maximum" : 0.69999999999999996,
+          "minimum" : 0,
+          "type" : "number"
+        },
+        "grain" : {
+          "description" : "Film grain.",
+          "maximum" : 1,
+          "minimum" : 0,
+          "type" : "number"
+        },
+        "image" : {
+          "description" : "A picture inside the bundle, for image.",
+          "pattern" : "^(?!/)(?!.*(^|/)\\.)[^\\\\]+\\.(png|jpg|jpeg|heic|tiff)$",
+          "type" : "string"
+        },
+        "intensity" : {
+          "description" : "Contrast and colour. 0.5 is as designed.",
+          "maximum" : 1,
+          "minimum" : 0,
+          "type" : "number"
+        },
+        "mesh" : {
+          "description" : "Mesh colours, for mesh.",
+          "enum" : [
+            "aurora",
+            "dusk",
+            "ocean",
+            "ember",
+            "mono"
+          ]
+        },
+        "mode" : {
+          "description" : "live a Metal live wallpaper, mesh a still mesh that follows the hour, image a picture from the bundle, off turns Atelier's wallpapers off, keep (default) leaves it alone.",
+          "enum" : [
+            "keep",
+            "live",
+            "mesh",
+            "image",
+            "off"
+          ]
+        },
+        "palette" : {
+          "anyOf" : [
+            {
+              "enum" : [
+                "natural",
+                "wallpaper",
+                "midnight",
+                "ember",
+                "lagoon",
+                "orchid",
+                "glacier",
+                "forest",
+                "dune",
+                "graphite"
+              ]
+            },
+            {
+              "items" : {
+                "$ref" : "#/$defs/color"
+              },
+              "maxItems" : 4,
+              "minItems" : 4,
+              "type" : "array"
+            }
+          ],
+          "description" : "Live wallpaper colours: a preset or four colours from dark to light."
+        },
+        "scale" : {
+          "description" : "Pattern scale.",
+          "maximum" : 1.8,
+          "minimum" : 0.59999999999999998,
+          "type" : "number"
+        },
+        "shader" : {
+          "description" : "Live wallpaper, for live.",
+          "enum" : [
+            "liquidLight",
+            "nebula",
+            "auroraSilk",
+            "topography",
+            "glassRain",
+            "silkWaves",
+            "gradientMesh",
+            "starfield",
+            "retroHorizon"
+          ]
+        },
+        "speed" : {
+          "description" : "Live wallpaper speed. 1 is as designed.",
+          "maximum" : 2.5,
+          "minimum" : 0.20000000000000001,
+          "type" : "number"
+        }
+      },
+      "type" : "object"
+    },
+    "widgets" : {
+      "description" : "The widget board's style.",
+      "patternProperties" : {
+        "^(\\$|x-)" : {
+
+        }
+      },
+      "properties" : {
+        "accent" : {
+          "anyOf" : [
+            {
+              "$ref" : "#/$defs/color"
+            },
+            {
+              "enum" : [
+                "blue",
+                "indigo",
+                "purple",
+                "pink",
+                "red",
+                "orange",
+                "amber",
+                "green",
+                "mint",
+                "teal",
+                "graphite"
+              ]
+            }
+          ],
+          "description" : "Accent for rings, bars and highlights."
+        },
+        "blur" : {
+          "description" : "Background blur.",
+          "maximum" : 1,
+          "minimum" : 0,
+          "type" : "number"
+        },
+        "border" : {
+          "description" : "Extra rim in points.",
+          "maximum" : 2,
+          "minimum" : 0,
+          "type" : "number"
+        },
+        "font" : {
+          "description" : "Type family.",
+          "enum" : [
+            "system",
+            "rounded",
+            "serif",
+            "mono"
+          ]
+        },
+        "gradient" : {
+          "description" : "A gradient under the content. Omit for none.",
+          "patternProperties" : {
+            "^(\\$|x-)" : {
+
+            }
+          },
+          "properties" : {
+            "angle" : {
+              "description" : "Degrees; 0 runs left to right.",
+              "maximum" : 360,
+              "minimum" : 0,
+              "type" : "number"
+            },
+            "from" : {
+              "anyOf" : [
+                {
+                  "$ref" : "#/$defs/color"
+                },
+                {
+                  "enum" : [
+                    "blue",
+                    "indigo",
+                    "purple",
+                    "pink",
+                    "red",
+                    "orange",
+                    "amber",
+                    "green",
+                    "mint",
+                    "teal",
+                    "graphite"
+                  ]
+                }
+              ],
+              "description" : "Start colour."
+            },
+            "to" : {
+              "anyOf" : [
+                {
+                  "$ref" : "#/$defs/color"
+                },
+                {
+                  "enum" : [
+                    "blue",
+                    "indigo",
+                    "purple",
+                    "pink",
+                    "red",
+                    "orange",
+                    "amber",
+                    "green",
+                    "mint",
+                    "teal",
+                    "graphite"
+                  ]
+                }
+              ],
+              "description" : "End colour."
+            }
+          },
+          "type" : "object"
+        },
+        "iconHarmony" : {
+          "description" : "How desktop icons make room for widgets.",
+          "enum" : [
+            "off",
+            "halo",
+            "cutout",
+            "fade"
+          ]
+        },
+        "material" : {
+          "description" : "Surface of every widget that follows the board style.",
+          "enum" : [
+            "glass",
+            "clear",
+            "tinted",
+            "dark",
+            "frosted",
+            "outline",
+            "bare"
+          ]
+        },
+        "opacity" : {
+          "description" : "Surface opacity.",
+          "maximum" : 1,
+          "minimum" : 0.34999999999999998,
+          "type" : "number"
+        },
+        "padding" : {
+          "description" : "Extra room inside the edge in points.",
+          "maximum" : 14,
+          "minimum" : 0,
+          "type" : "number"
+        },
+        "radius" : {
+          "description" : "Corner radius in points.",
+          "maximum" : 40,
+          "minimum" : 10,
+          "type" : "number"
+        },
+        "scale" : {
+          "description" : "Text scale.",
+          "maximum" : 1.2,
+          "minimum" : 0.84999999999999998,
+          "type" : "number"
+        },
+        "shadow" : {
+          "description" : "0 flat, 1 a deep soft shadow.",
+          "maximum" : 1,
+          "minimum" : 0,
+          "type" : "number"
+        },
+        "tint" : {
+          "anyOf" : [
+            {
+              "$ref" : "#/$defs/color"
+            },
+            {
+              "enum" : [
+                "blue",
+                "indigo",
+                "purple",
+                "pink",
+                "red",
+                "orange",
+                "amber",
+                "green",
+                "mint",
+                "teal",
+                "graphite"
+              ]
+            }
+          ],
+          "description" : "Surface tint."
+        }
+      },
+      "type" : "object"
+    }
+  },
+  "required" : [
+    "format",
+    "id",
+    "name",
+    "version"
+  ],
+  "title" : "Atelier theme",
+  "type" : "object"
+}

@@ -1,0 +1,23 @@
+{
+  "name": "atelier-mod",
+  "version": "1.0.0-beta.4",
+  "description": "Make, check, test and share mods for Atelier: types for the plugin API, a scaffold, the catalog's own validation, a local test runner and packing.",
+  "license": "MIT",
+  "type": "module",
+  "homepage": "https://kaizensx.github.io/Atelier/make.html",
+  "repository": { "type": "git", "url": "git+https://github.com/kaizensx/Atelier.git", "directory": "sdk" },
+  "bin": { "atelier-mod": "cli/atelier-mod.mjs" },
+  "types": "atelier.d.ts",
+  "exports": {
+    "./harness": "./cli/lib/harness.mjs",
+    "./atelier.d.ts": "./atelier.d.ts",
+    "./manifest.schema.json": "./manifest.schema.json",
+    "./plugin-api.json": "./cli/runtime/plugin-api.json"
+  },
+  "files": ["cli", "atelier.d.ts", "manifest.schema.json", "README.md"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "generate": "node generate.mjs",
+    "test": "node --test test/"
+  }
+}

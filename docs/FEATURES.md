@@ -67,6 +67,12 @@ Community plugins and themes from the signed catalog at github.com/kaizensx/atel
   (with Run) and hot corner actions, each with a button to its place. The author's description
   stays as written.
 - **Links:** "Open in Atelier" on the website opens the mod's page.
+- **Create:** a playground for plugins. A code editor (line numbers, colouring) with Hello, Focus
+  Timer and Web Feed templates; Run and Stop; the widgets, Dock tiles, commands and corner actions
+  the script registers, drawn by Atelier's own renderers and clickable; buttons that send the
+  events it listens for; its console. The script runs in the real plugin runtime under a throwaway
+  id with no permissions unless you tick them, and Atelier asks on the permission sheet first.
+  Save as Plugin writes a `.atelierplugin` folder and installs it. See [MAKING-MODS.md](MAKING-MODS.md).
 
 ### Mods › Library (themes and plugins)
 
@@ -75,7 +81,7 @@ Dock tiles, commands and corner actions in JavaScript, each in its own sandboxed
 
 - **Make and share:** drop a `.ateliertheme` or `.atelierplugin` on the tiles; Create Theme from my
   Mac; Import Theme; Open Theme Link; export.
-- **Formats:** [THEMES.md](THEMES.md), [PLUGINS.md](PLUGINS.md), [atelier-theme.schema.json](atelier-theme.schema.json).
+- **Formats:** [THEMES.md](THEMES.md), [PLUGINS.md](PLUGINS.md), [atelier-theme.schema.json](atelier-theme.schema.json), [plugin-api.json](plugin-api.json). Making and sharing: [MAKING-MODS.md](MAKING-MODS.md).
 - **Needs:** none. Each plugin asks for its own permissions (`notifications`, `openURL`, `network`,
   `appearance`) on a sheet before it runs.
 

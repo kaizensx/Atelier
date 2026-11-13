@@ -1,0 +1,7 @@
+{
+  "title": "Focus Timer",
+  "description": "A Dock tile, a ring widget, timers, storage, a command and a corner action.",
+  "icon": "timer",
+  "permissions": [],
+  "order": 2
+}

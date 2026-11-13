@@ -451,6 +451,11 @@ if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--render-permi
     PermissionRenders.run(into: URL(fileURLWithPath: CommandLine.arguments[2]))
     exit(0)
 }
+// Offline renders of Mods › Create, each template run in a throwaway Playground.
+if CommandLine.arguments.count == 3, CommandLine.arguments[1] == "--render-playground" {
+    PlaygroundRenders.run(into: URL(fileURLWithPath: CommandLine.arguments[2]))
+    exit(0)
+}
 #endif
 
 // Command line, for scripts and Shortcuts. Prints the stack path.

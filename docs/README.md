@@ -40,4 +40,11 @@ Plugins are shared as folders or zips; install them from Mods › Library, or sh
 `main.js` before you switch it on, the same way you would read a script from the internet:
 the sandbox limits what it can reach, and the permissions sheet tells you what it asks for.
 
+## Making mods
+
+[MAKING-MODS.md](MAKING-MODS.md) walks through it: the **Mods › Create** playground, the
+`atelier-mod` command-line kit (editor types, the catalog's checks, a test runner, packing), and
+publishing to the catalog with its review checklist. The whole API is described once, in
+[plugin-api.json](plugin-api.json), which the kit's types and the website's API page are built from.
+
 To contribute a theme, plugin or change to Atelier itself, see [CONTRIBUTING.md](CONTRIBUTING.md).

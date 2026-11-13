@@ -82,6 +82,9 @@ cp branding/icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 rm -rf "$APP/Contents/Resources/Examples"
 mkdir -p "$APP/Contents/Resources/Examples"
 cp -R examples/themes examples/plugins "$APP/Contents/Resources/Examples/"
+# The plugin templates the Mods Playground (Create) offers, shared with the atelier-mod CLI.
+rm -rf "$APP/Contents/Resources/ModTemplates"
+cp -R sdk/cli/templates "$APP/Contents/Resources/ModTemplates"
 # A stable identity keeps Screen Recording and Accessibility grants across rebuilds.
 # Ad-hoc signing changes the code hash, so macOS forgets them every time.
 # Releases are signed with "Atelier Release", a certificate that carries no personal details;

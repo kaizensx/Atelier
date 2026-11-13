@@ -1,0 +1,17 @@
+{
+  "files": {
+    "manifest.json": {
+      "format": 1,
+      "kind": "effects",
+      "id": "{{id}}",
+      "name": "{{name}}",
+      "version": "1.0.0",
+      "author": "{{author}}",
+      "description": "A gentle genie and a soft dock glow.",
+      "effects": {
+        "minimize": "genie",
+        "dockGlow": true
+      }
+    }
+  }
+}

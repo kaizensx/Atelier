@@ -1,0 +1,7 @@
+{
+  "title": "Hello",
+  "description": "A widget and a command. The smallest useful plugin.",
+  "icon": "hand.wave",
+  "permissions": [],
+  "order": 1
+}
