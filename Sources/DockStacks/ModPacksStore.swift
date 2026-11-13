@@ -190,7 +190,11 @@ final class ModPackStore: ObservableObject {
         switch pack.kind {
         case .icons: if iconPackID == pack.id { iconPackID = nil }
         case .sounds: if soundPackID == pack.id { soundPackID = nil }
-        case .shader: if shaderPackID == pack.id { shaderPackID = nil }
+        case .shader:
+            if shaderPackID == pack.id {
+                shaderPackID = nil
+                if case .shader(let shader) = pack.pack { ShaderPackRuntime.stop(shader) }
+            }
         case .layouts: LayoutPackRuntime.remove(pack)
         case .effects: if MinimizeEffectSetting.packEffect?.pack == pack.id { MinimizeEffectSetting.packEffect = nil }
         case .look: if ThemeEngine.shared.canRevert { ThemeEngine.shared.revert() }
@@ -417,15 +421,43 @@ enum ShaderPackRuntime {
 
     static func shader(_ pack: ShaderPack) -> LivingShader? { LivingShader(rawValue: pack.base) }
 
+    /// The wallpaper as it was before the first shader pack was worn, so Stop puts it back.
+    private struct Before: Codable {
+        var enabled: Bool, scheduled: Bool, shader: String, tuning: LivingTuning?, living: String?
+    }
+    private static let beforeKey = "packs.shader.before"
+
     /// Wears a pack: its base shader with its tuning, live on the desktop.
     static func wear(_ pack: ShaderPack) {
         guard let shader = shader(pack) else { return }
         let live = LiveWallpaper.shared
+        let store = UserDefaults.standard
+        if store.data(forKey: beforeKey) == nil {
+            let before = Before(enabled: live.enabled, scheduled: live.scheduled, shader: live.shader.rawValue,
+                                tuning: live.tunings[shader], living: Effects.shared.living?.rawValue)
+            if let data = try? JSONEncoder().encode(before) { store.set(data, forKey: beforeKey) }
+        }
         live.setTuning(tuning(pack), for: shader)
         if Effects.shared.living != nil { Effects.shared.living = nil }
         if live.scheduled { live.scheduled = false }
         if live.shader != shader { live.shader = shader }
         if !live.enabled { live.enabled = true }
+    }
+
+    /// Takes the worn pack off: the wallpaper, shader, schedule, tuning and mesh go back to how
+    /// they were before the first pack was worn.
+    static func stop(_ pack: ShaderPack) {
+        let store = UserDefaults.standard
+        guard let data = store.data(forKey: beforeKey), let before = try? JSONDecoder().decode(Before.self, from: data) else { return }
+        store.removeObject(forKey: beforeKey)
+        let live = LiveWallpaper.shared
+        if let worn = shader(pack) {
+            if let tuning = before.tuning { live.setTuning(tuning, for: worn) } else { live.setTuning(LivingTuning(), for: worn) }
+        }
+        if let old = LivingShader(rawValue: before.shader), live.shader != old { live.shader = old }
+        if live.scheduled != before.scheduled { live.scheduled = before.scheduled }
+        if live.enabled != before.enabled { live.enabled = before.enabled }
+        if let living = before.living, let hue = Hue(rawValue: living) { Effects.shared.living = hue }
     }
 
     /// One frame of a pack, for previews. Nil without Metal.

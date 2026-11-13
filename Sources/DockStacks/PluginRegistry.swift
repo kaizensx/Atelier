@@ -153,6 +153,15 @@ final class PluginRegistry: ObservableObject {
         for url in urls.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) where url.pathExtension == PluginManifest.bundleExtension {
             do { found.append(try Self.load(url)) } catch { problems.append("\(url.lastPathComponent): \(error.localizedDescription)") }
         }
+        // Two folders with one id: the newer version wins, then the one named after the id.
+        var byID: [String: InstalledPlugin] = [:]
+        for plugin in found {
+            guard let kept = byID[plugin.id] else { byID[plugin.id] = plugin; continue }
+            let newer = ModVersions.isNewer(plugin.manifest.version, than: kept.manifest.version)
+            let same = plugin.manifest.version == kept.manifest.version
+            if newer || (same && plugin.folder.lastPathComponent.hasPrefix(plugin.id + ".")) { byID[plugin.id] = plugin }
+        }
+        found = found.filter { byID[$0.id]?.folder == $0.folder }
         // Development folders win over an installed copy with the same id.
         for plugin in development.load(problems: &problems) {
             found.removeAll { $0.id == plugin.id }
@@ -190,6 +199,12 @@ final class PluginRegistry: ObservableObject {
             try manager.trashItem(at: destination, resultingItemURL: nil)
         }
         try manager.copyItem(at: source, to: destination)
+        // Any other folder holding the same id (an example copied in under its own name) goes,
+        // so one id is one plugin.
+        for other in (try? manager.contentsOfDirectory(at: Self.folder, includingPropertiesForKeys: nil)) ?? []
+        where other.pathExtension == PluginManifest.bundleExtension && other.standardizedFileURL != destination.standardizedFileURL {
+            if let found = try? Self.load(other), found.id == plugin.id { try? manager.trashItem(at: other, resultingItemURL: nil) }
+        }
         // An update that asks for more than was granted has to ask again.
         if wasEnabled, !plugin.manifest.permissions.allSatisfy({ grants[plugin.id]?.contains($0) == true }) {
             enabled.remove(plugin.id)
